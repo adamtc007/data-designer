@@ -1,0 +1,175 @@
+{
+  "rule_mappings": [
+    {
+      "rule_id": "RULE_ORDER_TOTAL",
+      "rule_name": "Calculate Order Total",
+      "description": "Calculate total order amount including tax and shipping",
+      "source_dataset": "customer_order_001",
+      "rule_expression": "(quantity * unit_price * (100 - discount_percent) / 100) * (1 + tax_rate) + shipping_cost",
+      "target_attributes": {
+        "order_total": "number",
+        "order_subtotal": "number",
+        "tax_amount": "number",
+        "discount_amount": "number",
+        "final_amount": "number"
+      },
+      "expected_result": 305.65
+    },
+    {
+      "rule_id": "RULE_CUSTOMER_LABEL",
+      "rule_name": "Generate Customer Label",
+      "description": "Create formatted customer label with tier and location",
+      "source_dataset": "customer_order_001",
+      "rule_expression": "CONCAT(customer_name, \" [\", customer_tier, \"] - \", LOOKUP(country_code, \"countries\"))",
+      "target_attributes": {
+        "customer_label": "string",
+        "display_name": "string",
+        "formatted_tier": "string"
+      },
+      "expected_result": "Alice Johnson [premium] - United States"
+    },
+    {
+      "rule_id": "RULE_EMPLOYEE_COMP",
+      "rule_name": "Calculate Total Compensation",
+      "description": "Calculate employee total compensation with bonus",
+      "source_dataset": "employee_record_001",
+      "rule_expression": "salary + (salary * bonus_percent / 100)",
+      "target_attributes": {
+        "total_compensation": "number",
+        "annual_bonus": "number",
+        "monthly_salary": "number"
+      },
+      "expected_result": 109250
+    },
+    {
+      "rule_id": "RULE_EMPLOYEE_ID",
+      "rule_name": "Generate Employee Identifier",
+      "description": "Create unique employee identifier",
+      "source_dataset": "employee_record_001",
+      "rule_expression": "CONCAT(SUBSTRING(department, 0, 3), \"_\", last_name, \"_\", employee_id)",
+      "target_attributes": {
+        "unique_identifier": "string",
+        "display_id": "string",
+        "short_code": "string"
+      },
+      "expected_result": "eng_Smith_EMP_567890"
+    },
+    {
+      "rule_id": "RULE_INVENTORY_VALUE",
+      "rule_name": "Calculate Inventory Value",
+      "description": "Calculate total value of inventory on hand",
+      "source_dataset": "inventory_item_001",
+      "rule_expression": "quantity_on_hand * unit_cost",
+      "target_attributes": {
+        "total_inventory_value": "number",
+        "potential_revenue": "number",
+        "profit_margin": "number"
+      },
+      "expected_result": 6250.00
+    },
+    {
+      "rule_id": "RULE_REORDER_STATUS",
+      "rule_name": "Determine Reorder Status",
+      "description": "Check if reorder is needed",
+      "source_dataset": "inventory_item_001",
+      "rule_expression": "IF quantity_on_hand <= reorder_point THEN \"REORDER_REQUIRED\" ELSE \"STOCK_OK\"",
+      "target_attributes": {
+        "reorder_status": "string",
+        "stock_level": "string",
+        "action_required": "boolean"
+      },
+      "expected_result": "STOCK_OK"
+    },
+    {
+      "rule_id": "RULE_TRANSACTION_FEE",
+      "rule_name": "Calculate Transaction Fee",
+      "description": "Calculate fee based on transaction amount and type",
+      "source_dataset": "financial_transaction_001",
+      "rule_expression": "amount * 0.001 + fee_amount",
+      "target_attributes": {
+        "total_fee": "number",
+        "fee_percentage": "number",
+        "net_amount": "number"
+      },
+      "expected_result": 5.00
+    },
+    {
+      "rule_id": "RULE_RISK_CATEGORY",
+      "rule_name": "Categorize Risk Level",
+      "description": "Assign risk category based on score",
+      "source_dataset": "financial_transaction_001",
+      "rule_expression": "IF risk_score < 0.2 THEN \"LOW\" ELSE IF risk_score < 0.5 THEN \"MEDIUM\" ELSE \"HIGH\"",
+      "target_attributes": {
+        "risk_category": "string",
+        "risk_level": "string",
+        "requires_review": "boolean"
+      },
+      "expected_result": "LOW"
+    },
+    {
+      "rule_id": "RULE_SENSOR_ALERT",
+      "rule_name": "Generate Sensor Alert",
+      "description": "Check if sensor readings exceed thresholds",
+      "source_dataset": "sensor_reading_001",
+      "rule_expression": "IF temperature_celsius > alert_threshold_temp OR humidity_percent > alert_threshold_humidity THEN \"ALERT\" ELSE \"NORMAL\"",
+      "target_attributes": {
+        "alert_status": "string",
+        "alert_message": "string",
+        "notification_required": "boolean"
+      },
+      "expected_result": "NORMAL"
+    },
+    {
+      "rule_id": "RULE_SENSOR_LABEL",
+      "rule_name": "Format Sensor Reading",
+      "description": "Create formatted sensor reading label",
+      "source_dataset": "sensor_reading_001",
+      "rule_expression": "CONCAT(sensor_id, \" @ \", location_id, \": Temp=\", temperature_celsius, \"°C, Humidity=\", humidity_percent, \"%\")",
+      "target_attributes": {
+        "reading_label": "string",
+        "display_text": "string",
+        "summary": "string"
+      },
+      "expected_result": "SENS_ENV_001 @ LOC_BLDG_A_FL3: Temp=22.5°C, Humidity=45%"
+    },
+    {
+      "rule_id": "RULE_COMPLEX_CALC",
+      "rule_name": "Complex Multi-Dataset Calculation",
+      "description": "Complex calculation using multiple operations",
+      "source_dataset": "customer_order_001",
+      "rule_expression": "CONCAT(\"Order \", order_id, \": $\", (quantity * unit_price * (1 - discount_percent / 100) * (1 + tax_rate) + shipping_cost), \" [\", LOOKUP(customer_tier, \"rates\") * 100, \"% rewards]\")",
+      "target_attributes": {
+        "complex_output": "string",
+        "calculation_result": "string",
+        "formatted_display": "string"
+      },
+      "expected_result": "Order ORD_2024_001: $305.65 [10% rewards]"
+    },
+    {
+      "rule_id": "RULE_DATE_FORMAT",
+      "rule_name": "Format Date Display",
+      "description": "Create formatted date string",
+      "source_dataset": "employee_record_001",
+      "rule_expression": "CONCAT(first_name, \" \", last_name, \" (hired: \", hire_date, \")\")",
+      "target_attributes": {
+        "employee_display": "string",
+        "hire_info": "string",
+        "formatted_name": "string"
+      },
+      "expected_result": "John Smith (hired: 2020-03-15)"
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "created": "2024-10-07",
+    "description": "Target attribute mappings with rule definitions and expected results",
+    "total_rules": 12,
+    "categories": [
+      "arithmetic",
+      "string_operations",
+      "lookups",
+      "conditionals",
+      "complex_expressions"
+    ]
+  }
+}

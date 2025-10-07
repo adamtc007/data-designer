@@ -367,6 +367,7 @@
         <button class="tab-button active" data-tab="rules">Rules</button>
         <button class="tab-button" data-tab="grammar">Grammar</button>
         <button class="tab-button" data-tab="dictionary">Dictionary</button>
+        <button class="tab-button" data-tab="test-data">Test Data</button>
         <button class="tab-button" data-tab="compiler">Compiler</button>
     </div>
 
@@ -516,6 +517,50 @@
 
                 <button id="saveAttributeButton">Save Attribute</button>
                 <button id="deleteAttributeButton">Delete Attribute</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="test-dataTab" class="tab-content">
+        <div class="controls">
+            <button id="loadTestDataButton">Load Test Data</button>
+            <button id="refreshTestDataButton">Refresh</button>
+            <select id="datasetSelect">
+                <option value="">Select dataset...</option>
+            </select>
+            <select id="ruleSelect">
+                <option value="">Select rule...</option>
+            </select>
+            <button id="testWithDataButton">Test Rule with Dataset</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+            <div>
+                <h3>Source Attributes</h3>
+                <div id="sourceAttributes" style="background: #2d2d30; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto;">
+                    <pre style="margin: 0; color: #d4d4d4;">Select a dataset to view source attributes...</pre>
+                </div>
+            </div>
+
+            <div>
+                <h3>Target Rule</h3>
+                <div id="targetRule" style="background: #2d2d30; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto;">
+                    <pre style="margin: 0; color: #d4d4d4;">Select a rule to view details...</pre>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <h3>Test Results</h3>
+            <div id="testDataResults" style="background: #2d2d30; padding: 15px; border-radius: 5px;">
+                <pre style="margin: 0; color: #d4d4d4;">Test results will appear here...</pre>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <h3>Lookup Tables</h3>
+            <div id="lookupTables" style="background: #2d2d30; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto;">
+                <pre style="margin: 0; color: #d4d4d4;">Lookup tables will appear here...</pre>
             </div>
         </div>
     </div>

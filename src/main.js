@@ -254,6 +254,135 @@ document.getElementById('generatePestButton').addEventListener('click', async ()
     }
 });
 
+// Test Data Tab Functions
+let sourceData = null;
+let targetRules = null;
+
+document.getElementById('loadTestDataButton').addEventListener('click', async () => {
+    try {
+        sourceData = await invoke('load_source_data');
+        targetRules = await invoke('load_target_rules');
+
+        // Populate dataset dropdown
+        const datasetSelect = document.getElementById('datasetSelect');
+        datasetSelect.innerHTML = '<option value="">Select dataset...</option>';
+        sourceData.datasets.forEach(dataset => {
+            const option = document.createElement('option');
+            option.value = dataset.id;
+            option.textContent = `${dataset.name} (${dataset.id})`;
+            datasetSelect.appendChild(option);
+        });
+
+        // Populate rule dropdown
+        const ruleSelect = document.getElementById('ruleSelect');
+        ruleSelect.innerHTML = '<option value="">Select rule...</option>';
+        targetRules.rule_mappings.forEach(rule => {
+            const option = document.createElement('option');
+            option.value = rule.rule_id;
+            option.textContent = `${rule.rule_name} (${rule.rule_id})`;
+            ruleSelect.appendChild(option);
+        });
+
+        // Display lookup tables
+        const lookupTables = document.getElementById('lookupTables');
+        lookupTables.innerHTML = `<pre style="margin: 0; color: #d4d4d4;">${JSON.stringify(sourceData.lookup_tables, null, 2)}</pre>`;
+
+        alert('Test data loaded successfully!');
+    } catch (error) {
+        alert(`Error loading test data: ${error}`);
+    }
+});
+
+document.getElementById('datasetSelect').addEventListener('change', () => {
+    const datasetId = document.getElementById('datasetSelect').value;
+    if (!datasetId || !sourceData) {
+        document.getElementById('sourceAttributes').innerHTML = '<pre style="margin: 0; color: #d4d4d4;">Select a dataset to view source attributes...</pre>';
+        return;
+    }
+
+    const dataset = sourceData.datasets.find(d => d.id === datasetId);
+    if (dataset) {
+        document.getElementById('sourceAttributes').innerHTML = `
+            <h4>${dataset.name}</h4>
+            <p>${dataset.description}</p>
+            <pre style="margin: 0; color: #d4d4d4;">${JSON.stringify(dataset.attributes, null, 2)}</pre>
+        `;
+    }
+});
+
+document.getElementById('ruleSelect').addEventListener('change', () => {
+    const ruleId = document.getElementById('ruleSelect').value;
+    if (!ruleId || !targetRules) {
+        document.getElementById('targetRule').innerHTML = '<pre style="margin: 0; color: #d4d4d4;">Select a rule to view details...</pre>';
+        return;
+    }
+
+    const rule = targetRules.rule_mappings.find(r => r.rule_id === ruleId);
+    if (rule) {
+        document.getElementById('targetRule').innerHTML = `
+            <h4>${rule.rule_name}</h4>
+            <p>${rule.description}</p>
+            <p><strong>Expression:</strong></p>
+            <pre style="background: #1e1e1e; padding: 10px; border-radius: 3px;">${rule.rule_expression}</pre>
+            <p><strong>Target Attributes:</strong></p>
+            <pre style="margin: 0; color: #d4d4d4;">${JSON.stringify(rule.target_attributes, null, 2)}</pre>
+            <p><strong>Expected Result:</strong> ${JSON.stringify(rule.expected_result)}</p>
+        `;
+    }
+});
+
+document.getElementById('testWithDataButton').addEventListener('click', async () => {
+    const datasetId = document.getElementById('datasetSelect').value;
+    const ruleId = document.getElementById('ruleSelect').value;
+
+    if (!datasetId || !ruleId) {
+        alert('Please select both a dataset and a rule');
+        return;
+    }
+
+    const rule = targetRules.rule_mappings.find(r => r.rule_id === ruleId);
+    if (!rule) {
+        alert('Rule not found');
+        return;
+    }
+
+    try {
+        const result = await invoke('test_rule_with_dataset', {
+            ruleExpression: rule.rule_expression,
+            datasetId: datasetId
+        });
+
+        const resultsDiv = document.getElementById('testDataResults');
+        if (result.success) {
+            resultsDiv.innerHTML = `
+                <div style="color: #4caf50;">
+                    <strong>✅ Test Passed</strong>
+                    <p>Result: ${result.result}</p>
+                    <p>Expected: ${JSON.stringify(rule.expected_result)}</p>
+                </div>
+            `;
+        } else {
+            resultsDiv.innerHTML = `
+                <div style="color: #f44336;">
+                    <strong>❌ Test Failed</strong>
+                    <p>Error: ${result.error}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('testDataResults').innerHTML = `
+            <div style="color: #f44336;">
+                <strong>❌ Error</strong>
+                <p>${error}</p>
+            </div>
+        `;
+    }
+});
+
+document.getElementById('refreshTestDataButton').addEventListener('click', () => {
+    document.getElementById('loadTestDataButton').click();
+});
+
 document.getElementById('saveRuleButton').addEventListener('click', async () => {
     const rule = {
         name: document.getElementById('ruleName').value,

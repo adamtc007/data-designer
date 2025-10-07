@@ -1,0 +1,159 @@
+{
+  "datasets": [
+    {
+      "id": "customer_order_001",
+      "name": "Customer Order Dataset",
+      "description": "Sample customer order with product details",
+      "attributes": {
+        "customer_id": "CUST_12345",
+        "customer_name": "Alice Johnson",
+        "customer_email": "alice.johnson@example.com",
+        "customer_tier": "premium",
+        "order_id": "ORD_2024_001",
+        "order_date": "2024-10-07",
+        "order_status": "confirmed",
+        "product_id": "PROD_789",
+        "product_name": "Wireless Headphones",
+        "product_category": "electronics",
+        "quantity": 2,
+        "unit_price": 149.99,
+        "discount_percent": 10,
+        "tax_rate": 0.08,
+        "shipping_cost": 9.99,
+        "country_code": "US",
+        "currency": "USD",
+        "payment_method": "credit_card"
+      }
+    },
+    {
+      "id": "employee_record_001",
+      "name": "Employee Record Dataset",
+      "description": "Sample employee information",
+      "attributes": {
+        "employee_id": "EMP_567890",
+        "first_name": "John",
+        "last_name": "Smith",
+        "department": "engineering",
+        "role": "senior_developer",
+        "hire_date": "2020-03-15",
+        "salary": 95000,
+        "bonus_percent": 15,
+        "vacation_days": 20,
+        "location": "San Francisco",
+        "remote_work": true,
+        "manager_id": "EMP_123456",
+        "team_size": 5,
+        "performance_rating": 4.5,
+        "years_experience": 8
+      }
+    },
+    {
+      "id": "inventory_item_001",
+      "name": "Inventory Management Dataset",
+      "description": "Warehouse inventory tracking",
+      "attributes": {
+        "sku": "SKU_ABC123",
+        "item_name": "Premium Coffee Beans",
+        "category": "food_beverages",
+        "subcategory": "coffee",
+        "warehouse_id": "WH_001",
+        "warehouse_location": "Seattle",
+        "quantity_on_hand": 500,
+        "reorder_point": 100,
+        "reorder_quantity": 1000,
+        "unit_cost": 12.50,
+        "selling_price": 24.99,
+        "supplier_id": "SUPP_456",
+        "supplier_name": "Global Coffee Co",
+        "last_restock_date": "2024-09-15",
+        "expiry_date": "2025-03-15",
+        "temperature_controlled": true,
+        "fragile": false
+      }
+    },
+    {
+      "id": "financial_transaction_001",
+      "name": "Financial Transaction Dataset",
+      "description": "Banking transaction data",
+      "attributes": {
+        "transaction_id": "TXN_987654321",
+        "account_number": "ACC_111222333",
+        "account_type": "checking",
+        "transaction_type": "transfer",
+        "transaction_date": "2024-10-07",
+        "transaction_time": "14:30:00",
+        "amount": 2500.00,
+        "currency": "USD",
+        "exchange_rate": 1.0,
+        "from_account": "ACC_111222333",
+        "to_account": "ACC_444555666",
+        "merchant_id": "MERCH_789",
+        "merchant_category": "utilities",
+        "fee_amount": 2.50,
+        "balance_after": 15750.00,
+        "status": "completed",
+        "risk_score": 0.15
+      }
+    },
+    {
+      "id": "sensor_reading_001",
+      "name": "IoT Sensor Dataset",
+      "description": "Environmental sensor readings",
+      "attributes": {
+        "sensor_id": "SENS_ENV_001",
+        "sensor_type": "environmental",
+        "location_id": "LOC_BLDG_A_FL3",
+        "timestamp": "2024-10-07T10:30:00Z",
+        "temperature_celsius": 22.5,
+        "humidity_percent": 45,
+        "co2_ppm": 420,
+        "light_lux": 500,
+        "motion_detected": false,
+        "battery_level": 87,
+        "signal_strength": -65,
+        "calibration_date": "2024-09-01",
+        "maintenance_due": false,
+        "alert_threshold_temp": 30,
+        "alert_threshold_humidity": 70
+      }
+    }
+  ],
+  "lookup_tables": {
+    "countries": {
+      "US": "United States",
+      "UK": "United Kingdom",
+      "CA": "Canada",
+      "AU": "Australia",
+      "DE": "Germany",
+      "FR": "France",
+      "JP": "Japan",
+      "CN": "China"
+    },
+    "rates": {
+      "standard": 0.05,
+      "premium": 0.10,
+      "vip": 0.15,
+      "enterprise": 0.20
+    },
+    "categories": {
+      "electronics": "Electronics & Gadgets",
+      "food_beverages": "Food & Beverages",
+      "clothing": "Clothing & Apparel",
+      "home_garden": "Home & Garden",
+      "sports": "Sports & Recreation"
+    },
+    "departments": {
+      "engineering": "Engineering & Development",
+      "sales": "Sales & Marketing",
+      "hr": "Human Resources",
+      "finance": "Finance & Accounting",
+      "operations": "Operations & Support"
+    },
+    "risk_levels": {
+      "0.0-0.2": "Low",
+      "0.2-0.5": "Medium",
+      "0.5-0.8": "High",
+      "0.8-1.0": "Critical"
+    }
+  }
+}

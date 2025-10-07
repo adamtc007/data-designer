@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use data_designer::{BusinessRule, generate_test_context};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, Value as JsonValue};
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -47,6 +48,37 @@ struct GrammarExtensions {
     operators: HashMap<String, Vec<String>>,
     functions: Vec<FunctionInfo>,
     keywords: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SourceDataset {
+    id: String,
+    name: String,
+    description: String,
+    attributes: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SourceData {
+    datasets: Vec<SourceDataset>,
+    lookup_tables: HashMap<String, HashMap<String, Value>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct RuleMapping {
+    rule_id: String,
+    rule_name: String,
+    description: String,
+    source_dataset: String,
+    rule_expression: String,
+    target_attributes: HashMap<String, String>,
+    expected_result: Value,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TargetData {
+    rule_mappings: Vec<RuleMapping>,
+    metadata: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -452,6 +484,100 @@ fn save_grammar(grammar: DynamicGrammar) -> Result<String, String> {
     Ok("Grammar saved successfully".to_string())
 }
 
+#[tauri::command]
+fn load_source_data() -> Result<SourceData, String> {
+    let data_path = "../test_data/source_attributes.json";
+    let content = fs::read_to_string(data_path)
+        .map_err(|e| format!("Failed to load source data: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse source data: {}", e))
+}
+
+#[tauri::command]
+fn load_target_rules() -> Result<TargetData, String> {
+    let data_path = "../test_data/target_attributes.json";
+    let content = fs::read_to_string(data_path)
+        .map_err(|e| format!("Failed to load target rules: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse target rules: {}", e))
+}
+
+#[tauri::command]
+fn test_rule_with_dataset(rule_expression: String, dataset_id: String) -> TestResult {
+    // Load source data
+    let source_data = match load_source_data() {
+        Ok(data) => data,
+        Err(e) => return TestResult {
+            success: false,
+            result: None,
+            error: Some(e),
+        }
+    };
+
+    // Find the dataset
+    let dataset = source_data.datasets.iter()
+        .find(|d| d.id == dataset_id);
+
+    if dataset.is_none() {
+        return TestResult {
+            success: false,
+            result: None,
+            error: Some(format!("Dataset '{}' not found", dataset_id)),
+        };
+    }
+
+    // Convert attributes to context
+    let dataset = dataset.unwrap();
+    let mut context: HashMap<String, JsonValue> = HashMap::new();
+
+    for (key, value) in &dataset.attributes {
+        context.insert(key.clone(), value.clone());
+    }
+
+    // Add lookup tables as JSON values
+    if let Some(countries) = source_data.lookup_tables.get("countries") {
+        context.insert("__lookup_countries".to_string(), serde_json::to_value(countries).unwrap_or(JsonValue::Null));
+    }
+    if let Some(rates) = source_data.lookup_tables.get("rates") {
+        context.insert("__lookup_rates".to_string(), serde_json::to_value(rates).unwrap_or(JsonValue::Null));
+    }
+
+    // Parse and evaluate the rule
+    let mut rule = BusinessRule::new(
+        "test_rule".to_string(),
+        "Test Rule".to_string(),
+        "Testing with dataset".to_string(),
+        rule_expression
+    );
+    match rule.parse() {
+        Ok(_) => {
+            match rule.evaluate(&context) {
+                Ok(result) => {
+                    TestResult {
+                        success: true,
+                        result: Some(serde_json::to_string(&result).unwrap_or_else(|_| "Unknown".to_string())),
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    TestResult {
+                        success: false,
+                        result: None,
+                        error: Some(format!("Evaluation error: {}", e)),
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            TestResult {
+                success: false,
+                result: None,
+                error: Some(format!("Parse error: {}", e)),
+            }
+        }
+    }
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -464,7 +590,10 @@ pub fn run() {
             update_grammar_rule,
             generate_pest_grammar,
             load_grammar,
-            save_grammar
+            save_grammar,
+            load_source_data,
+            load_target_rules,
+            test_rule_with_dataset
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
