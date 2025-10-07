@@ -1,589 +1,367 @@
-use pest::Parser;
-use pest_derive::Parser;
+mod parser;
+
+use parser::{parse_rule, ASTNode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use serde_json::Value as JsonValue;
 
-// --- 1. CORE DATA STRUCTURES ---
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum SqlType { Varchar, Integer, Boolean, Timestamp, Decimal }
+// --- Core Data Structures ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum Operator {
-    Equals, NotEquals, GreaterThan, LessThan, GreaterThanOrEqual, LessThanOrEqual
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum LogicalOperator { And, Or }
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum LiteralValue {
-    String(String),
-    Number(f64),
-    Boolean(bool),
-    Null,
+pub enum SqlType {
+    Varchar,
+    Integer,
+    Boolean,
+    Timestamp,
+    Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Condition { pub attribute_name: String, pub operator: Operator, pub value: LiteralValue }
+pub struct BusinessRule {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub rule_text: String,
+    pub ast: Option<ASTNode>,
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Action { pub target_attribute: String, pub derived_value: LiteralValue }
+impl BusinessRule {
+    pub fn new(id: String, name: String, description: String, rule_text: String) -> Self {
+        let ast = parse_rule(&rule_text)
+            .ok()
+            .map(|(_, node)| node);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BusinessRule { pub id: String, pub conditions: Vec<Condition>, pub action: Action }
+        BusinessRule {
+            id,
+            name,
+            description,
+            rule_text,
+            ast,
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<(), String> {
+        match parse_rule(&self.rule_text) {
+            Ok((remaining, ast)) => {
+                if !remaining.trim().is_empty() {
+                    return Err(format!("Unexpected input after parsing: '{}'", remaining));
+                }
+                self.ast = Some(ast);
+                Ok(())
+            }
+            Err(e) => Err(format!("Parse error: {:?}", e))
+        }
+    }
+
+    pub fn evaluate(&self, context: &HashMap<String, JsonValue>) -> Result<JsonValue, String> {
+        self.ast
+            .as_ref()
+            .ok_or_else(|| "Rule not parsed".to_string())
+            .and_then(|ast| ast.evaluate(context))
+    }
+}
+
+// --- Rules Engine ---
 
 #[derive(Debug, Clone)]
-pub struct DerivationResult { pub matched_rule_id: String, pub derived_value: LiteralValue }
-
-// --- 2. EXTENDED DATA STRUCTURES FOR EXPRESSIONS ---
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Expression {
-    // Literals and variables
-    Attribute(String),
-    Number(f64),
-    String(String),
-
-    // Arithmetic operations
-    Add(Box<Expression>, Box<Expression>),
-    Subtract(Box<Expression>, Box<Expression>),
-    Multiply(Box<Expression>, Box<Expression>),
-    Divide(Box<Expression>, Box<Expression>),
-
-    // String operations
-    Concat(Box<Expression>, Box<Expression>),
-    Substring(Box<Expression>, Box<Expression>, Box<Expression>), // (string, start, length)
-
-    // Function calls
-    ConcatMany(Vec<Expression>),
-    Lookup(Box<Expression>, String), // (key, table_name)
+pub struct RulesEngine {
+    rules: Vec<BusinessRule>,
 }
-
-impl Expression {
-    pub fn evaluate(&self, context: &std::collections::HashMap<String, LiteralValue>) -> Result<LiteralValue, String> {
-        match self {
-            Expression::Attribute(name) => {
-                context.get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("Attribute '{}' not found", name))
-            }
-            Expression::Number(n) => Ok(LiteralValue::Number(*n)),
-            Expression::String(s) => Ok(LiteralValue::String(s.clone())),
-
-            Expression::Add(left, right) => {
-                let l = left.evaluate(context)?;
-                let r = right.evaluate(context)?;
-                match (l, r) {
-                    (LiteralValue::Number(a), LiteralValue::Number(b)) => Ok(LiteralValue::Number(a + b)),
-                    _ => Err("Addition requires numeric values".to_string()),
-                }
-            }
-
-            Expression::Subtract(left, right) => {
-                let l = left.evaluate(context)?;
-                let r = right.evaluate(context)?;
-                match (l, r) {
-                    (LiteralValue::Number(a), LiteralValue::Number(b)) => Ok(LiteralValue::Number(a - b)),
-                    _ => Err("Subtraction requires numeric values".to_string()),
-                }
-            }
-
-            Expression::Multiply(left, right) => {
-                let l = left.evaluate(context)?;
-                let r = right.evaluate(context)?;
-                match (l, r) {
-                    (LiteralValue::Number(a), LiteralValue::Number(b)) => Ok(LiteralValue::Number(a * b)),
-                    _ => Err("Multiplication requires numeric values".to_string()),
-                }
-            }
-
-            Expression::Divide(left, right) => {
-                let l = left.evaluate(context)?;
-                let r = right.evaluate(context)?;
-                match (l, r) {
-                    (LiteralValue::Number(a), LiteralValue::Number(b)) => {
-                        if b == 0.0 {
-                            Err("Division by zero".to_string())
-                        } else {
-                            Ok(LiteralValue::Number(a / b))
-                        }
-                    }
-                    _ => Err("Division requires numeric values".to_string()),
-                }
-            }
-
-            Expression::Concat(left, right) => {
-                let l = left.evaluate(context)?;
-                let r = right.evaluate(context)?;
-                let l_str = match l {
-                    LiteralValue::String(s) => s,
-                    LiteralValue::Number(n) => n.to_string(),
-                    _ => return Err("Cannot concatenate non-string/numeric values".to_string()),
-                };
-                let r_str = match r {
-                    LiteralValue::String(s) => s,
-                    LiteralValue::Number(n) => n.to_string(),
-                    _ => return Err("Cannot concatenate non-string/numeric values".to_string()),
-                };
-                Ok(LiteralValue::String(format!("{}{}", l_str, r_str)))
-            }
-
-            Expression::Substring(string_expr, start_expr, length_expr) => {
-                let string_val = string_expr.evaluate(context)?;
-                let start_val = start_expr.evaluate(context)?;
-                let length_val = length_expr.evaluate(context)?;
-
-                match (string_val, start_val, length_val) {
-                    (LiteralValue::String(s), LiteralValue::Number(start), LiteralValue::Number(len)) => {
-                        let start_idx = start as usize;
-                        let length = len as usize;
-                        if start_idx <= s.len() {
-                            let end_idx = std::cmp::min(start_idx + length, s.len());
-                            Ok(LiteralValue::String(s[start_idx..end_idx].to_string()))
-                        } else {
-                            Ok(LiteralValue::String(String::new()))
-                        }
-                    }
-                    _ => Err("SUBSTRING requires (string, number, number)".to_string()),
-                }
-            }
-
-            Expression::ConcatMany(expressions) => {
-                let mut result = String::new();
-                for expr in expressions {
-                    let val = expr.evaluate(context)?;
-                    match val {
-                        LiteralValue::String(s) => result.push_str(&s),
-                        LiteralValue::Number(n) => result.push_str(&n.to_string()),
-                        _ => return Err("CONCAT function requires string or numeric values".to_string()),
-                    }
-                }
-                Ok(LiteralValue::String(result))
-            }
-
-            Expression::Lookup(key_expr, table_name) => {
-                let key_val = key_expr.evaluate(context)?;
-                let key_str = match key_val {
-                    LiteralValue::String(s) => s,
-                    LiteralValue::Number(n) => n.to_string(),
-                    _ => return Err("Lookup key must be string or number".to_string()),
-                };
-
-                // Simple mock lookup - in real implementation, this would query external data
-                match table_name.as_str() {
-                    "countries" => match key_str.as_str() {
-                        "US" => Ok(LiteralValue::String("United States".to_string())),
-                        "GB" => Ok(LiteralValue::String("United Kingdom".to_string())),
-                        "CA" => Ok(LiteralValue::String("Canada".to_string())),
-                        _ => Ok(LiteralValue::String("Unknown".to_string())),
-                    },
-                    "rates" => match key_str.as_str() {
-                        "standard" => Ok(LiteralValue::Number(0.1)),
-                        "premium" => Ok(LiteralValue::Number(0.15)),
-                        "basic" => Ok(LiteralValue::Number(0.05)),
-                        _ => Ok(LiteralValue::Number(0.0)),
-                    },
-                    _ => Err(format!("Unknown lookup table: {}", table_name)),
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnhancedAction {
-    pub target_attribute: String,
-    pub expression: Expression,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnhancedRule {
-    pub id: String,
-    pub conditions: Vec<Condition>,
-    pub action: EnhancedAction,
-}
-
-// --- 3. THE PEST PARSER ---
-
-#[derive(Parser)]
-#[grammar = "dsl.pest"]
-pub struct DslParser;
-
-// Type alias to avoid naming conflict with Pest-generated Rule enum
-
-// --- 4. THE TRANSPILER ---
-
-// Enhanced transpiler that creates rules with Expression-based actions
-pub fn transpile_dsl_to_enhanced_rules(dsl: &str) -> Result<Vec<EnhancedRule>, String> {
-    let pairs = DslParser::parse(Rule::file, dsl).map_err(|e| e.to_string())?;
-
-    let mut rules = Vec::new();
-
-    for pair in pairs {
-        if pair.as_rule() == Rule::rule {
-            let rule = parse_enhanced_rule(pair)?;
-            rules.push(rule);
-        } else if pair.as_rule() == Rule::file {
-            // Recursively process file contents
-            for inner_pair in pair.into_inner() {
-                if inner_pair.as_rule() == Rule::rule {
-                    let rule = parse_enhanced_rule(inner_pair)?;
-                    rules.push(rule);
-                }
-            }
-        }
-    }
-
-    Ok(rules)
-}
-
-// Backward compatibility transpiler
-pub fn transpile_dsl_to_rules(dsl: &str) -> Result<Vec<BusinessRule>, String> {
-    let pairs = DslParser::parse(Rule::file, dsl).map_err(|e| e.to_string())?;
-
-    let mut rules = Vec::new();
-
-    for pair in pairs {
-        if pair.as_rule() == Rule::rule {
-            let rule = parse_rule(pair)?;
-            rules.push(rule);
-        }
-    }
-
-    Ok(rules)
-}
-
-fn parse_enhanced_rule(pair: pest::iterators::Pair<Rule>) -> Result<EnhancedRule, String> {
-    let mut inner = pair.into_inner();
-
-    // Parse rule name (string)
-    let name_pair = inner.next().ok_or("Missing rule name")?;
-    let rule_id = name_pair.as_str().trim_matches('"').to_string();
-
-    // Parse IF clause
-    let if_clause = inner.next().ok_or("Missing IF clause")?;
-    let conditions = parse_if_clause(if_clause)?;
-
-    // Parse THEN clause
-    let then_clause = inner.next().ok_or("Missing THEN clause")?;
-    let action = parse_enhanced_then_clause(then_clause)?;
-
-    Ok(EnhancedRule {
-        id: rule_id,
-        conditions,
-        action,
-    })
-}
-
-fn parse_rule(pair: pest::iterators::Pair<Rule>) -> Result<BusinessRule, String> {
-    let mut inner = pair.into_inner();
-
-    // Parse rule name (string)
-    let name_pair = inner.next().ok_or("Missing rule name")?;
-    let rule_id = name_pair.as_str().trim_matches('"').to_string();
-
-    // Parse IF clause
-    let if_clause = inner.next().ok_or("Missing IF clause")?;
-    let conditions = parse_if_clause(if_clause)?;
-
-    // Parse THEN clause
-    let then_clause = inner.next().ok_or("Missing THEN clause")?;
-    let action = parse_then_clause(then_clause)?;
-
-    Ok(BusinessRule {
-        id: rule_id,
-        conditions,
-        action,
-    })
-}
-
-fn parse_if_clause(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Condition>, String> {
-    let mut conditions = Vec::new();
-
-    for condition_pair in pair.into_inner() {
-        if condition_pair.as_rule() == Rule::condition {
-            let condition = parse_condition(condition_pair)?;
-            conditions.push(condition);
-        }
-    }
-
-    Ok(conditions)
-}
-
-fn parse_condition(pair: pest::iterators::Pair<Rule>) -> Result<Condition, String> {
-    let mut inner = pair.into_inner();
-
-    let attr_name = inner.next().ok_or("Missing attribute name")?.as_str().to_string();
-    let op_pair = inner.next().ok_or("Missing comparison operator")?;
-    let value_pair = inner.next().ok_or("Missing condition value")?;
-
-    let operator = match op_pair.as_rule() {
-        Rule::comparison_op => match op_pair.as_str() {
-            "==" => Operator::Equals,
-            "!=" => Operator::NotEquals,
-            ">" => Operator::GreaterThan,
-            "<" => Operator::LessThan,
-            ">=" => Operator::GreaterThanOrEqual,
-            "<=" => Operator::LessThanOrEqual,
-            _ => return Err("Invalid comparison operator".to_string()),
-        }
-        _ => return Err("Expected comparison operator".to_string()),
-    };
-
-    let value = match value_pair.as_rule() {
-        Rule::identifier => LiteralValue::String(value_pair.as_str().to_string()),
-        Rule::number => LiteralValue::Number(value_pair.as_str().parse().map_err(|_| "Invalid number")?),
-        Rule::string => LiteralValue::String(value_pair.as_str().trim_matches('"').to_string()),
-        _ => return Err("Invalid condition value".to_string()),
-    };
-
-    Ok(Condition {
-        attribute_name: attr_name,
-        operator,
-        value,
-    })
-}
-
-fn parse_enhanced_then_clause(pair: pest::iterators::Pair<Rule>) -> Result<EnhancedAction, String> {
-    let assignment = pair.into_inner().next().ok_or("Missing assignment")?;
-    parse_enhanced_assignment(assignment)
-}
-
-fn parse_then_clause(pair: pest::iterators::Pair<Rule>) -> Result<Action, String> {
-    let assignment = pair.into_inner().next().ok_or("Missing assignment")?;
-    parse_assignment(assignment)
-}
-
-fn parse_enhanced_assignment(pair: pest::iterators::Pair<Rule>) -> Result<EnhancedAction, String> {
-    let mut inner = pair.into_inner();
-
-    let target = inner.next().ok_or("Missing target attribute")?.as_str().to_string();
-    let expression_pair = inner.next().ok_or("Missing expression")?;
-
-    let expression = parse_expression(expression_pair)?;
-
-    Ok(EnhancedAction {
-        target_attribute: target,
-        expression,
-    })
-}
-
-fn parse_assignment(pair: pest::iterators::Pair<Rule>) -> Result<Action, String> {
-    let mut inner = pair.into_inner();
-
-    let target = inner.next().ok_or("Missing target attribute")?.as_str().to_string();
-    let expression_pair = inner.next().ok_or("Missing expression")?;
-
-    let derived_value = parse_expression_simple(expression_pair)?;
-
-    Ok(Action {
-        target_attribute: target,
-        derived_value,
-    })
-}
-
-fn parse_expression(pair: pest::iterators::Pair<Rule>) -> Result<Expression, String> {
-    match pair.as_rule() {
-        Rule::expression => {
-            let mut inner = pair.into_inner();
-            let first_term = parse_term(inner.next().ok_or("Empty expression")?)?;
-
-            let mut result = first_term;
-            while let Some(op_pair) = inner.next() {
-                let op_rule = op_pair.as_rule();
-                let right_term = parse_term(inner.next().ok_or("Missing operand after operator")?)?;
-
-                result = match op_rule {
-                    Rule::add_op => Expression::Add(Box::new(result), Box::new(right_term)),
-                    Rule::sub_op => Expression::Subtract(Box::new(result), Box::new(right_term)),
-                    Rule::concat_op => Expression::Concat(Box::new(result), Box::new(right_term)),
-                    _ => return Err(format!("Unexpected operator: {:?}", op_rule)),
-                };
-            }
-            Ok(result)
-        }
-        _ => Err("Expected expression".to_string()),
-    }
-}
-
-fn parse_term(pair: pest::iterators::Pair<Rule>) -> Result<Expression, String> {
-    match pair.as_rule() {
-        Rule::term => {
-            let mut inner = pair.into_inner();
-            let first_primary = parse_primary(inner.next().ok_or("Empty term")?)?;
-
-            let mut result = first_primary;
-            while let Some(op_pair) = inner.next() {
-                let op_rule = op_pair.as_rule();
-                let right_primary = parse_primary(inner.next().ok_or("Missing operand after operator")?)?;
-
-                result = match op_rule {
-                    Rule::mul_op => Expression::Multiply(Box::new(result), Box::new(right_primary)),
-                    Rule::div_op => Expression::Divide(Box::new(result), Box::new(right_primary)),
-                    _ => return Err(format!("Unexpected term operator: {:?}", op_rule)),
-                };
-            }
-            Ok(result)
-        }
-        Rule::primary => parse_primary(pair),
-        _ => Err("Expected term or primary".to_string()),
-    }
-}
-
-fn parse_primary(pair: pest::iterators::Pair<Rule>) -> Result<Expression, String> {
-    match pair.as_rule() {
-        Rule::substring_fn => {
-            let mut inner = pair.into_inner();
-            let string_expr = parse_expression(inner.next().ok_or("Missing string in SUBSTRING")?)?;
-            let start_expr = parse_expression(inner.next().ok_or("Missing start in SUBSTRING")?)?;
-            let length_expr = parse_expression(inner.next().ok_or("Missing length in SUBSTRING")?)?;
-            Ok(Expression::Substring(Box::new(string_expr), Box::new(start_expr), Box::new(length_expr)))
-        }
-        Rule::concat_fn => {
-            let mut args = Vec::new();
-            for arg_pair in pair.into_inner() {
-                args.push(parse_expression(arg_pair)?);
-            }
-            Ok(Expression::ConcatMany(args))
-        }
-        Rule::lookup_fn => {
-            let mut inner = pair.into_inner();
-            let key_expr = parse_expression(inner.next().ok_or("Missing key in LOOKUP")?)?;
-            let table_name = inner.next().ok_or("Missing table name in LOOKUP")?.as_str().trim_matches('"').to_string();
-            Ok(Expression::Lookup(Box::new(key_expr), table_name))
-        }
-        Rule::identifier => Ok(Expression::Attribute(pair.as_str().to_string())),
-        Rule::number => Ok(Expression::Number(pair.as_str().parse().map_err(|_| "Invalid number")?)),
-        Rule::string => Ok(Expression::String(pair.as_str().trim_matches('"').to_string())),
-        Rule::expression => parse_expression(pair), // Handle parenthesized expressions
-        _ => Err(format!("Unexpected primary type: {:?}", pair.as_rule())),
-    }
-}
-
-// Update the simple function for backward compatibility
-fn parse_expression_simple(pair: pest::iterators::Pair<Rule>) -> Result<LiteralValue, String> {
-    let expr = parse_expression(pair)?;
-
-    // For simple cases where we can compute at compile time
-    match expr {
-        Expression::Number(n) => Ok(LiteralValue::Number(n)),
-        Expression::String(s) => Ok(LiteralValue::String(s)),
-        Expression::Add(left, right) => {
-            match (left.as_ref(), right.as_ref()) {
-                (Expression::Number(a), Expression::Number(b)) => Ok(LiteralValue::Number(a + b)),
-                _ => Err("Complex expressions require runtime evaluation".to_string()),
-            }
-        }
-        _ => Err("Complex expressions require runtime evaluation".to_string()),
-    }
-}
-
-fn parse_atom(pair: pest::iterators::Pair<Rule>) -> Result<LiteralValue, String> {
-    match pair.as_rule() {
-        Rule::identifier => Ok(LiteralValue::String(pair.as_str().to_string())), // Will be resolved at runtime
-        Rule::number => Ok(LiteralValue::Number(pair.as_str().parse().map_err(|_| "Invalid number")?)),
-        Rule::string => Ok(LiteralValue::String(pair.as_str().trim_matches('"').to_string())),
-        _ => Err(format!("Unexpected atom type: {:?}", pair.as_rule())),
-    }
-}
-
-// --- 3. THE RULES ENGINE ---
-
-pub struct EnhancedRulesEngine { rules: Vec<EnhancedRule> }
-
-impl EnhancedRulesEngine {
-    pub fn new(rules: Vec<EnhancedRule>) -> Self { Self { rules } }
-
-    pub fn run(&self, input_values: &HashMap<String, LiteralValue>) -> Option<DerivationResult> {
-        for rule in &self.rules {
-            if self.conditions_met(&rule.conditions, input_values) {
-                // Evaluate the expression to get the derived value
-                match rule.action.expression.evaluate(input_values) {
-                    Ok(derived_value) => {
-                        return Some(DerivationResult {
-                            matched_rule_id: rule.id.clone(),
-                            derived_value,
-                        });
-                    }
-                    Err(_) => continue, // Skip this rule if expression evaluation fails
-                }
-            }
-        }
-        None
-    }
-
-    fn conditions_met(&self, conditions: &[Condition], input_values: &HashMap<String, LiteralValue>) -> bool {
-        conditions.iter().all(|condition| {
-            if let Some(input_value) = input_values.get(&condition.attribute_name) {
-                return input_value.evaluate(&condition.operator, &condition.value);
-            }
-            false
-        })
-    }
-}
-
-pub struct RulesEngine { rules: Vec<BusinessRule> }
 
 impl RulesEngine {
-    pub fn new(rules: Vec<BusinessRule>) -> Self { Self { rules } }
-
-    pub fn run(&self, input_values: &HashMap<String, LiteralValue>) -> Option<DerivationResult> {
-        for rule in &self.rules {
-            if self.conditions_met(&rule.conditions, input_values) {
-                return Some(DerivationResult {
-                    matched_rule_id: rule.id.clone(),
-                    derived_value: rule.action.derived_value.clone(),
-                });
-            }
+    pub fn new() -> Self {
+        RulesEngine {
+            rules: Vec::new(),
         }
-        None
     }
 
-    fn conditions_met(&self, conditions: &[Condition], input_values: &HashMap<String, LiteralValue>) -> bool {
-        conditions.iter().all(|condition| {
-            if let Some(input_value) = input_values.get(&condition.attribute_name) {
-                return input_value.evaluate(&condition.operator, &condition.value);
-            }
-            false
-        })
+    pub fn add_rule(&mut self, mut rule: BusinessRule) -> Result<(), String> {
+        rule.parse()?;
+        self.rules.push(rule);
+        Ok(())
+    }
+
+    pub fn evaluate_all(&self, context: &HashMap<String, JsonValue>) -> Vec<(String, Result<JsonValue, String>)> {
+        self.rules
+            .iter()
+            .map(|rule| (rule.id.clone(), rule.evaluate(context)))
+            .collect()
+    }
+
+    pub fn evaluate_rule(&self, rule_id: &str, context: &HashMap<String, JsonValue>) -> Result<JsonValue, String> {
+        self.rules
+            .iter()
+            .find(|r| r.id == rule_id)
+            .ok_or_else(|| format!("Rule '{}' not found", rule_id))
+            .and_then(|rule| rule.evaluate(context))
     }
 }
 
-// --- 4. TYPE-SAFE COMPARISON LOGIC ---
+// --- Grammar Management ---
 
-impl LiteralValue {
-    pub fn evaluate(&self, op: &Operator, rule_value: &LiteralValue) -> bool {
-        match (self, op, rule_value) {
-            // String comparisons
-            (LiteralValue::String(s1), Operator::Equals, LiteralValue::String(s2)) => s1 == s2,
-            (LiteralValue::String(s1), Operator::NotEquals, LiteralValue::String(s2)) => s1 != s2,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrammarRule {
+    pub name: String,
+    pub definition: String,
+    pub rule_type: String, // "normal", "silent", "atomic"
+    pub description: String,
+}
 
-            // Numeric comparisons
-            (LiteralValue::Number(n1), Operator::Equals, LiteralValue::Number(n2)) => n1 == n2,
-            (LiteralValue::Number(n1), Operator::NotEquals, LiteralValue::Number(n2)) => n1 != n2,
-            (LiteralValue::Number(n1), Operator::GreaterThan, LiteralValue::Number(n2)) => n1 > n2,
-            (LiteralValue::Number(n1), Operator::LessThan, LiteralValue::Number(n2)) => n1 < n2,
-            (LiteralValue::Number(n1), Operator::GreaterThanOrEqual, LiteralValue::Number(n2)) => n1 >= n2,
-            (LiteralValue::Number(n1), Operator::LessThanOrEqual, LiteralValue::Number(n2)) => n1 <= n2,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrammarDefinition {
+    pub metadata: GrammarMetadata,
+    pub rules: Vec<GrammarRule>,
+}
 
-            // Boolean comparisons
-            (LiteralValue::Boolean(b1), Operator::Equals, LiteralValue::Boolean(b2)) => b1 == b2,
-            (LiteralValue::Boolean(b1), Operator::NotEquals, LiteralValue::Boolean(b2)) => b1 != b2,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrammarMetadata {
+    pub version: String,
+    pub description: String,
+    pub created_by: String,
+    pub created_date: String,
+}
 
-            // Null comparisons
-            (LiteralValue::Null, Operator::Equals, LiteralValue::Null) => true,
-            (LiteralValue::Null, Operator::NotEquals, LiteralValue::Null) => false,
-            (LiteralValue::Null, Operator::Equals, _) => false,
-            (LiteralValue::Null, Operator::NotEquals, _) => true,
-            (_, Operator::Equals, LiteralValue::Null) => false,
-            (_, Operator::NotEquals, LiteralValue::Null) => true,
+impl GrammarDefinition {
+    pub fn new() -> Self {
+        GrammarDefinition {
+            metadata: GrammarMetadata {
+                version: "1.0.0".to_string(),
+                description: "Dynamic DSL Grammar using nom parser".to_string(),
+                created_by: "System".to_string(),
+                created_date: chrono::Utc::now().to_rfc3339(),
+            },
+            rules: vec![
+                GrammarRule {
+                    name: "expression".to_string(),
+                    definition: "assignment | binary_op | function_call | literal".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Main expression rule".to_string(),
+                },
+                GrammarRule {
+                    name: "assignment".to_string(),
+                    definition: "identifier '=' expression".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Variable assignment".to_string(),
+                },
+                GrammarRule {
+                    name: "binary_op".to_string(),
+                    definition: "expression operator expression".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Binary operations".to_string(),
+                },
+                GrammarRule {
+                    name: "operator".to_string(),
+                    definition: "'+' | '-' | '*' | '/' | '&' | '==' | '!=' | '<' | '>' | '<=' | '>=' | 'and' | 'or'".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Supported operators".to_string(),
+                },
+                GrammarRule {
+                    name: "function_call".to_string(),
+                    definition: "identifier '(' argument_list? ')'".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Function invocation".to_string(),
+                },
+                GrammarRule {
+                    name: "literal".to_string(),
+                    definition: "number | string | boolean | identifier".to_string(),
+                    rule_type: "normal".to_string(),
+                    description: "Literal values".to_string(),
+                },
+            ],
+        }
+    }
 
-            // Mixed type comparisons (convert to strings for equality)
-            (LiteralValue::String(s), Operator::Equals, LiteralValue::Number(n)) => s == &n.to_string(),
-            (LiteralValue::Number(n), Operator::Equals, LiteralValue::String(s)) => &n.to_string() == s,
+    pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        let grammar = serde_json::from_str(&content)?;
+        Ok(grammar)
+    }
 
-            _ => false, // Unsupported comparison
+    pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let content = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    pub fn add_rule(&mut self, rule: GrammarRule) {
+        self.rules.push(rule);
+    }
+
+    pub fn update_rule(&mut self, name: &str, rule: GrammarRule) -> Result<(), String> {
+        if let Some(existing) = self.rules.iter_mut().find(|r| r.name == name) {
+            *existing = rule;
+            Ok(())
+        } else {
+            Err(format!("Rule '{}' not found", name))
+        }
+    }
+
+    pub fn get_rule(&self, name: &str) -> Option<&GrammarRule> {
+        self.rules.iter().find(|r| r.name == name)
+    }
+
+    pub fn list_rules(&self) -> Vec<String> {
+        self.rules.iter().map(|r| r.name.clone()).collect()
+    }
+}
+
+// --- Test Data Generator ---
+
+pub fn generate_test_context() -> HashMap<String, JsonValue> {
+    let mut context = HashMap::new();
+
+    // Basic variables
+    context.insert("name".to_string(), JsonValue::String("Alice".to_string()));
+    context.insert("age".to_string(), JsonValue::Number(serde_json::Number::from(30)));
+    context.insert("price".to_string(), JsonValue::Number(serde_json::Number::from_f64(29.99).unwrap()));
+    context.insert("quantity".to_string(), JsonValue::Number(serde_json::Number::from(5)));
+    context.insert("tax".to_string(), JsonValue::Number(serde_json::Number::from_f64(0.08).unwrap()));
+
+    // For function tests
+    context.insert("user_id".to_string(), JsonValue::String("USR123456".to_string()));
+    context.insert("country_code".to_string(), JsonValue::String("US".to_string()));
+    context.insert("tier".to_string(), JsonValue::String("premium".to_string()));
+    context.insert("base_rate".to_string(), JsonValue::Number(serde_json::Number::from_f64(0.05).unwrap()));
+    context.insert("role".to_string(), JsonValue::String("Admin".to_string()));
+
+    context
+}
+
+// --- Sample Rules ---
+
+pub fn get_sample_rules() -> Vec<BusinessRule> {
+    vec![
+        BusinessRule::new(
+            "rule1".to_string(),
+            "Simple Math".to_string(),
+            "Basic arithmetic operations".to_string(),
+            "result = 100 + 25 * 2 - 10 / 2".to_string(),
+        ),
+        BusinessRule::new(
+            "rule2".to_string(),
+            "String Concatenation".to_string(),
+            "Join strings together".to_string(),
+            r#"message = "Hello " & name & "!""#.to_string(),
+        ),
+        BusinessRule::new(
+            "rule3".to_string(),
+            "Complex Expression".to_string(),
+            "Parentheses and precedence".to_string(),
+            "(100 + 50) * 2".to_string(),
+        ),
+        BusinessRule::new(
+            "rule4".to_string(),
+            "Function Call".to_string(),
+            "Using CONCAT function".to_string(),
+            r#"CONCAT("User: ", name, " (", role, ")")"#.to_string(),
+        ),
+        BusinessRule::new(
+            "rule5".to_string(),
+            "Substring Function".to_string(),
+            "Extract part of a string".to_string(),
+            "SUBSTRING(user_id, 0, 3)".to_string(),
+        ),
+        BusinessRule::new(
+            "rule6".to_string(),
+            "Lookup Function".to_string(),
+            "External data lookup".to_string(),
+            r#"LOOKUP(country_code, "countries")"#.to_string(),
+        ),
+        BusinessRule::new(
+            "rule7".to_string(),
+            "Complex Calculation".to_string(),
+            "Mixed operations and functions".to_string(),
+            r#"CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")"#.to_string(),
+        ),
+        BusinessRule::new(
+            "rule8".to_string(),
+            "Runtime Variables".to_string(),
+            "Using context variables".to_string(),
+            "price * quantity + tax".to_string(),
+        ),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_arithmetic() {
+        let context = generate_test_context();
+        let mut rule = BusinessRule::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test rule".to_string(),
+            "10 + 20 * 3".to_string(),
+        );
+
+        assert!(rule.parse().is_ok());
+        let result = rule.evaluate(&context).unwrap();
+        assert_eq!(result, JsonValue::Number(serde_json::Number::from_f64(70.0).unwrap()));
+    }
+
+    #[test]
+    fn test_string_concatenation() {
+        let context = generate_test_context();
+        let mut rule = BusinessRule::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test rule".to_string(),
+            r#""Hello " & "World""#.to_string(),
+        );
+
+        assert!(rule.parse().is_ok());
+        let result = rule.evaluate(&context).unwrap();
+        assert_eq!(result, JsonValue::String("Hello World".to_string()));
+    }
+
+    #[test]
+    fn test_variable_reference() {
+        let context = generate_test_context();
+        let mut rule = BusinessRule::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test rule".to_string(),
+            "price * quantity".to_string(),
+        );
+
+        assert!(rule.parse().is_ok());
+        let result = rule.evaluate(&context).unwrap();
+        // 29.99 * 5 = 149.95
+        assert_eq!(result.as_f64().unwrap(), 149.95);
+    }
+
+    #[test]
+    fn test_function_call() {
+        let context = generate_test_context();
+        let mut rule = BusinessRule::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test rule".to_string(),
+            r#"UPPER(name)"#.to_string(),
+        );
+
+        assert!(rule.parse().is_ok());
+        let result = rule.evaluate(&context).unwrap();
+        assert_eq!(result, JsonValue::String("ALICE".to_string()));
+    }
+
+    #[test]
+    fn test_rules_engine() {
+        let context = generate_test_context();
+        let mut engine = RulesEngine::new();
+
+        for rule in get_sample_rules().into_iter().take(3) {
+            engine.add_rule(rule).unwrap();
+        }
+
+        let results = engine.evaluate_all(&context);
+        assert_eq!(results.len(), 3);
+
+        // Check that all rules evaluated without error
+        for (rule_id, result) in results {
+            assert!(result.is_ok(), "Rule {} failed", rule_id);
         }
     }
 }

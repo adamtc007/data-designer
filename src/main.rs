@@ -1,118 +1,100 @@
-use data_designer::*;
+use data_designer::{BusinessRule, RulesEngine, generate_test_context, get_sample_rules};
 use std::collections::HashMap;
 
 fn main() {
-    println!("=== Testing Enhanced Pest DSL Parser with All 5 Extensions ===\n");
+    println!("=== Data Designer - nom Parser Test Suite ===\n");
 
-    // Test 1: Basic arithmetic with multiple operators
-    println!("Test 1: Multiple arithmetic operators (-, *, /, +)");
-    let dsl1 = r#"RULE "Complex Math" IF status == "active" THEN result = 100 + 25 * 2 - 10 / 2"#;
-    test_enhanced_rule(dsl1, "Complex Math", |engine| {
-        let mut context = HashMap::new();
-        context.insert("status".to_string(), LiteralValue::String("active".to_string()));
-        engine.run(&context)
-    });
+    let context = generate_test_context();
 
-    // Test 2: String concatenation with & operator
-    println!("\nTest 2: String concatenation with & operator");
-    let dsl2 = r#"RULE "Concat String" IF country == "US" THEN message = "Hello " & name & "!""#;
-    test_enhanced_rule(dsl2, "Concat String", |engine| {
-        let mut context = HashMap::new();
-        context.insert("country".to_string(), LiteralValue::String("US".to_string()));
-        context.insert("name".to_string(), LiteralValue::String("World".to_string()));
-        engine.run(&context)
-    });
+    println!("Test Context:");
+    println!("{:#?}\n", context);
 
-    // Test 3: Parentheses for precedence
-    println!("\nTest 3: Parentheses for operator precedence");
-    let dsl3 = r#"RULE "Precedence Test" IF level > 5 THEN total = (100 + 50) * 2"#;
-    test_enhanced_rule(dsl3, "Precedence Test", |engine| {
-        let mut context = HashMap::new();
-        context.insert("level".to_string(), LiteralValue::Number(10.0));
-        engine.run(&context)
-    });
+    // Test individual rules
+    println!("=== Testing Individual Rules ===\n");
 
-    // Test 4: SUBSTRING function
-    println!("\nTest 4: SUBSTRING function");
-    let dsl4 = r#"RULE "Extract Code" IF type == "user" THEN code = SUBSTRING(user_id, 0, 3)"#;
-    test_enhanced_rule(dsl4, "Extract Code", |engine| {
-        let mut context = HashMap::new();
-        context.insert("type".to_string(), LiteralValue::String("user".to_string()));
-        context.insert("user_id".to_string(), LiteralValue::String("USR12345".to_string()));
-        engine.run(&context)
-    });
+    let sample_rules = get_sample_rules();
 
-    // Test 5: CONCAT function with multiple arguments
-    println!("\nTest 5: CONCAT function with multiple arguments");
-    let dsl5 = r#"RULE "Build Message" IF active == "true" THEN full_message = CONCAT("User: ", name, " (", role, ")")"#;
-    test_enhanced_rule(dsl5, "Build Message", |engine| {
-        let mut context = HashMap::new();
-        context.insert("active".to_string(), LiteralValue::String("true".to_string()));
-        context.insert("name".to_string(), LiteralValue::String("Alice".to_string()));
-        context.insert("role".to_string(), LiteralValue::String("Admin".to_string()));
-        engine.run(&context)
-    });
+    for rule in &sample_rules {
+        println!("Testing Rule: {} - {}", rule.id, rule.name);
+        println!("Rule Text: {}", rule.rule_text);
 
-    // Test 6: LOOKUP function
-    println!("\nTest 6: LOOKUP function with external data");
-    let dsl6 = r#"RULE "Country Lookup" IF region == "NA" THEN country_name = LOOKUP(country_code, "countries")"#;
-    test_enhanced_rule(dsl6, "Country Lookup", |engine| {
-        let mut context = HashMap::new();
-        context.insert("region".to_string(), LiteralValue::String("NA".to_string()));
-        context.insert("country_code".to_string(), LiteralValue::String("US".to_string()));
-        engine.run(&context)
-    });
+        let mut test_rule = rule.clone();
+        match test_rule.parse() {
+            Ok(_) => {
+                println!("✓ Parse successful");
+                println!("AST: {:#?}", test_rule.ast);
 
-    // Test 7: Complex expression combining multiple features
-    println!("\nTest 7: Complex expression with mixed operations");
-    let dsl7 = r#"RULE "Ultimate Test" IF status == "premium" THEN result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")"#;
-    test_enhanced_rule(dsl7, "Ultimate Test", |engine| {
-        let mut context = HashMap::new();
-        context.insert("status".to_string(), LiteralValue::String("premium".to_string()));
-        context.insert("base_rate".to_string(), LiteralValue::Number(0.05));
-        context.insert("tier".to_string(), LiteralValue::String("premium".to_string()));
-        engine.run(&context)
-    });
-
-    // Test 8: Runtime attribute resolution
-    println!("\nTest 8: Runtime attribute resolution");
-    let dsl8 = r#"RULE "Runtime Calc" IF enabled == "yes" THEN computed = price * quantity + tax"#;
-    test_enhanced_rule(dsl8, "Runtime Calc", |engine| {
-        let mut context = HashMap::new();
-        context.insert("enabled".to_string(), LiteralValue::String("yes".to_string()));
-        context.insert("price".to_string(), LiteralValue::Number(10.50));
-        context.insert("quantity".to_string(), LiteralValue::Number(3.0));
-        context.insert("tax".to_string(), LiteralValue::Number(2.15));
-        engine.run(&context)
-    });
-
-    println!("\n=== Enhanced Parser Testing Complete ===");
-}
-
-fn test_enhanced_rule<F>(dsl: &str, test_name: &str, test_fn: F)
-where
-    F: Fn(&EnhancedRulesEngine) -> Option<DerivationResult>
-{
-    match transpile_dsl_to_enhanced_rules(dsl) {
-        Ok(rules) => {
-            println!("✅ Successfully parsed rule: '{}'", test_name);
-            if rules.len() > 0 {
-                let engine = EnhancedRulesEngine::new(rules);
-                match test_fn(&engine) {
-                    Some(result) => {
-                        println!("   ✅ Rule executed successfully!");
-                        println!("   📊 Result: {:?}", result.derived_value);
+                match test_rule.evaluate(&context) {
+                    Ok(result) => {
+                        println!("✓ Evaluation Result: {}", result);
                     }
-                    None => {
-                        println!("   ⚠️  Rule conditions not met or execution failed");
+                    Err(e) => {
+                        println!("✗ Evaluation Error: {}", e);
                     }
                 }
-            } else {
-                println!("   ⚠️  No rules generated from DSL");
+            }
+            Err(e) => {
+                println!("✗ Parse Error: {}", e);
             }
         }
-        Err(e) => {
-            println!("❌ Parse error for '{}': {}", test_name, e);
+        println!("---\n");
+    }
+
+    // Test Rules Engine
+    println!("=== Testing Rules Engine ===\n");
+
+    let mut engine = RulesEngine::new();
+
+    // Add all sample rules to the engine
+    for rule in sample_rules {
+        match engine.add_rule(rule.clone()) {
+            Ok(_) => println!("✓ Added rule: {}", rule.id),
+            Err(e) => println!("✗ Failed to add rule {}: {}", rule.id, e),
         }
+    }
+
+    println!("\n=== Evaluating All Rules ===\n");
+
+    let results = engine.evaluate_all(&context);
+    for (rule_id, result) in results {
+        match result {
+            Ok(value) => println!("Rule {}: ✓ Result = {}", rule_id, value),
+            Err(e) => println!("Rule {}: ✗ Error = {}", rule_id, e),
+        }
+    }
+
+    // Test specific expressions
+    println!("\n=== Testing Specific Expressions ===\n");
+
+    test_expression("10 + 20 * 3", &context);
+    test_expression("(10 + 20) * 3", &context);
+    test_expression(r#""Hello " & "World""#, &context);
+    test_expression("price * quantity", &context);
+    test_expression("100 / 0", &context); // Division by zero test
+    test_expression("not true", &context);
+    test_expression("5 > 3 and 10 < 20", &context);
+    test_expression("[1, 2, 3, 4]", &context);
+    test_expression("UPPER(name)", &context);
+    test_expression("LEN(user_id)", &context);
+}
+
+fn test_expression(expr: &str, context: &HashMap<String, serde_json::Value>) {
+    println!("Expression: {}", expr);
+
+    let mut rule = BusinessRule::new(
+        "test".to_string(),
+        "Test".to_string(),
+        "Test expression".to_string(),
+        expr.to_string(),
+    );
+
+    match rule.parse() {
+        Ok(_) => {
+            match rule.evaluate(context) {
+                Ok(result) => println!("  → Result: {}", result),
+                Err(e) => println!("  → Error: {}", e),
+            }
+        }
+        Err(e) => println!("  → Parse Error: {}", e),
     }
 }
