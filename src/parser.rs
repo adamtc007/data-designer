@@ -1,8 +1,8 @@
 use nom::{
     IResult,
     branch::alt,
-    bytes::complete::{tag, take_while1, take_while, escaped},
-    character::complete::{char, digit1, multispace0, one_of},
+    bytes::complete::{tag, take_while1, take_while},
+    character::complete::{char, digit1, multispace0, anychar},
     combinator::{map, opt, recognize, value},
     multi::{separated_list0, many0},
     sequence::{preceded, tuple, delimited, pair},
@@ -108,29 +108,86 @@ fn number(input: &str) -> IResult<&str, ASTNode> {
 
 // Parse strings with escape sequences
 fn string_literal(input: &str) -> IResult<&str, ASTNode> {
-    map(
-        alt((
+    alt((
+        // Double-quoted strings
+        map(
             delimited(
                 char('"'),
-                escaped(
-                    take_while(|c: char| c != '"' && c != '\\'),
-                    '\\',
-                    one_of("\"\\nrt")
-                ),
+                recognize(many0(alt((
+                    // Regular characters (not " or \)
+                    recognize(take_while1(|c: char| c != '"' && c != '\\')),
+                    // Escape sequences - pass them through as-is for regex patterns
+                    recognize(tuple((char('\\'), anychar)))
+                )))),
                 char('"')
             ),
+            |s: &str| {
+                // Process escape sequences
+                let mut result = String::new();
+                let mut chars = s.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '\\' {
+                        if let Some(next) = chars.next() {
+                            match next {
+                                'n' => result.push('\n'),
+                                't' => result.push('\t'),
+                                'r' => result.push('\r'),
+                                '"' => result.push('"'),
+                                '\'' => result.push('\''),
+                                '\\' => result.push('\\'),
+                                // For regex patterns, preserve the backslash + character
+                                other => {
+                                    result.push('\\');
+                                    result.push(other);
+                                }
+                            }
+                        }
+                    } else {
+                        result.push(c);
+                    }
+                }
+                ASTNode::String(result)
+            }
+        ),
+        // Single-quoted strings (simpler - no escape processing)
+        map(
             delimited(
                 char('\''),
-                escaped(
-                    take_while(|c: char| c != '\'' && c != '\\'),
-                    '\\',
-                    one_of("'\\nrt")
-                ),
+                recognize(many0(alt((
+                    recognize(take_while1(|c: char| c != '\'' && c != '\\')),
+                    recognize(tuple((char('\\'), anychar)))
+                )))),
                 char('\'')
-            )
-        )),
-        |s: &str| ASTNode::String(s.to_string())
-    )(input)
+            ),
+            |s: &str| {
+                // Process escape sequences
+                let mut result = String::new();
+                let mut chars = s.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '\\' {
+                        if let Some(next) = chars.next() {
+                            match next {
+                                'n' => result.push('\n'),
+                                't' => result.push('\t'),
+                                'r' => result.push('\r'),
+                                '"' => result.push('"'),
+                                '\'' => result.push('\''),
+                                '\\' => result.push('\\'),
+                                // For regex patterns, preserve the backslash + character
+                                other => {
+                                    result.push('\\');
+                                    result.push(other);
+                                }
+                            }
+                        }
+                    } else {
+                        result.push(c);
+                    }
+                }
+                ASTNode::String(result)
+            }
+        )
+    ))(input)
 }
 
 // Parse regex literals: /pattern/flags or r"pattern"
@@ -413,9 +470,12 @@ impl ASTNode {
                     .cloned()
                     .ok_or_else(|| format!("Variable '{}' not found", name))
             },
-            ASTNode::Assignment { target: _, value } => {
-                // In a real implementation, this would modify the context
-                value.evaluate(context)
+            ASTNode::Assignment { target, value } => {
+                // Return an object with the assignment
+                let evaluated_value = value.evaluate(context)?;
+                let mut result = serde_json::Map::new();
+                result.insert(target.clone(), evaluated_value);
+                Ok(serde_json::Value::Object(result))
             },
             ASTNode::BinaryOp { left, op, right } => {
                 let left_val = left.evaluate(context)?;

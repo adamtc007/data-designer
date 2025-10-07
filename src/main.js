@@ -11,14 +11,14 @@ monaco.editor.defineTheme('dsl-theme', DSL_THEME);
 let invoke;
 let isTauriAvailable = false;
 
-try {
-    // Try to import Tauri API
-    const tauriApi = await import('@tauri-apps/api/core');
-    invoke = tauriApi.invoke;
-    isTauriAvailable = window.__TAURI_INTERNALS__ !== undefined;
+// Simple check for Tauri - if window.__TAURI__ exists, we're in Tauri
+if (typeof window !== 'undefined' && window.__TAURI__) {
+    // We're in Tauri environment - the API is already injected
+    invoke = window.__TAURI__.invoke;
+    isTauriAvailable = true;
     console.log('✅ Running in Tauri application');
-} catch (e) {
-    console.warn('⚠️ Tauri API not available - running in browser mode');
+} else {
+    console.warn('⚠️ Running in browser mode - using mock data');
     // Create a mock invoke function for browser testing
     invoke = async (cmd, args) => {
         console.log(`Mock invoke: ${cmd}`, args);
@@ -27,8 +27,12 @@ try {
         switch(cmd) {
             case 'get_test_rules':
                 return [
-                    { id: 1, name: "Simple Math", dsl: "100 + 50", description: "Basic arithmetic" },
-                    { id: 2, name: "String Concat", dsl: '"Hello " & "World"', description: "String concatenation" }
+                    { id: 1, name: "Email Validation", dsl: 'IS_EMAIL("test@example.com")', description: "Validate email address" },
+                    { id: 2, name: "LEI Validation", dsl: 'IS_LEI("549300VFXB3LH3JW7N94")', description: "Validate Legal Entity Identifier" },
+                    { id: 3, name: "SWIFT Code Check", dsl: 'IS_SWIFT("APXCUS33XXX")', description: "Validate SWIFT/BIC code" },
+                    { id: 4, name: "Pattern Match", dsl: '"INST_2024_00156" MATCHES /^INST_\\d{4}_\\d{5}$/', description: "Pattern matching with regex" },
+                    { id: 5, name: "Extract Year", dsl: 'EXTRACT("INST_2024_00156", "\\d{4}")', description: "Extract year from ID" },
+                    { id: 6, name: "KYC Score Calc", dsl: '(5 / 10) * 100', description: "Calculate KYC completeness" }
                 ];
             case 'load_source_data':
                 return {
@@ -56,8 +60,27 @@ try {
                         }
                     ]
                 };
+            case 'test_rule':
+                // Mock test results
+                const { dsl } = args;
+                console.log('Mock testing rule:', dsl);
+                if (dsl.includes('IS_EMAIL')) {
+                    return { success: true, result: true };
+                } else if (dsl.includes('IS_LEI')) {
+                    return { success: true, result: true };
+                } else if (dsl.includes('IS_SWIFT')) {
+                    return { success: true, result: true };
+                } else if (dsl.includes('MATCHES')) {
+                    return { success: true, result: true };
+                } else if (dsl.includes('EXTRACT')) {
+                    return { success: true, result: "2024" };
+                } else if (dsl.includes('*')) {
+                    return { success: true, result: 50 };
+                } else {
+                    return { success: true, result: "Mock result" };
+                }
             default:
-                return { success: false, error: "Browser mode - Tauri API not available" };
+                return { success: false, error: "Browser mode - command not mocked: " + cmd };
         }
     };
 }
@@ -84,6 +107,14 @@ const testButton = document.getElementById('testButton');
 const testResults = document.getElementById('testResults');
 const resultContent = document.getElementById('resultContent');
 
+console.log('UI Elements found:', {
+    saveButton: !!saveButton,
+    ruleSelect: !!ruleSelect,
+    testButton: !!testButton,
+    testResults: !!testResults,
+    resultContent: !!resultContent
+});
+
 let currentTestRules = [];
 
 // Load test rules on startup
@@ -95,14 +126,18 @@ async function loadTestRules() {
         currentTestRules = rules;
 
         // Populate dropdown
-        ruleSelect.innerHTML = '<option value="">Select a test rule...</option>';
-        rules.forEach(rule => {
-            const option = document.createElement('option');
-            option.value = rule.id;
-            option.textContent = `${rule.id}. ${rule.name}`;
-            ruleSelect.appendChild(option);
-        });
-        console.log('Dropdown populated with', rules.length, 'rules');
+        if (ruleSelect) {
+            ruleSelect.innerHTML = '<option value="">Select a test rule...</option>';
+            rules.forEach(rule => {
+                const option = document.createElement('option');
+                option.value = rule.id;
+                option.textContent = `${rule.id}. ${rule.name}`;
+                ruleSelect.appendChild(option);
+            });
+            console.log('Dropdown populated with', rules.length, 'rules');
+        } else {
+            console.error('Rule select dropdown not found');
+        }
     } catch (error) {
         console.error('Error loading test rules:', error);
 
@@ -128,7 +163,9 @@ async function loadTestRules() {
 }
 
 // Handle rule selection
-ruleSelect.addEventListener('change', (e) => {
+if (ruleSelect) {
+    console.log('Adding change listener to ruleSelect');
+    ruleSelect.addEventListener('change', (e) => {
     const selectedId = parseInt(e.target.value);
     testButton.disabled = !selectedId;
 
@@ -145,10 +182,15 @@ ruleSelect.addEventListener('change', (e) => {
         editor.setValue('# Your rule DSL will be loaded here...\n# Select a test rule from the dropdown to see examples\n');
         testResults.style.display = 'none';
     }
-});
+    });
+} else {
+    console.error('ruleSelect element not found!');
+}
 
 // Handle test execution
-testButton.addEventListener('click', async () => {
+if (testButton) {
+    console.log('Adding click listener to testButton');
+    testButton.addEventListener('click', async () => {
     const selectedId = parseInt(ruleSelect.value);
     if (!selectedId) return;
 
@@ -197,17 +239,24 @@ testButton.addEventListener('click', async () => {
         testButton.disabled = false;
         testButton.textContent = 'Run Test';
     }
-});
+    });
+} else {
+    console.error('testButton element not found!');
+}
 
 // Handle saving rules
-saveButton.addEventListener('click', () => {
+if (saveButton) {
+    saveButton.addEventListener('click', () => {
     const dslText = editor.getValue();
 
     // This 'invoke' calls the `save_rules` function in your Rust code
     invoke('save_rules', { dslText })
         .then(() => alert('Rules saved successfully!'))
         .catch((error) => alert(`Error saving rules: ${error}`));
-});
+    });
+} else {
+    console.error('saveButton element not found!');
+}
 
 // Grammar editor functionality
 let currentGrammarRules = [];
@@ -966,4 +1015,19 @@ if (!isTauriAvailable) {
 }
 
 // Load test rules when the app starts
-loadTestRules();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM loaded, initializing...');
+        loadTestRules().catch(err => {
+            console.error('Failed to load test rules on startup:', err);
+        });
+    });
+} else {
+    // DOM is already loaded
+    console.log('DOM already loaded, initializing immediately...');
+    setTimeout(() => {
+        loadTestRules().catch(err => {
+            console.error('Failed to load test rules on startup:', err);
+        });
+    }, 100);
+}

@@ -1,4 +1,5 @@
 mod parser;
+mod test_regex;
 
 use parser::{parse_rule, ASTNode};
 use serde::{Deserialize, Serialize};

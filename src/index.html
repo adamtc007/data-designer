@@ -639,6 +639,20 @@
         </div>
     </div>
 
-    <script type="module" src="/main.js"></script>
+    <!-- Import Tauri API -->
+    <script type="module">
+        // Import Tauri API v2
+        import { invoke } from '@tauri-apps/api/core';
+
+        // Make it available globally
+        window.tauriInvoke = invoke;
+        if (!window.__TAURI__) {
+            window.__TAURI__ = {};
+        }
+        window.__TAURI__.invoke = invoke;
+
+        console.log('✅ Tauri API imported and available');
+    </script>
+    <script type="module" src="./main-simple.js"></script>
 </body>
 </html>
