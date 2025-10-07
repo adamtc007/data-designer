@@ -1,0 +1,17 @@
+{
+  "name": "data-designer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "monaco-editor": "^0.43.0"
+  },
+  "devDependencies": {
+    "vite": "^4.5.3"
+  }
+}

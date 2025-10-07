@@ -1,0 +1,55 @@
+// Enhanced DSL Grammar for Complex Attribute Operations
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
+
+// Identifiers for attribute names
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Numbers for literals
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+
+// String literals
+string = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'" }
+
+// Operators with precedence
+add_op = { "+" }
+sub_op = { "-" }
+mul_op = { "*" }
+div_op = { "/" }
+concat_op = { "&" }
+
+// String functions
+substring_fn = { "SUBSTRING" ~ "(" ~ expression ~ "," ~ expression ~ "," ~ expression ~ ")" }
+concat_fn = { "CONCAT" ~ "(" ~ expression ~ ("," ~ expression)* ~ ")" }
+lookup_fn = { "LOOKUP" ~ "(" ~ expression ~ "," ~ string ~ ")" }
+
+// Function calls
+function_call = _{ substring_fn | concat_fn | lookup_fn }
+
+// Primary expressions (atoms with parentheses support)
+primary = _{
+    function_call |
+    "(" ~ expression ~ ")" |
+    identifier |
+    number |
+    string
+}
+
+// Expression with operator precedence
+// Multiplication and division have higher precedence than addition/subtraction
+term = { primary ~ (mul_op ~ primary | div_op ~ primary)* }
+expression = { term ~ (add_op ~ term | sub_op ~ term | concat_op ~ term)* }
+
+// Assignment statement: target_attr = expression
+assignment = { identifier ~ "=" ~ expression }
+
+// Enhanced condition support
+comparison_op = { "==" | "!=" | ">=" | "<=" | ">" | "<" }
+condition = { identifier ~ comparison_op ~ (identifier | number | string) }
+if_clause = { "IF" ~ condition ~ ("AND" ~ condition | "OR" ~ condition)* }
+then_clause = { "THEN" ~ assignment }
+
+rule = { "RULE" ~ string ~ if_clause ~ then_clause }
+
+// File can contain multiple rules
+file = { SOI ~ rule* ~ EOI }
