@@ -1,5 +1,59 @@
 import * as monaco from 'monaco-editor';
-import { invoke } from '@tauri-apps/api/core';
+
+// Check if Tauri API is available
+let invoke;
+let isTauriAvailable = false;
+
+try {
+    // Try to import Tauri API
+    const tauriApi = await import('@tauri-apps/api/core');
+    invoke = tauriApi.invoke;
+    isTauriAvailable = window.__TAURI_INTERNALS__ !== undefined;
+    console.log('✅ Running in Tauri application');
+} catch (e) {
+    console.warn('⚠️ Tauri API not available - running in browser mode');
+    // Create a mock invoke function for browser testing
+    invoke = async (cmd, args) => {
+        console.log(`Mock invoke: ${cmd}`, args);
+
+        // Provide mock responses for testing in browser
+        switch(cmd) {
+            case 'get_test_rules':
+                return [
+                    { id: 1, name: "Simple Math", dsl: "100 + 50", description: "Basic arithmetic" },
+                    { id: 2, name: "String Concat", dsl: '"Hello " & "World"', description: "String concatenation" }
+                ];
+            case 'load_source_data':
+                return {
+                    datasets: [
+                        {
+                            id: "mock_dataset",
+                            name: "Mock Dataset",
+                            description: "Mock data for browser testing",
+                            attributes: { test: "value", number: 123 }
+                        }
+                    ],
+                    lookup_tables: { test: { key: "value" } }
+                };
+            case 'load_target_rules':
+                return {
+                    rule_mappings: [
+                        {
+                            rule_id: "MOCK_RULE",
+                            rule_name: "Mock Rule",
+                            description: "Mock rule for testing",
+                            source_dataset: "mock_dataset",
+                            rule_expression: "test",
+                            target_attributes: { result: "string" },
+                            expected_result: "value"
+                        }
+                    ]
+                };
+            default:
+                return { success: false, error: "Browser mode - Tauri API not available" };
+        }
+    };
+}
 
 // Initialize the Monaco Editor in the <div id="container"></div>
 const editor = monaco.editor.create(document.getElementById('container'), {
@@ -887,6 +941,14 @@ document.getElementById('executeRuleButton').addEventListener('click', async () 
         resultsDiv.style.display = 'block';
     }
 });
+
+// Show mode indicator
+if (!isTauriAvailable) {
+    const warning = document.createElement('div');
+    warning.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #ff6b6b; color: white; padding: 10px; border-radius: 5px; z-index: 1000; font-family: Arial, sans-serif;';
+    warning.innerHTML = '⚠️ Browser Mode - Limited Functionality<br><small>Open in Tauri app for full features</small>';
+    document.body.appendChild(warning);
+}
 
 // Load test rules when the app starts
 loadTestRules();

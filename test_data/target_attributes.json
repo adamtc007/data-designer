@@ -1,175 +1,222 @@
 {
   "rule_mappings": [
     {
-      "rule_id": "RULE_ORDER_TOTAL",
-      "rule_name": "Calculate Order Total",
-      "description": "Calculate total order amount including tax and shipping",
-      "source_dataset": "customer_order_001",
-      "rule_expression": "(quantity * unit_price * (100 - discount_percent) / 100) * (1 + tax_rate) + shipping_cost",
+      "rule_id": "RULE_KYC_COMPLETENESS",
+      "rule_name": "Calculate KYC Completeness Score",
+      "description": "Determine overall KYC documentation completeness percentage",
+      "source_dataset": "compliance_review_001",
+      "rule_expression": "(documents_received / documents_required) * 100",
       "target_attributes": {
-        "order_total": "number",
-        "order_subtotal": "number",
-        "tax_amount": "number",
-        "discount_amount": "number",
-        "final_amount": "number"
+        "kyc_completion_percentage": "number",
+        "completeness_score": "number",
+        "documentation_status": "string"
       },
-      "expected_result": 305.65
+      "expected_result": 80
     },
     {
-      "rule_id": "RULE_CUSTOMER_LABEL",
-      "rule_name": "Generate Customer Label",
-      "description": "Create formatted customer label with tier and location",
-      "source_dataset": "customer_order_001",
-      "rule_expression": "CONCAT(customer_name, \" [\", customer_tier, \"] - \", LOOKUP(country_code, \"countries\"))",
+      "rule_id": "RULE_CLIENT_ID_FORMAT",
+      "rule_name": "Generate Standard Client Identifier",
+      "description": "Create standardized client ID with entity type and jurisdiction",
+      "source_dataset": "institutional_client_001",
+      "rule_expression": "CONCAT(SUBSTRING(entity_type, 0, 3), \"_\", jurisdiction, \"_\", client_id)",
       "target_attributes": {
-        "customer_label": "string",
-        "display_name": "string",
-        "formatted_tier": "string"
+        "standard_client_id": "string",
+        "formatted_identifier": "string",
+        "system_reference": "string"
       },
-      "expected_result": "Alice Johnson [premium] - United States"
+      "expected_result": "inv_Delaware_INST_2024_00156"
     },
     {
-      "rule_id": "RULE_EMPLOYEE_COMP",
-      "rule_name": "Calculate Total Compensation",
-      "description": "Calculate employee total compensation with bonus",
-      "source_dataset": "employee_record_001",
-      "rule_expression": "salary + (salary * bonus_percent / 100)",
+      "rule_id": "RULE_RISK_SCORE_CALC",
+      "rule_name": "Calculate Composite Risk Score",
+      "description": "Calculate weighted risk score based on multiple risk factors",
+      "source_dataset": "risk_assessment_001",
+      "rule_expression": "(LOOKUP(country_risk, \"risk_ratings\") * 0.2 + LOOKUP(industry_risk, \"risk_ratings\") * 0.2 + LOOKUP(client_type_risk, \"risk_ratings\") * 0.3 + LOOKUP(transaction_risk, \"risk_ratings\") * 0.3)",
       "target_attributes": {
-        "total_compensation": "number",
-        "annual_bonus": "number",
-        "monthly_salary": "number"
-      },
-      "expected_result": 109250
-    },
-    {
-      "rule_id": "RULE_EMPLOYEE_ID",
-      "rule_name": "Generate Employee Identifier",
-      "description": "Create unique employee identifier",
-      "source_dataset": "employee_record_001",
-      "rule_expression": "CONCAT(SUBSTRING(department, 0, 3), \"_\", last_name, \"_\", employee_id)",
-      "target_attributes": {
-        "unique_identifier": "string",
-        "display_id": "string",
-        "short_code": "string"
-      },
-      "expected_result": "eng_Smith_EMP_567890"
-    },
-    {
-      "rule_id": "RULE_INVENTORY_VALUE",
-      "rule_name": "Calculate Inventory Value",
-      "description": "Calculate total value of inventory on hand",
-      "source_dataset": "inventory_item_001",
-      "rule_expression": "quantity_on_hand * unit_cost",
-      "target_attributes": {
-        "total_inventory_value": "number",
-        "potential_revenue": "number",
-        "profit_margin": "number"
-      },
-      "expected_result": 6250.00
-    },
-    {
-      "rule_id": "RULE_REORDER_STATUS",
-      "rule_name": "Determine Reorder Status",
-      "description": "Check if reorder is needed",
-      "source_dataset": "inventory_item_001",
-      "rule_expression": "IF quantity_on_hand <= reorder_point THEN \"REORDER_REQUIRED\" ELSE \"STOCK_OK\"",
-      "target_attributes": {
-        "reorder_status": "string",
-        "stock_level": "string",
-        "action_required": "boolean"
-      },
-      "expected_result": "STOCK_OK"
-    },
-    {
-      "rule_id": "RULE_TRANSACTION_FEE",
-      "rule_name": "Calculate Transaction Fee",
-      "description": "Calculate fee based on transaction amount and type",
-      "source_dataset": "financial_transaction_001",
-      "rule_expression": "amount * 0.001 + fee_amount",
-      "target_attributes": {
-        "total_fee": "number",
-        "fee_percentage": "number",
-        "net_amount": "number"
-      },
-      "expected_result": 5.00
-    },
-    {
-      "rule_id": "RULE_RISK_CATEGORY",
-      "rule_name": "Categorize Risk Level",
-      "description": "Assign risk category based on score",
-      "source_dataset": "financial_transaction_001",
-      "rule_expression": "IF risk_score < 0.2 THEN \"LOW\" ELSE IF risk_score < 0.5 THEN \"MEDIUM\" ELSE \"HIGH\"",
-      "target_attributes": {
-        "risk_category": "string",
+        "composite_risk_score": "number",
         "risk_level": "string",
-        "requires_review": "boolean"
+        "review_frequency": "string"
       },
-      "expected_result": "LOW"
+      "expected_result": 2.3
     },
     {
-      "rule_id": "RULE_SENSOR_ALERT",
-      "rule_name": "Generate Sensor Alert",
-      "description": "Check if sensor readings exceed thresholds",
-      "source_dataset": "sensor_reading_001",
-      "rule_expression": "IF temperature_celsius > alert_threshold_temp OR humidity_percent > alert_threshold_humidity THEN \"ALERT\" ELSE \"NORMAL\"",
+      "rule_id": "RULE_FEE_CALCULATION",
+      "rule_name": "Calculate Custody Fees",
+      "description": "Calculate annual custody fees based on AUM and fee tier",
+      "source_dataset": "institutional_client_001",
+      "rule_expression": "aum_usd * LOOKUP(\"institutional_tier_1\", \"fee_tiers\")",
       "target_attributes": {
-        "alert_status": "string",
-        "alert_message": "string",
-        "notification_required": "boolean"
+        "annual_custody_fee": "number",
+        "monthly_fee": "number",
+        "fee_basis_points": "number"
       },
-      "expected_result": "NORMAL"
+      "expected_result": 8500000
     },
     {
-      "rule_id": "RULE_SENSOR_LABEL",
-      "rule_name": "Format Sensor Reading",
-      "description": "Create formatted sensor reading label",
-      "source_dataset": "sensor_reading_001",
-      "rule_expression": "CONCAT(sensor_id, \" @ \", location_id, \": Temp=\", temperature_celsius, \"°C, Humidity=\", humidity_percent, \"%\")",
+      "rule_id": "RULE_ONBOARDING_STATUS",
+      "rule_name": "Determine Onboarding Status",
+      "description": "Calculate onboarding workflow status based on document completion",
+      "source_dataset": "compliance_review_001",
+      "rule_expression": "IF kyc_completeness >= 100 THEN \"ready_for_approval\" ELSE IF kyc_completeness >= 80 THEN \"pending_documents\" ELSE \"incomplete\"",
       "target_attributes": {
-        "reading_label": "string",
-        "display_text": "string",
-        "summary": "string"
+        "onboarding_status": "string",
+        "workflow_stage": "string",
+        "action_required": "string"
       },
-      "expected_result": "SENS_ENV_001 @ LOC_BLDG_A_FL3: Temp=22.5°C, Humidity=45%"
+      "expected_result": "pending_documents"
     },
     {
-      "rule_id": "RULE_COMPLEX_CALC",
-      "rule_name": "Complex Multi-Dataset Calculation",
-      "description": "Complex calculation using multiple operations",
-      "source_dataset": "customer_order_001",
-      "rule_expression": "CONCAT(\"Order \", order_id, \": $\", (quantity * unit_price * (1 - discount_percent / 100) * (1 + tax_rate) + shipping_cost), \" [\", LOOKUP(customer_tier, \"rates\") * 100, \"% rewards]\")",
+      "rule_id": "RULE_AUTHORITY_VALIDATION",
+      "rule_name": "Validate Trading Authority",
+      "description": "Check if authorized person has valid trading permissions",
+      "source_dataset": "authorized_persons_001",
+      "rule_expression": "IF trading_authority = true AND background_check_status = \"approved\" AND authority_limit_usd > 0 THEN \"authorized\" ELSE \"restricted\"",
       "target_attributes": {
-        "complex_output": "string",
-        "calculation_result": "string",
-        "formatted_display": "string"
+        "trading_permission": "string",
+        "authorization_status": "string",
+        "permission_level": "string"
       },
-      "expected_result": "Order ORD_2024_001: $305.65 [10% rewards]"
+      "expected_result": "authorized"
     },
     {
-      "rule_id": "RULE_DATE_FORMAT",
-      "rule_name": "Format Date Display",
-      "description": "Create formatted date string",
-      "source_dataset": "employee_record_001",
-      "rule_expression": "CONCAT(first_name, \" \", last_name, \" (hired: \", hire_date, \")\")",
+      "rule_id": "RULE_REGULATORY_FLAG",
+      "rule_name": "Generate Regulatory Reporting Flag",
+      "description": "Determine regulatory reporting requirements based on jurisdiction and type",
+      "source_dataset": "institutional_client_001",
+      "rule_expression": "CONCAT(LOOKUP(primary_regulator, \"regulatory_bodies\"), \" - \", regulatory_status, \" [\", registration_number, \"]\")",
       "target_attributes": {
-        "employee_display": "string",
-        "hire_info": "string",
-        "formatted_name": "string"
+        "regulatory_identifier": "string",
+        "reporting_requirement": "string",
+        "regulator_reference": "string"
       },
-      "expected_result": "John Smith (hired: 2020-03-15)"
+      "expected_result": "Securities and Exchange Commission - registered_investment_advisor [801-123456]"
+    },
+    {
+      "rule_id": "RULE_DOC_MISSING",
+      "rule_name": "Identify Missing Documents",
+      "description": "Count number of pending or missing critical documents",
+      "source_dataset": "document_checklist_001",
+      "rule_expression": "IF audited_financials = \"pending\" THEN 1 ELSE 0 + IF legal_opinion = \"pending\" THEN 1 ELSE 0 + IF beneficial_ownership_chart = \"pending\" THEN 1 ELSE 0",
+      "target_attributes": {
+        "missing_documents_count": "number",
+        "critical_documents_pending": "number",
+        "documentation_gaps": "string"
+      },
+      "expected_result": 3
+    },
+    {
+      "rule_id": "RULE_ACCOUNT_LABEL",
+      "rule_name": "Generate Account Label",
+      "description": "Create formatted account label with client name and account type",
+      "source_dataset": "account_structure_001",
+      "rule_expression": "CONCAT(account_name, \" [\", account_type, \"] - \", base_currency, \" (Fee: \", LOOKUP(fee_schedule, \"fee_tiers\") * 10000, \" bps)\")",
+      "target_attributes": {
+        "account_label": "string",
+        "display_name": "string",
+        "account_description": "string"
+      },
+      "expected_result": "Apex Capital - Master Fund [master_custody] - USD (Fee: 10 bps)"
+    },
+    {
+      "rule_id": "RULE_PEP_SANCTIONS",
+      "rule_name": "PEP and Sanctions Check Status",
+      "description": "Determine if enhanced due diligence is required",
+      "source_dataset": "authorized_persons_001",
+      "rule_expression": "IF pep_status = true OR sanctions_check != \"clear\" THEN \"enhanced_due_diligence\" ELSE \"standard_due_diligence\"",
+      "target_attributes": {
+        "due_diligence_level": "string",
+        "review_requirement": "string",
+        "compliance_flag": "string"
+      },
+      "expected_result": "standard_due_diligence"
+    },
+    {
+      "rule_id": "RULE_FATCA_CRS",
+      "rule_name": "Tax Reporting Requirements",
+      "description": "Determine tax reporting obligations based on FATCA and CRS status",
+      "source_dataset": "account_structure_001",
+      "rule_expression": "IF fatca_status = \"participating_ffi\" AND crs_reporting = true THEN \"full_reporting\" ELSE IF fatca_status = \"participating_ffi\" THEN \"fatca_only\" ELSE \"limited_reporting\"",
+      "target_attributes": {
+        "tax_reporting_requirement": "string",
+        "reporting_jurisdiction": "string",
+        "withholding_requirement": "string"
+      },
+      "expected_result": "full_reporting"
+    },
+    {
+      "rule_id": "RULE_REVIEW_PRIORITY",
+      "rule_name": "Calculate Review Priority Score",
+      "description": "Prioritize compliance review based on AUM, risk, and completeness",
+      "source_dataset": "compliance_review_001",
+      "rule_expression": "(expected_annual_volume / 100000000) + aml_risk_score + (100 - kyc_completeness) / 20",
+      "target_attributes": {
+        "priority_score": "number",
+        "review_urgency": "string",
+        "queue_position": "number"
+      },
+      "expected_result": 9.95
+    },
+    {
+      "rule_id": "RULE_LEI_VALIDATION",
+      "rule_name": "Validate Legal Entity Identifier",
+      "description": "Check LEI format and create validation status",
+      "source_dataset": "institutional_client_001",
+      "rule_expression": "IF legal_entity_identifier != null THEN CONCAT(\"LEI: \", legal_entity_identifier, \" [VALID]\") ELSE \"LEI_REQUIRED\"",
+      "target_attributes": {
+        "lei_status": "string",
+        "lei_validation": "string",
+        "identifier_compliance": "string"
+      },
+      "expected_result": "LEI: 549300VFXB3LH3JW7N94 [VALID]"
+    },
+    {
+      "rule_id": "RULE_APPROVAL_READINESS",
+      "rule_name": "Account Approval Readiness Check",
+      "description": "Determine if account is ready for final approval",
+      "source_dataset": "compliance_review_001",
+      "rule_expression": "IF kyc_completeness >= 100 AND approval_status = \"pending_final_review\" AND beneficial_ownership = \"verified\" THEN \"ready_for_approval\" ELSE \"not_ready\"",
+      "target_attributes": {
+        "approval_readiness": "string",
+        "approval_checklist": "string",
+        "final_status": "string"
+      },
+      "expected_result": "not_ready"
+    },
+    {
+      "rule_id": "RULE_SERVICE_LEVEL",
+      "rule_name": "Determine Service Level",
+      "description": "Assign service level based on AUM and client type",
+      "source_dataset": "institutional_client_001",
+      "rule_expression": "IF aum_usd > 5000000000 AND entity_type = \"investment_manager\" THEN \"platinum\" ELSE IF aum_usd > 1000000000 THEN \"gold\" ELSE \"silver\"",
+      "target_attributes": {
+        "service_level": "string",
+        "support_tier": "string",
+        "relationship_type": "string"
+      },
+      "expected_result": "platinum"
     }
   ],
   "metadata": {
-    "version": "1.0.0",
+    "version": "2.0.0",
     "created": "2024-10-07",
-    "description": "Target attribute mappings with rule definitions and expected results",
-    "total_rules": 12,
+    "description": "KYC and institutional client onboarding rules for custody banking",
+    "total_rules": 15,
+    "domain": "custody_banking",
     "categories": [
-      "arithmetic",
-      "string_operations",
-      "lookups",
-      "conditionals",
-      "complex_expressions"
+      "kyc_compliance",
+      "risk_assessment",
+      "fee_calculation",
+      "regulatory_reporting",
+      "document_validation",
+      "client_onboarding"
+    ],
+    "compliance_frameworks": [
+      "FATCA",
+      "CRS",
+      "AML",
+      "KYC",
+      "MiFID II",
+      "Dodd-Frank"
     ]
   }
 }
