@@ -361,7 +361,7 @@ fn update_grammar_rule(name: String, _rule: GrammarRule) -> Result<String, Strin
 }
 
 #[tauri::command]
-fn generate_pest_grammar() -> Result<String, String> {
+fn generate_grammar_visualization() -> Result<String, String> {
     // Generate a representation of the nom parser grammar
     Ok(r#"// nom Parser Grammar (Conceptual Representation)
 
@@ -588,7 +588,7 @@ pub fn run() {
             test_rule,
             get_grammar_rules,
             update_grammar_rule,
-            generate_pest_grammar,
+            generate_grammar_visualization,
             load_grammar,
             save_grammar,
             load_source_data,

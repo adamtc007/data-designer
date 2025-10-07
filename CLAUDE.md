@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, testing, and managing dynamic data transformation rules using a soft DSL (Domain Specific Language) system. The project features:
 
 - **Dynamic Grammar System**: EBNF-based soft DSL where grammar rules are data-driven and editable through the UI
-- **Advanced Parser**: Full Pest-based parser with 5 major extensions (arithmetic, strings, functions, lookups, runtime resolution)
+- **Advanced Parser**: Full nom-based parser with 5 major extensions (arithmetic, strings, functions, lookups, runtime resolution)
 - **Interactive Rule Editor**: Monaco Editor with live rule testing and validation
 - **Grammar Editor**: Visual EBNF rule editor for modifying the DSL itself
 - **Rules Engine**: Runtime expression evaluation with complex operator precedence and function calls
@@ -27,7 +27,7 @@ This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, 
    - Function calls (CONCAT, SUBSTRING, LOOKUP)
    - Runtime attribute resolution from context
 
-3. **Pest Parser Integration** (src/lib.rs:217-480):
+3. **Nom Parser Integration** (src/lib.rs:217-480):
    - Enhanced transpiler with full grammar support
    - Expression parsing with precedence handling
    - Runtime expression evaluation
@@ -40,12 +40,12 @@ This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, 
    - Two-tab interface: Rules + Grammar editors
    - Live grammar rule editing and validation
    - Test rule execution with results display
-   - Pest grammar generation preview
+   - Grammar visualization preview
 
 ### Key Files
 
 - `src/lib.rs`: Enhanced Rust library with expression engine and Pest parser
-- `src/dsl.pest`: Complete EBNF grammar definition with 5 extensions
+- `src/parser.rs`: Complete nom parser with 5 extensions
 - `grammar_rules.json`: Dynamic grammar storage with metadata
 - `src/index.html`: Two-tab UI with Rules and Grammar editors
 - `src/main.js`: Advanced frontend with grammar management and live testing
@@ -77,7 +77,7 @@ cargo tauri build    # Build Tauri app for production
 The Tauri app automatically runs `npm run dev` and provides:
 - Interactive rule testing with dropdown selection
 - Live grammar editing and validation
-- Pest grammar generation from EBNF rules
+- Grammar visualization from EBNF rules
 
 ## Enhanced DSL Features
 
@@ -129,7 +129,7 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 - `save_grammar()`: Persist grammar changes
 - `get_grammar_rules()`: List all grammar rules
 - `update_grammar_rule()`: Modify individual rules
-- `generate_pest_grammar()`: Convert EBNF to Pest format
+- `generate_grammar_visualization()`: Generate grammar representation
 - `validate_grammar()`: Check grammar correctness
 
 ## Test Rules Available
@@ -156,7 +156,7 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 - Visual EBNF rule browser and editor
 - Rule type selection (normal/silent/atomic)
 - Live grammar validation
-- Pest grammar generation and preview
+- Grammar generation and preview
 - Add/edit/delete grammar rules
 - Grammar persistence to JSON
 
@@ -177,7 +177,7 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 src/
 ├── lib.rs              # Enhanced Rust library with expression engine
 ├── main.rs             # Comprehensive test suite
-├── dsl.pest            # Complete EBNF grammar with 5 extensions
+├── parser.rs           # Complete nom parser with 5 extensions
 ├── index.html          # Two-tab UI (Rules + Grammar) with Tauri API integration
 ├── main.js             # Advanced frontend with grammar management
 ├── main-simple.js      # Simplified version for debugging/testing

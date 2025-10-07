@@ -362,10 +362,10 @@ document.getElementById('validateGrammarButton').addEventListener('click', async
     }
 });
 
-document.getElementById('generatePestButton').addEventListener('click', async () => {
+document.getElementById('generateGrammarButton').addEventListener('click', async () => {
     try {
-        const pestGrammar = await invoke('generate_pest_grammar');
-        document.getElementById('grammarContent').textContent = pestGrammar;
+        const grammarVisualization = await invoke('generate_grammar_visualization');
+        document.getElementById('grammarContent').textContent = grammarVisualization;
         document.getElementById('grammarResults').style.display = 'block';
     } catch (error) {
         alert(`Error generating grammar view: ${error}`);
