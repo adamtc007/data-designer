@@ -162,13 +162,14 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 
 ## Current State
 
-- **Production Ready**: Full-featured soft DSL system
+- **Production Ready**: Full-featured soft DSL system with working Tauri IDE
 - **5 Parser Extensions**: All implemented and tested
 - **Dynamic Grammar**: Completely configurable through UI
 - **Advanced UI**: Two-tab interface with live editing
-- **Comprehensive Testing**: 8 test cases covering all features
+- **Comprehensive Testing**: 8 test cases covering all features - all passing
 - **Runtime Evaluation**: Complex expression engine with precedence
 - **External Integration**: Lookup table system for external data
+- **Tauri Integration**: Fully functional desktop app with proper API connectivity
 
 ## File Structure
 
@@ -177,12 +178,16 @@ src/
 ├── lib.rs              # Enhanced Rust library with expression engine
 ├── main.rs             # Comprehensive test suite
 ├── dsl.pest            # Complete EBNF grammar with 5 extensions
-├── index.html          # Two-tab UI (Rules + Grammar)
-└── main.js             # Advanced frontend with grammar management
+├── index.html          # Two-tab UI (Rules + Grammar) with Tauri API integration
+├── main.js             # Advanced frontend with grammar management
+├── main-simple.js      # Simplified version for debugging/testing
+├── test.html           # Basic test page for Tauri connectivity
+└── simple.js           # Simple JavaScript test utilities
 
 src-tauri/
 ├── src/lib.rs          # Tauri commands for rules and grammar
-└── src/main.rs         # Tauri entry point
+├── src/main.rs         # Tauri entry point
+└── tauri.conf.json     # Tauri config with withGlobalTauri enabled
 
 grammar_rules.json      # Dynamic grammar storage
 ```
@@ -210,3 +215,16 @@ grammar_rules.json      # Dynamic grammar storage
 ```
 
 The DSL is now completely "soft" - modifiable through the UI without code changes!
+
+## Tauri Configuration Notes
+
+### Important Settings
+- **withGlobalTauri**: Must be set to `true` in `tauri.conf.json` to enable Tauri API injection
+- **Frontend Import**: Tauri API must be imported from `@tauri-apps/api/core` for proper connectivity
+- **Parameter Naming**: Backend `test_rule` command expects `dslText` parameter (not `rule`)
+
+### Troubleshooting
+- If IDE shows no content: Check `withGlobalTauri` is enabled in tauri.conf.json
+- If Tauri API not detected: Verify import from '@tauri-apps/api/core' in index.html
+- If rules don't load: Check invoke function is properly accessible via window.__TAURI__.invoke
+- If tests fail with parameter error: Ensure frontend sends `dslText` not `rule` to test_rule command
