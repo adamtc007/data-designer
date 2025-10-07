@@ -1,4 +1,11 @@
 import * as monaco from 'monaco-editor';
+import { DSL_LANGUAGE_ID, DSL_LANGUAGE_CONFIG, DSL_MONARCH_LANGUAGE, DSL_THEME } from './dsl-language.js';
+
+// Register the DSL language with Monaco
+monaco.languages.register({ id: DSL_LANGUAGE_ID });
+monaco.languages.setLanguageConfiguration(DSL_LANGUAGE_ID, DSL_LANGUAGE_CONFIG);
+monaco.languages.setMonarchTokensProvider(DSL_LANGUAGE_ID, DSL_MONARCH_LANGUAGE);
+monaco.editor.defineTheme('dsl-theme', DSL_THEME);
 
 // Check if Tauri API is available
 let invoke;
@@ -57,9 +64,17 @@ try {
 
 // Initialize the Monaco Editor in the <div id="container"></div>
 const editor = monaco.editor.create(document.getElementById('container'), {
-    value: '# Your rule DSL will be loaded here...\n# Select a test rule from the dropdown to see examples\n',
-    language: 'plaintext', // We can create a custom language later
-    theme: 'vs-dark'
+    value: '# KYC Rule DSL Editor\n# Your rules support arithmetic, strings, functions, lookups, and conditionals\n\n# Example: Calculate KYC completeness\nkyc_score = (documents_received / documents_required) * 100\n\n# Example: Risk assessment\nIF risk_rating = "high" AND pep_status = true THEN\n    "enhanced_due_diligence"\nELSE\n    "standard_review"\n',
+    language: DSL_LANGUAGE_ID,
+    theme: 'dsl-theme',
+    automaticLayout: true,
+    minimap: { enabled: false },
+    suggestOnTriggerCharacters: true,
+    quickSuggestions: true,
+    wordBasedSuggestions: false,
+    scrollBeyondLastLine: false,
+    renderWhitespace: 'selection',
+    fontSize: 14,
 });
 
 // Get UI elements
