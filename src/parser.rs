@@ -9,6 +9,7 @@ use nom::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ASTNode {
@@ -34,6 +35,7 @@ pub enum ASTNode {
     String(String),
     Boolean(bool),
     List(Vec<ASTNode>),
+    Regex(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ pub enum BinaryOperator {
     And,
     Or,
     Concat,
+    Matches,  // For regex matching: field MATCHES /pattern/
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,6 +133,33 @@ fn string_literal(input: &str) -> IResult<&str, ASTNode> {
     )(input)
 }
 
+// Parse regex literals: /pattern/flags or r"pattern"
+fn regex_literal(input: &str) -> IResult<&str, ASTNode> {
+    alt((
+        // Slash syntax: /pattern/
+        map(
+            delimited(
+                char('/'),
+                take_while(|c: char| c != '/'),
+                char('/')
+            ),
+            |pattern: &str| ASTNode::Regex(pattern.to_string())
+        ),
+        // Raw string syntax: r"pattern"
+        map(
+            preceded(
+                char('r'),
+                delimited(
+                    char('"'),
+                    take_while(|c: char| c != '"'),
+                    char('"')
+                )
+            ),
+            |pattern: &str| ASTNode::Regex(pattern.to_string())
+        )
+    ))(input)
+}
+
 // Parse boolean literals
 fn boolean(input: &str) -> IResult<&str, ASTNode> {
     alt((
@@ -168,6 +198,7 @@ fn primary(input: &str) -> IResult<&str, ASTNode> {
     ws(alt((
         number,  // This now handles negative numbers directly
         string_literal,
+        regex_literal,  // Add regex literal support
         boolean,
         function_call,
         list,
@@ -275,6 +306,8 @@ fn comparison(input: &str) -> IResult<&str, ASTNode> {
 
     let (input, operation) = opt(tuple((
         ws(alt((
+            value(BinaryOperator::Matches, tag("MATCHES")),
+            value(BinaryOperator::Matches, tag("~")),  // Shorthand for regex match
             value(BinaryOperator::LessThanOrEqual, tag("<=")),
             value(BinaryOperator::GreaterThanOrEqual, tag(">=")),
             value(BinaryOperator::NotEqual, tag("!=")),
@@ -368,6 +401,7 @@ impl ASTNode {
             ASTNode::Number(n) => Ok(serde_json::json!(n)),
             ASTNode::String(s) => Ok(serde_json::json!(s)),
             ASTNode::Boolean(b) => Ok(serde_json::json!(b)),
+            ASTNode::Regex(pattern) => Ok(serde_json::json!(format!("/{}/", pattern))),
             ASTNode::List(items) => {
                 let evaluated: Result<Vec<_>, _> = items.iter()
                     .map(|item| item.evaluate(context))
@@ -491,6 +525,31 @@ impl ASTNode {
                         let r_bool = right_val.as_bool().unwrap_or(false);
                         Ok(serde_json::json!(l_bool || r_bool))
                     },
+                    BinaryOperator::Matches => {
+                        // Handle regex matching: value MATCHES /pattern/ or value ~ r"pattern"
+                        let text = match left_val.as_str() {
+                            Some(s) => s,
+                            None => return Err("Left operand of MATCHES must be a string".to_string())
+                        };
+
+                        // Extract pattern from right side
+                        let pattern = if let Some(s) = right_val.as_str() {
+                            // Remove surrounding slashes if present (from evaluation)
+                            if s.starts_with('/') && s.ends_with('/') && s.len() > 2 {
+                                &s[1..s.len()-1]
+                            } else {
+                                s
+                            }
+                        } else {
+                            return Err("Right operand of MATCHES must be a regex pattern".to_string());
+                        };
+
+                        // Compile and test regex
+                        match Regex::new(pattern) {
+                            Ok(re) => Ok(serde_json::json!(re.is_match(text))),
+                            Err(e) => Err(format!("Invalid regex pattern: {}", e))
+                        }
+                    },
                 }
             },
             ASTNode::UnaryOp { op, operand } => {
@@ -606,6 +665,98 @@ impl ASTNode {
                             Ok(serde_json::json!(s.to_lowercase()))
                         } else {
                             Err(format!("{} requires a string argument", name.to_uppercase()))
+                        }
+                    },
+                    "IS_EMAIL" => {
+                        // Validate email format for KYC
+                        if args.len() != 1 {
+                            return Err("IS_EMAIL requires 1 argument".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        if let Some(s) = val.as_str() {
+                            let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+                            Ok(serde_json::json!(email_regex.is_match(s)))
+                        } else {
+                            Ok(serde_json::json!(false))
+                        }
+                    },
+                    "IS_LEI" => {
+                        // Validate Legal Entity Identifier (20 characters: 4 alphanumeric + 2 reserved + 14 alphanumeric)
+                        if args.len() != 1 {
+                            return Err("IS_LEI requires 1 argument".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        if let Some(s) = val.as_str() {
+                            let lei_regex = Regex::new(r"^[A-Z0-9]{4}00[A-Z0-9]{14}$").unwrap();
+                            Ok(serde_json::json!(lei_regex.is_match(s)))
+                        } else {
+                            Ok(serde_json::json!(false))
+                        }
+                    },
+                    "IS_SWIFT" => {
+                        // Validate SWIFT/BIC code (8 or 11 characters)
+                        if args.len() != 1 {
+                            return Err("IS_SWIFT requires 1 argument".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        if let Some(s) = val.as_str() {
+                            let swift_regex = Regex::new(r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$").unwrap();
+                            Ok(serde_json::json!(swift_regex.is_match(s)))
+                        } else {
+                            Ok(serde_json::json!(false))
+                        }
+                    },
+                    "IS_PHONE" => {
+                        // Validate international phone number
+                        if args.len() != 1 {
+                            return Err("IS_PHONE requires 1 argument".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        if let Some(s) = val.as_str() {
+                            let phone_regex = Regex::new(r"^\+?[1-9]\d{1,14}$").unwrap();
+                            Ok(serde_json::json!(phone_regex.is_match(s)))
+                        } else {
+                            Ok(serde_json::json!(false))
+                        }
+                    },
+                    "VALIDATE" => {
+                        // Generic pattern validation: VALIDATE(value, pattern)
+                        if args.len() != 2 {
+                            return Err("VALIDATE requires 2 arguments: value and pattern".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        let pattern = args[1].evaluate(context)?;
+
+                        if let (Some(s), Some(p)) = (val.as_str(), pattern.as_str()) {
+                            match Regex::new(p) {
+                                Ok(re) => Ok(serde_json::json!(re.is_match(s))),
+                                Err(e) => Err(format!("Invalid regex pattern: {}", e))
+                            }
+                        } else {
+                            Err("VALIDATE requires string arguments".to_string())
+                        }
+                    },
+                    "EXTRACT" => {
+                        // Extract pattern matches: EXTRACT(value, pattern)
+                        if args.len() != 2 {
+                            return Err("EXTRACT requires 2 arguments: value and pattern".to_string());
+                        }
+                        let val = args[0].evaluate(context)?;
+                        let pattern = args[1].evaluate(context)?;
+
+                        if let (Some(s), Some(p)) = (val.as_str(), pattern.as_str()) {
+                            match Regex::new(p) {
+                                Ok(re) => {
+                                    if let Some(capture) = re.find(s) {
+                                        Ok(serde_json::json!(capture.as_str()))
+                                    } else {
+                                        Ok(serde_json::json!(null))
+                                    }
+                                },
+                                Err(e) => Err(format!("Invalid regex pattern: {}", e))
+                            }
+                        } else {
+                            Err("EXTRACT requires string arguments".to_string())
                         }
                     },
                     _ => Err(format!("Unknown function: {}", name))

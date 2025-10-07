@@ -26,6 +26,13 @@ lazy_static! {
         ("ABS", "Returns absolute value"),
         ("MAX", "Returns maximum of values"),
         ("MIN", "Returns minimum of values"),
+        // Regex validation functions for KYC
+        ("IS_EMAIL", "Validates email format: IS_EMAIL(email)"),
+        ("IS_LEI", "Validates Legal Entity Identifier: IS_LEI(lei)"),
+        ("IS_SWIFT", "Validates SWIFT/BIC code: IS_SWIFT(code)"),
+        ("IS_PHONE", "Validates phone number: IS_PHONE(number)"),
+        ("VALIDATE", "Generic pattern validation: VALIDATE(value, pattern)"),
+        ("EXTRACT", "Extract pattern matches: EXTRACT(value, pattern)"),
     ];
 
     static ref DSL_OPERATORS: Vec<(&'static str, &'static str)> = vec![
@@ -42,6 +49,8 @@ lazy_static! {
         ("<=", "Less than or equal"),
         (">=", "Greater than or equal"),
         ("=", "Assignment"),
+        ("MATCHES", "Regex pattern matching: text MATCHES /pattern/"),
+        ("~", "Regex match shorthand: text ~ /pattern/"),
     ];
 
     static ref IDENTIFIER_PATTERN: Regex = Regex::new(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b").unwrap();
