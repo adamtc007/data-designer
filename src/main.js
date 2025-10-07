@@ -250,7 +250,7 @@ document.getElementById('generatePestButton').addEventListener('click', async ()
         document.getElementById('grammarContent').textContent = pestGrammar;
         document.getElementById('grammarResults').style.display = 'block';
     } catch (error) {
-        alert(`Error generating Pest grammar: ${error}`);
+        alert(`Error generating grammar view: ${error}`);
     }
 });
 

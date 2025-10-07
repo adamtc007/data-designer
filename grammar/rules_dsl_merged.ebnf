@@ -1,0 +1,250 @@
+(* Data Designer DSL Grammar - Extended EBNF Notation *)
+(* Version 2.0 - Merged with SQL-like transformation features *)
+
+(* ============================================================================ *)
+(* Main Entry Point *)
+(* ============================================================================ *)
+
+transformation_rule = assignment | expression ;
+
+(* ============================================================================ *)
+(* Assignments *)
+(* ============================================================================ *)
+
+assignment = identifier, "=", expression ;
+
+(* ============================================================================ *)
+(* Expressions - Operator Precedence (lowest to highest) *)
+(* ============================================================================ *)
+
+expression = logical_or ;
+
+(* Logical Operations *)
+logical_or = logical_and, { ("OR" | "or" | "||"), logical_and } ;
+logical_and = in_expression, { ("AND" | "and" | "&&"), in_expression } ;
+
+(* IN operator for set membership *)
+in_expression = comparison, [ "IN", "(", expression_list, ")" ] ;
+
+(* Comparison Operations *)
+comparison = concatenation, [ comparison_op, concatenation ] ;
+comparison_op = "<=" | ">=" | "!=" | "<>" | "==" | "=" | "<" | ">" ;
+
+(* String Concatenation *)
+concatenation = coalesce_expr, { ("&" | "||"), coalesce_expr } ;
+
+(* COALESCE - returns first non-null value *)
+coalesce_expr = arithmetic | ("COALESCE", "(", expression_list, ")") ;
+
+(* Arithmetic Operations *)
+arithmetic = term, { ("+"|"-"), term } ;
+term = unary, { ("*"|"/"|"%"), unary } ;
+
+(* Unary Operations *)
+unary = [ "NOT" | "not" | "!" | "-" ], power ;
+
+(* Power Operation *)
+power = cast_expr, { "**", cast_expr } ;
+
+(* Type Conversion *)
+cast_expr = primary | type_conversion ;
+type_conversion = "CAST", "(", expression, "AS", data_type, ")" ;
+
+(* ============================================================================ *)
+(* Primary Expressions *)
+(* ============================================================================ *)
+
+primary = number
+        | string_literal
+        | boolean
+        | null_literal
+        | date_literal
+        | function_call
+        | list
+        | identifier
+        | "(", expression, ")" ;
+
+(* ============================================================================ *)
+(* Function Calls *)
+(* ============================================================================ *)
+
+function_call = function_name, "(", [ argument_list ], ")" ;
+
+function_name = "CONCAT" | "SUBSTRING" | "UPPER" | "LOWER" | "LEN" | "LENGTH"
+              | "UPPERCASE" | "LOWERCASE" | "LOOKUP" | "COALESCE"
+              | "DATE_DIFF" | "REGEX_MATCH" | "REGEX_REPLACE" | "REGEX_EXTRACT"
+              | "TRIM" | "LTRIM" | "RTRIM" | "REPLACE" | "SPLIT"
+              | "ABS" | "ROUND" | "FLOOR" | "CEIL" | "SQRT" | "POWER"
+              | "NOW" | "TODAY" | "DATE_FORMAT" | "DATE_PARSE" ;
+
+argument_list = expression, { ",", expression } ;
+expression_list = expression, { ",", expression } ;
+
+(* ============================================================================ *)
+(* Lists and Arrays *)
+(* ============================================================================ *)
+
+list = "[", [ expression_list ], "]" ;
+
+(* ============================================================================ *)
+(* Data Types *)
+(* ============================================================================ *)
+
+data_type = "INTEGER" | "INT" | "STRING" | "VARCHAR" | "TEXT"
+          | "FLOAT" | "DOUBLE" | "DECIMAL" | "NUMBER"
+          | "BOOLEAN" | "BOOL" | "DATE" | "DATETIME" | "TIMESTAMP" ;
+
+(* ============================================================================ *)
+(* Literals *)
+(* ============================================================================ *)
+
+(* Numbers - integers and floating point *)
+number = [ "-" ], digit, { digit }, [ ".", digit, { digit } ] ;
+
+(* String Literals - double or single quoted *)
+string_literal = ('"', { string_char | escape_sequence }, '"')
+               | ("'", { string_char | escape_sequence }, "'") ;
+
+string_char = ? any character except quote or backslash ? ;
+escape_sequence = "\", ( "n" | "r" | "t" | "\" | '"' | "'" | "0" | "x", hex_digit, hex_digit ) ;
+
+(* Boolean Literals *)
+boolean = "TRUE" | "true" | "FALSE" | "false" ;
+
+(* NULL Literal *)
+null_literal = "NULL" | "null" ;
+
+(* Date Literals *)
+date_literal = "DATE", string_literal
+             | "TIMESTAMP", string_literal
+             | "DATETIME", string_literal ;
+
+(* Identifiers - variable and function names with optional dot notation *)
+identifier = simple_identifier, { ".", simple_identifier } ;
+simple_identifier = ( letter | "_" ), { letter | digit | "_" } ;
+
+(* ============================================================================ *)
+(* Lexical Elements *)
+(* ============================================================================ *)
+
+letter = "A".."Z" | "a".."z" ;
+digit = "0".."9" ;
+hex_digit = digit | "A".."F" | "a".."f" ;
+
+(* Whitespace is ignored between tokens *)
+whitespace = " " | "\t" | "\r" | "\n" ;
+
+(* ============================================================================ *)
+(* Built-in Functions Reference *)
+(* ============================================================================ *)
+
+(* String Functions:
+   CONCAT(arg1, arg2, ...)           - Concatenate multiple values
+   SUBSTRING(string, start, length)  - Extract substring
+   UPPER(string)                     - Convert to uppercase
+   LOWER(string)                     - Convert to lowercase
+   LEN(string) / LENGTH(string)      - Get string length
+   TRIM(string)                      - Remove leading/trailing whitespace
+   LTRIM(string)                     - Remove leading whitespace
+   RTRIM(string)                     - Remove trailing whitespace
+   REPLACE(string, search, replace)  - Replace occurrences
+   SPLIT(string, delimiter)          - Split into array
+
+   Regular Expression Functions:
+   REGEX_MATCH(string, pattern)             - Test if pattern matches
+   REGEX_REPLACE(string, pattern, replace)  - Replace using regex
+   REGEX_EXTRACT(string, pattern, group)    - Extract matching group
+
+   Math Functions:
+   ABS(number)              - Absolute value
+   ROUND(number, decimals)  - Round to decimal places
+   FLOOR(number)            - Round down
+   CEIL(number)             - Round up
+   SQRT(number)             - Square root
+   POWER(base, exponent)    - Exponentiation
+
+   Date/Time Functions:
+   NOW()                              - Current timestamp
+   TODAY()                            - Current date
+   DATE_DIFF(date1, date2, unit)     - Difference between dates
+   DATE_FORMAT(date, format)         - Format date as string
+   DATE_PARSE(string, format)        - Parse string to date
+
+   Utility Functions:
+   COALESCE(val1, val2, ...)  - Return first non-null value
+   LOOKUP(key, table_name)     - Look up value from external table
+   CAST(value AS type)         - Type conversion
+*)
+
+(* ============================================================================ *)
+(* Operator Summary *)
+(* ============================================================================ *)
+
+(* Arithmetic Operators:
+   +  : Addition
+   -  : Subtraction / Negation
+   *  : Multiplication
+   /  : Division
+   %  : Modulo
+   ** : Power
+
+   String Operators:
+   &  or || : Concatenation
+
+   Comparison Operators:
+   == or = : Equals
+   !=      : Not equals
+   <       : Less than
+   >       : Greater than
+   <=      : Less than or equal
+   >=      : Greater than or equal
+   IN      : Set membership
+
+   Logical Operators:
+   AND or and or && : Logical AND
+   OR  or or  or || : Logical OR
+   NOT or not or !  : Logical NOT
+*)
+
+(* ============================================================================ *)
+(* Examples *)
+(* ============================================================================ *)
+
+(* Simple arithmetic:
+   result = 10 + 20 * 3
+
+   String operations:
+   message = "Hello " & name & "!"
+   full_text = first || " " || last
+
+   Type conversion:
+   age_int = CAST(age_string AS INTEGER)
+   price_str = CAST(price AS STRING)
+
+   Regular expressions:
+   is_email = REGEX_MATCH(email, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+   clean_phone = REGEX_REPLACE(phone, "[^0-9]", "")
+   domain = REGEX_EXTRACT(email, "@(.+)$", 1)
+
+   NULL handling:
+   display_name = COALESCE(nickname, first_name, "Anonymous")
+
+   Set membership:
+   is_premium = tier IN ("gold", "platinum", "diamond")
+
+   Date operations:
+   age_days = DATE_DIFF(NOW(), birth_date, "days")
+   formatted = DATE_FORMAT(created_at, "YYYY-MM-DD")
+
+   Complex expressions:
+   total = CAST((base_price + COALESCE(tax, 0)) * quantity AS DECIMAL)
+   status = age >= 18 AND verified = true AND country IN ("US", "CA", "UK")
+
+   Lists and arrays:
+   numbers = [1, 2, 3, 4, 5]
+   mixed = ["text", 42, true, CAST(price AS FLOAT)]
+
+   Dotted identifiers:
+   full_price = order.base_price + order.tax
+   customer_name = UPPER(customer.first_name || " " || customer.last_name)
+*)
