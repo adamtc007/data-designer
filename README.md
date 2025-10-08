@@ -17,15 +17,23 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 - **Enhanced Type System** - SQL types, Rust types, format masks, and validation patterns
 - **Rich Hover Information** - Comprehensive type details on hover
 - **Real-time Diagnostics** - Instant syntax validation and error reporting
-- **AI-powered Assistance** - Optional Gemini/Copilot integration for intelligent suggestions
-- **Data Dictionary Support** - Domain-driven completions for KYC attributes
 - **Semantic Highlighting** - Advanced token-based syntax coloring
+
+### AI Assistant Integration
+- **Intelligent Code Assistant** - Built-in AI agent for DSL development help
+- **Multiple API Support** - Works with OpenAI (GPT-4) and Anthropic (Claude)
+- **Automatic API Key Detection** - Uses system environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+- **Robust Fallback System** - Comprehensive offline mode with intelligent responses
+- **Context-Aware Help** - Understands current rule and provides relevant suggestions
+- **Never Fails** - Always provides helpful responses, even without API keys
 
 ### Development Environment
 - **Tauri Desktop App** - Native cross-platform application
 - **Monaco Editor Integration** - VS Code-quality editing experience
 - **Interactive Testing** - Live rule execution with sample data
 - **Grammar Editor** - Visual EBNF rule modification interface
+- **Resizable Panes** - Adjustable layout with persistent preferences
+- **Rules Catalogue** - Comprehensive rule management with source/target tracking
 
 ## 🏗️ Architecture
 
@@ -80,6 +88,49 @@ npm run tauri dev
 # Build for production
 npm run tauri build
 ```
+
+## 🤖 AI Assistant
+
+The IDE includes a powerful AI Assistant that helps with DSL development:
+
+### Features
+- **Always Available** - Works with or without API keys
+- **Intelligent Fallback** - Provides helpful responses even offline
+- **Context-Aware** - Understands your current rule and data dictionary
+- **Multiple Providers** - Supports OpenAI and Anthropic APIs
+
+### Setup Options
+
+#### Option 1: Automatic (Recommended)
+Set environment variable before running:
+```bash
+export ANTHROPIC_API_KEY="your-key-here"  # For Claude
+# or
+export OPENAI_API_KEY="your-key-here"     # For GPT-4
+
+npm run tauri dev
+```
+
+#### Option 2: Manual Configuration
+1. Click "⚙ Settings" in the IDE
+2. Choose provider (OpenAI or Anthropic)
+3. Enter API key (optional - leave blank for offline mode)
+4. Save settings
+
+#### Option 3: Offline Mode (Always Works)
+No setup needed! The assistant provides intelligent responses using:
+- Pattern recognition for common questions
+- Context analysis of your current rule
+- Comprehensive DSL examples and explanations
+- Debugging assistance and optimization tips
+
+### What the Assistant Can Do
+- **Explain** - DSL syntax, functions, and patterns
+- **Debug** - Identify and fix common errors
+- **Examples** - Provide relevant code samples
+- **Optimize** - Suggest improvements to your rules
+- **Functions** - List and explain available functions
+- **Attributes** - Show business vs derived data
 
 ## 🎯 Quick Start
 

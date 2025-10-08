@@ -1289,8 +1289,30 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         let chatHistory = [];
         let apiKey = localStorage.getItem('openai_api_key') || '';
 
-        function showAgentChat() {
+        async function showAgentChat() {
             const outputContent = document.getElementById('output-content');
+
+            // Check API key status
+            let apiKey = localStorage.getItem('ai_api_key') || sessionStorage.getItem('ai_api_key');
+            let apiProvider = localStorage.getItem('ai_provider') || sessionStorage.getItem('ai_provider') || 'anthropic';
+
+            // Try to get from system if not in storage
+            if (!apiKey && window.__TAURI__ && window.__TAURI__.invoke) {
+                try {
+                    const systemKeys = await window.__TAURI__.invoke('get_api_keys');
+                    if (systemKeys) {
+                        if (systemKeys.anthropic) {
+                            apiKey = systemKeys.anthropic;
+                            apiProvider = 'anthropic';
+                        } else if (systemKeys.openai) {
+                            apiKey = systemKeys.openai;
+                            apiProvider = 'openai';
+                        }
+                    }
+                } catch (error) {
+                    console.log('Could not check system keys');
+                }
+            }
 
             // Create the chat interface
             outputContent.innerHTML = `
@@ -1300,12 +1322,14 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                     </div>
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-message system">
-                            Welcome! I'm your AI assistant for DSL development. I can help you:
-                            <br>• Explain DSL rules and syntax
-                            <br>• Suggest improvements and optimizations
-                            <br>• Debug issues in your rules
-                            <br>• Provide examples for specific use cases
-                            <br><br>I have context about the current rule you're working on and the KYC data dictionary.
+                            Welcome! I'm your DSL Assistant. I can help you with:
+                            <br>• Explaining DSL rules and syntax
+                            <br>• Debugging and fixing errors
+                            <br>• Providing examples and patterns
+                            <br>• Optimizing your rules
+                            <br>
+                            <br>${apiKey ? '✅ AI Mode Active' : '🤖 Offline Mode - Intelligent fallback active'}
+                            <br><small>${apiKey ? 'Using ' + apiProvider.toUpperCase() + ' API' : 'For AI-powered responses, configure an API key in Settings'}</small>
                         </div>
                     </div>
                     <div class="chat-input-container">
@@ -1550,44 +1574,140 @@ Help the user with DSL syntax, debugging, optimization, and best practices. Be c
         }
 
         function getMockResponse(message, context) {
-            // Intelligent mock responses for offline mode
+            // Enhanced intelligent mock responses for offline/fallback mode
             const lowerMessage = message.toLowerCase();
+            const currentRule = context?.currentRule || '';
 
-            if (lowerMessage.includes('explain')) {
-                return `I can see you're working with a DSL rule. Let me explain what's happening:
+            // Analyze the current rule for context-aware responses
+            const hasIfStatement = currentRule.includes('IF');
+            const hasClientAttributes = currentRule.includes('Client.');
+            const hasValidation = currentRule.includes('IS_EMAIL') || currentRule.includes('IS_LEI');
+            const hasCalculation = currentRule.includes('+') || currentRule.includes('-') || currentRule.includes('*');
 
-Your current rule appears to be checking conditions and setting values based on Client attributes.
+            // Question type detection
+            if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+                return `Hello! I'm your DSL Assistant running in offline mode. I can help you with:
 
-The DSL uses:
-- **IF/THEN/ELSE** statements for conditional logic
-- **Client.attribute** notation to access data fields
-- **Operators** like ==, >, < for comparisons
-- **Functions** like IS_EMAIL() for validation
+• **DSL Syntax** - IF/THEN/ELSE statements, operators, functions
+• **Data Attributes** - Business vs derived attributes, types, constraints
+• **Rule Examples** - KYC validation, risk scoring, data transformation
+• **Debugging** - Common errors and fixes
+• **Best Practices** - Optimization tips and patterns
 
-Would you like me to explain a specific part of your rule?`;
+What would you like help with today?
+
+<small>💡 For AI-powered responses, configure an API key in Settings or set ANTHROPIC_API_KEY in your environment.</small>`;
             }
 
-            if (lowerMessage.includes('fix') || lowerMessage.includes('error')) {
-                return `Looking at your rule, here are some common issues to check:
+            if (lowerMessage.includes('what') && lowerMessage.includes('attributes')) {
+                const businessAttrs = Object.keys(context.attributes).filter(a =>
+                    !['risk_score', 'email_valid', 'kyc_completion_percentage', 'enhanced_dd_required', 'service_tier'].some(d => a.includes(d))
+                );
+                const derivedAttrs = ['risk_score', 'email_valid', 'kyc_completion_percentage', 'enhanced_dd_required', 'service_tier'];
 
-1. **Syntax**: Ensure all IF statements have matching THEN/ELSE/END
-2. **Attributes**: Verify attribute names like Client.client_id are spelled correctly
-3. **Types**: Check that operations match data types (e.g., numbers for arithmetic)
-4. **Quotes**: String values need quotes, numbers don't
+                return `Here are the available attributes in your data dictionary:
 
+**📊 Business Attributes (Source Data):**
+${businessAttrs.map(attr => `• Client.${attr}`).join('\n')}
+
+**🔧 Derived Attributes (Calculated):**
+${derivedAttrs.map(attr => `• Client.${attr} (generated by rules)`).join('\n')}
+
+Business attributes are provided by clients or internal systems. Derived attributes are calculated using DSL rules.`;
+            }
+
+            if (lowerMessage.includes('explain') || lowerMessage.includes('what does')) {
+                if (currentRule) {
+                    // Analyze the current rule
+                    let explanation = `Looking at your current rule:\n\n`;
+
+                    if (hasIfStatement) {
+                        explanation += `• **Conditional Logic**: Your rule uses IF/THEN statements to make decisions based on conditions.\n`;
+                    }
+                    if (hasClientAttributes) {
+                        const attrs = currentRule.match(/Client\.\w+/g) || [];
+                        explanation += `• **Attributes Used**: ${[...new Set(attrs)].join(', ')}\n`;
+                    }
+                    if (hasValidation) {
+                        explanation += `• **Validation**: Your rule validates data formats (email, LEI, etc.)\n`;
+                    }
+                    if (hasCalculation) {
+                        explanation += `• **Calculations**: Your rule performs arithmetic operations\n`;
+                    }
+
+                    explanation += `\n**How it works:**\n`;
+                    explanation += `1. The rule evaluates conditions sequentially\n`;
+                    explanation += `2. When a condition is true, its corresponding action executes\n`;
+                    explanation += `3. Results can be stored in variables for later use\n`;
+                    explanation += `4. Functions like IS_EMAIL() validate data formats\n`;
+
+                    return explanation;
+                } else {
+                    return `The DSL (Domain Specific Language) uses:
+
+• **IF/THEN/ELSE** - Conditional logic for decision making
+• **Client.attribute** - Access data fields (e.g., Client.email)
+• **Operators** - ==, !=, >, <, >=, <= for comparisons
+• **Functions** - IS_EMAIL(), CONCAT(), LOOKUP() for operations
+• **Variables** - Store intermediate results
+
+Example:
 <div class="message-code">IF Client.risk_rating == "HIGH" THEN
-    enhanced_review = true
-END</div>
-
-Need help with a specific error?`;
+    risk_score = 100
+ELSE
+    risk_score = 50
+END</div>`;
+                }
             }
 
-            if (lowerMessage.includes('example') || lowerMessage.includes('how')) {
-                return `Here's an example of a comprehensive KYC risk assessment rule:
+            if (lowerMessage.includes('fix') || lowerMessage.includes('error') || lowerMessage.includes('debug')) {
+                // Analyze current rule for potential issues
+                let debugInfo = `Common issues to check in DSL rules:\n\n`;
 
-<div class="message-code">risk_score = 0
+                if (currentRule) {
+                    const openIfs = (currentRule.match(/IF/g) || []).length;
+                    const ends = (currentRule.match(/END/g) || []).length;
 
-# Check risk rating
+                    if (openIfs !== ends) {
+                        debugInfo += `⚠️ **Unmatched IF/END**: You have ${openIfs} IF statements but ${ends} END statements\n\n`;
+                    }
+
+                    // Check for common syntax issues
+                    if (currentRule.includes('=') && !currentRule.includes('==')) {
+                        debugInfo += `💡 **Assignment vs Comparison**: Use '=' for assignment, '==' for comparison\n\n`;
+                    }
+
+                    if (currentRule.match(/"\w+/g) || currentRule.match(/\w+"/g)) {
+                        debugInfo += `⚠️ **Quote Mismatch**: Check that all strings have matching quotes\n\n`;
+                    }
+                }
+
+                debugInfo += `**Debugging Checklist:**
+✓ All IF statements have matching END
+✓ String values are in quotes: "value"
+✓ Numbers are without quotes: 123
+✓ Attribute names are correct: Client.attribute_name
+✓ Functions have parentheses: IS_EMAIL()
+✓ Operators are correct: == for comparison, = for assignment
+
+<div class="message-code"># Correct syntax example
+IF Client.risk_rating == "HIGH" THEN
+    enhanced_review = true
+    risk_score = 100
+END</div>`;
+
+                return debugInfo;
+            }
+
+            if (lowerMessage.includes('example') || lowerMessage.includes('how') || lowerMessage.includes('show')) {
+                // Provide relevant examples based on context
+                if (lowerMessage.includes('risk')) {
+                    return `Here's a comprehensive risk scoring example:
+
+<div class="message-code"># Initialize risk score
+risk_score = 0
+
+# Base risk from rating
 IF Client.risk_rating == "HIGH" THEN
     risk_score = risk_score + 50
 ELSE IF Client.risk_rating == "MEDIUM" THEN
@@ -1596,59 +1716,179 @@ ELSE
     risk_score = risk_score + 10
 END
 
-# Check PEP status
+# PEP adjustment
 IF Client.pep_status == true THEN
     risk_score = risk_score + 30
 END
 
-# Check AUM threshold
+# Large AUM adjustment
 IF Client.aum_usd > 10000000 THEN
     risk_score = risk_score + 20
 END
 
-# Validate email
+# Final classification
+risk_category = IF risk_score >= 70 THEN "HIGH_RISK"
+                ELSE IF risk_score >= 40 THEN "MEDIUM_RISK"
+                ELSE "LOW_RISK"</div>`;
+                } else if (lowerMessage.includes('valid')) {
+                    return `Here are validation examples:
+
+<div class="message-code"># Email validation
+email_valid = IS_EMAIL(Client.email)
+
+# LEI code validation
+lei_valid = IS_LEI(Client.lei_code)
+
+# Combined validation
+all_valid = email_valid AND lei_valid
+
+# Validation with action
 IF NOT IS_EMAIL(Client.email) THEN
-    validation_status = "FAILED"
+    validation_status = "INVALID_EMAIL"
+    require_manual_review = true
 ELSE
-    validation_status = "PASSED"
+    validation_status = "VALID"
+END</div>`;
+                } else {
+                    return `Here are common DSL patterns:
+
+**1. Simple Assignment:**
+<div class="message-code">status = "ACTIVE"
+score = 100</div>
+
+**2. Conditional Logic:**
+<div class="message-code">IF Client.aum_usd > 1000000 THEN
+    tier = "GOLD"
+ELSE
+    tier = "SILVER"
+END</div>
+
+**3. String Operations:**
+<div class="message-code">full_name = CONCAT(Client.first_name, " ", Client.last_name)
+code = SUBSTRING(Client.client_id, 0, 3)</div>
+
+**4. Validation:**
+<div class="message-code">valid = IS_EMAIL(Client.email) AND Client.country_code != ""</div>
+
+Which pattern would you like to explore more?`;
+                }
+            }
+
+            if (lowerMessage.includes('optimize') || lowerMessage.includes('improve') || lowerMessage.includes('better')) {
+                return `Here are optimization tips for DSL rules:
+
+**1. Combine Related Conditions:**
+Instead of:
+<div class="message-code">IF Client.risk_rating == "HIGH" THEN
+    flag = true
 END
+IF Client.pep_status == true THEN
+    flag = true
+END</div>
 
-# Set final status
-result = CONCAT("Risk Score: ", risk_score, " - Validation: ", validation_status)</div>
+Use:
+<div class="message-code">flag = Client.risk_rating == "HIGH" OR Client.pep_status == true</div>
 
-This rule combines multiple checks and calculations. Would you like me to explain any part?`;
+**2. Use Early Returns:**
+<div class="message-code">IF Client.kyc_status == "REJECTED" THEN
+    process_status = "BLOCKED"
+    # No need to check further
+ELSE
+    # Continue with other checks
+END</div>
+
+**3. Extract Complex Logic:**
+<div class="message-code"># Define reusable conditions
+is_high_risk = Client.risk_rating == "HIGH" OR Client.pep_status == true
+is_large_client = Client.aum_usd > 10000000
+
+# Use in logic
+enhanced_review = is_high_risk AND is_large_client</div>
+
+**4. Add Comments:**
+<div class="message-code"># Risk assessment for institutional clients
+# High risk triggers enhanced due diligence</div>`;
             }
 
-            if (lowerMessage.includes('optimize') || lowerMessage.includes('improve')) {
-                return `Looking at your rule, here are some optimization suggestions:
+            if (lowerMessage.includes('test') || lowerMessage.includes('run')) {
+                return `To test your DSL rules:
 
-1. **Combine related conditions** to reduce redundancy
-2. **Use constants** for magic numbers
-3. **Add validation** before processing
-4. **Consider edge cases** like null values
+1. **Use the Run Button** (▶): Executes your rule with sample data
+2. **Check the Output Tab**: Shows execution results and any errors
+3. **Review Problems Tab**: Lists syntax errors and warnings
 
-For example, instead of multiple IF statements, you could use:
-<div class="message-code">risk_level =
-    IF Client.risk_rating == "HIGH" AND Client.pep_status == true THEN "CRITICAL"
-    ELSE IF Client.risk_rating == "HIGH" THEN "HIGH"
-    ELSE IF Client.risk_rating == "MEDIUM" THEN "MEDIUM"
-    ELSE "LOW"</div>
+**Sample Test Data Available:**
+• Client.client_id = "CLT-001"
+• Client.risk_rating = "MEDIUM"
+• Client.aum_usd = 5000000
+• Client.email = "client@example.com"
+• Client.pep_status = false
 
-Want me to suggest specific improvements for your rule?`;
+**Testing Tips:**
+• Test edge cases (empty values, extremes)
+• Verify all conditional branches
+• Check calculation accuracy
+• Validate output formats`;
             }
 
-            // Default response
-            return `I understand you're asking about: "${message}"
+            if (lowerMessage.includes('function') || lowerMessage.includes('what functions')) {
+                const functions = context.functions || [];
+                return `Available DSL Functions:
 
-Based on your current DSL rule, I can help with:
-- Syntax and structure guidance
-- Attribute type information and constraints
-- Function usage and examples
-- Best practices for KYC validation
+${functions.map(fn => `**${fn}()**`).join('\n')}
 
-Could you be more specific about what you'd like help with?
+**Common Functions:**
+• **IS_EMAIL(email)** - Validates email format
+• **IS_LEI(code)** - Validates Legal Entity Identifier
+• **CONCAT(...)** - Concatenates multiple values
+• **SUBSTRING(str, start, end)** - Extracts substring
+• **LOOKUP(key, table)** - Looks up value from table
+• **UPPER/LOWER(str)** - Case conversion
+• **LENGTH(str)** - String length
+• **ROUND(num, decimals)** - Number rounding
 
-<small>💡 Tip: Configure an API key in settings for AI-powered responses.</small>`;
+Example:
+<div class="message-code">email_valid = IS_EMAIL(Client.email)
+full_text = CONCAT("Status: ", Client.kyc_status)
+country = LOOKUP(Client.country_code, "countries")</div>`;
+            }
+
+            // Context-aware default response
+            if (currentRule) {
+                return `I see you're working on a DSL rule. Based on your code:
+
+${hasIfStatement ? '• You have conditional logic (IF/THEN statements)\n' : ''}
+${hasClientAttributes ? '• You\'re using Client attributes for data access\n' : ''}
+${hasValidation ? '• You\'re performing data validation\n' : ''}
+${hasCalculation ? '• You\'re doing calculations\n' : ''}
+
+I can help you:
+• Debug any issues
+• Optimize the logic
+• Add validation
+• Provide examples
+
+What specific help do you need?
+
+<small>🤖 Offline Assistant Mode - For AI-powered help, add an API key in Settings</small>`;
+            }
+
+            // Generic but helpful default
+            return `I'm here to help with your DSL development!
+
+**Quick Help Menu:**
+• Type "explain" - Understand DSL syntax
+• Type "example" - See code examples
+• Type "fix" or "error" - Debug issues
+• Type "optimize" - Improve your rules
+• Type "functions" - List available functions
+• Type "attributes" - See data dictionary
+
+**Your Question:** "${message}"
+
+Please be more specific about what you need help with, and I'll provide detailed guidance.
+
+<small>💡 Running in offline mode. For enhanced AI responses, configure an API key in Settings or set ANTHROPIC_API_KEY environment variable.</small>`;
         }
 
         window.handleChatKeyPress = function(event) {
