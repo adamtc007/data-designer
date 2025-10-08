@@ -463,10 +463,17 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             // Load sample attributes
             loadDataDictionary();
 
-            // Auto-connect to LSP on startup (give editor time to fully initialize)
+            // Register hover provider after editor is ready
             setTimeout(() => {
-                connectToLSP(true);  // true = auto-connect
-            }, 1000);
+                console.log('Registering hover provider...');
+                registerHoverProvider();
+            }, 100);
+
+            // Auto-connect to LSP on startup (give editor time to fully initialize)
+            // Disabled for now to prevent jitter - user can manually connect
+            // setTimeout(() => {
+            //     connectToLSP(true);  // true = auto-connect
+            // }, 1000);
         });
 
         // Connect to Language Server
@@ -548,7 +555,9 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                     button.style.opacity = '1';
                     button.title = 'Click to reconnect to Language Server';
 
-                    // Only auto-reconnect if we haven't exceeded attempts
+                    // Disable auto-reconnect to prevent jitter
+                    // Will fix the connection issue first
+                    /*
                     if (isAutoConnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                         reconnectAttempts++;
                         const backoffTime = Math.min(5000 * reconnectAttempts, 15000);  // Max 15 seconds
@@ -557,6 +566,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                             connectToLSP(true);
                         }, backoffTime);
                     }
+                    */
                 };
 
                 lspConnection.onmessage = (event) => {
@@ -713,24 +723,79 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                     return { suggestions };
                 }
             });
+        }
 
-            // Set up hover provider
-            monaco.languages.registerHoverProvider('dsl', {
+        function registerHoverProvider() {
+            console.log('Actually registering hover provider now...');
+            // Set up hover provider with enhanced attribute detection
+            const disposable = monaco.languages.registerHoverProvider('dsl', {
                 provideHover: (model, position) => {
-                    const word = model.getWordAtPosition(position);
-                    if (!word) return null;
+                    console.log('Hover triggered at', position);
+                    const line = model.getLineContent(position.lineNumber);
+                    const offset = position.column - 1;
 
+                    // Find the full attribute path (e.g., Client.client_id)
+                    let start = offset;
+                    let end = offset;
+
+                    // Move start backwards to find beginning of identifier
+                    while (start > 0 && /[\w.]/.test(line[start - 1])) {
+                        start--;
+                    }
+
+                    // Move end forwards to find end of identifier
+                    while (end < line.length && /[\w.]/.test(line[end])) {
+                        end++;
+                    }
+
+                    const fullPath = line.substring(start, end);
+                    console.log('Full path extracted:', fullPath);
+
+                    // Enhanced hover information with SQL types
                     const hoverInfo = {
-                        'IS_EMAIL': 'Validates email format using RFC 5322 standard',
-                        'IS_LEI': 'Validates Legal Entity Identifier (20 characters)',
-                        'Client': 'KYC Client entity with validation attributes',
+                        'IS_EMAIL': '**Function**: Validates email format\n\n**Pattern**: RFC 5322 standard\n**Returns**: Boolean',
+                        'IS_LEI': '**Function**: Validates Legal Entity Identifier\n\n**Pattern**: 20 alphanumeric characters\n**Returns**: Boolean',
+                        'IS_SWIFT': '**Function**: Validates SWIFT/BIC code\n\n**Pattern**: 8 or 11 characters\n**Returns**: Boolean',
+                        'Client': '**Entity**: KYC Client\n\n**Description**: Client information for KYC validation\n**Attributes**: client_id, legal_entity_name, lei_code, email, risk_rating, aum_usd, kyc_status, pep_status',
+                        'Client.client_id': '**Attribute**: client_id\n\n**SQL Type**: `VARCHAR(50) PRIMARY KEY`\n**Rust Type**: `String`\n**Format**: `XXX-999`\n**Pattern**: `^[A-Z]{3}-\\d{3,}$`\n**Required**: ✅ Yes',
+                        'Client.legal_entity_name': '**Attribute**: legal_entity_name\n\n**SQL Type**: `VARCHAR(255) NOT NULL`\n**Rust Type**: `String`\n**Required**: ✅ Yes',
+                        'Client.lei_code': '**Attribute**: lei_code\n\n**SQL Type**: `CHAR(20)`\n**Rust Type**: `String`\n**Format**: `XXXXXXXXXXXXXXXXXXXX`\n**Pattern**: `^[A-Z0-9]{20}$`\n**Required**: ❌ No',
+                        'Client.email': '**Attribute**: email\n\n**SQL Type**: `VARCHAR(255) NOT NULL`\n**Rust Type**: `String`\n**Format**: `xxx@xxx.xxx`\n**Validation**: `IS_EMAIL()`\n**Required**: ✅ Yes',
+                        'Client.risk_rating': '**Attribute**: risk_rating\n\n**SQL Type**: `ENUM(\'LOW\', \'MEDIUM\', \'HIGH\') NOT NULL`\n**Rust Type**: `RiskLevel`\n**Domain**: RiskLevel\n**Values**: LOW, MEDIUM, HIGH\n**Required**: ✅ Yes',
+                        'Client.aum_usd': '**Attribute**: aum_usd\n\n**SQL Type**: `DECIMAL(18,2)`\n**Rust Type**: `rust_decimal::Decimal`\n**Format**: `$999,999,999,999.99`\n**Min Value**: 0\n**Max Value**: 999999999999999.99\n**Required**: ❌ No',
+                        'Client.kyc_status': '**Attribute**: kyc_status\n\n**SQL Type**: `ENUM(\'PENDING\', \'APPROVED\', \'REJECTED\') NOT NULL`\n**Rust Type**: `KycStatus`\n**Values**: PENDING, APPROVED, REJECTED\n**Required**: ✅ Yes',
+                        'Client.pep_status': '**Attribute**: pep_status\n\n**SQL Type**: `BOOLEAN NOT NULL DEFAULT FALSE`\n**Rust Type**: `bool`\n**Description**: Politically Exposed Person status\n**Required**: ✅ Yes',
                     };
 
-                    if (hoverInfo[word.word]) {
+                    if (fullPath && hoverInfo[fullPath]) {
+                        console.log('Found hover info for:', fullPath);
                         return {
                             contents: [
-                                { value: `**${word.word}**` },
-                                { value: hoverInfo[word.word] }
+                                {
+                                    value: hoverInfo[fullPath],
+                                    isTrusted: true,
+                                    supportHtml: true
+                                }
+                            ],
+                            range: new monaco.Range(
+                                position.lineNumber,
+                                start + 1,
+                                position.lineNumber,
+                                end + 1
+                            )
+                        };
+                    }
+
+                    // Try just the word under cursor if full path didn't match
+                    const word = model.getWordAtPosition(position);
+                    if (word && hoverInfo[word.word]) {
+                        return {
+                            contents: [
+                                {
+                                    value: hoverInfo[word.word],
+                                    isTrusted: true,
+                                    supportHtml: true
+                                }
                             ]
                         };
                     }
@@ -738,6 +803,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                     return null;
                 }
             });
+            console.log('Hover provider registered:', disposable);
         }
 
         function updateDiagnostics(diagnostics) {

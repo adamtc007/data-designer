@@ -297,9 +297,47 @@ impl Backend {
         // Add entity attributes
         for (full_name, attr) in dict.get_all_attributes() {
             if full_name.to_lowercase().contains(&current_word.to_lowercase()) {
-                let mut detail = format!("{}: {}", attr.description, format!("{:?}", attr.data_type));
+                // Build a concise detail string with type info
+                let mut detail = String::new();
+                if let Some(sql_type) = &attr.sql_type {
+                    detail.push_str(&sql_type);
+                } else {
+                    detail.push_str(&format!("{:?}", attr.data_type));
+                }
                 if let Some(domain) = &attr.domain {
-                    detail.push_str(&format!(" [Domain: {}]", domain));
+                    detail.push_str(&format!(" [{}]", domain));
+                }
+
+                // Build comprehensive documentation
+                let mut doc = format!("### {}\n\n{}\n\n", full_name, attr.description);
+
+                // Add type information
+                doc.push_str("**Type Information:**\n");
+                if let Some(sql_type) = &attr.sql_type {
+                    doc.push_str(&format!("- SQL: `{}`\n", sql_type));
+                }
+                if let Some(rust_type) = &attr.rust_type {
+                    doc.push_str(&format!("- Rust: `{}`\n", rust_type));
+                }
+
+                // Add format mask if present
+                if let Some(format_mask) = &attr.format_mask {
+                    doc.push_str(&format!("\n**Format:** `{}`\n", format_mask));
+                }
+
+                // Add validation pattern if present
+                if let Some(pattern) = &attr.pattern {
+                    doc.push_str(&format!("\n**Pattern:** `{}`\n", pattern));
+                }
+
+                // Add constraints
+                if attr.required {
+                    doc.push_str("\n**Required:** ✅\n");
+                }
+
+                // Add examples
+                if !attr.examples.is_empty() {
+                    doc.push_str(&format!("\n**Examples:** {}", attr.examples.join(", ")));
                 }
 
                 completions.push(CompletionItem {
@@ -308,12 +346,7 @@ impl Backend {
                     detail: Some(detail),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: format!(
-                            "**{}**\n\n{}\n\nExamples: {}",
-                            full_name,
-                            attr.description,
-                            attr.examples.join(", ")
-                        ),
+                        value: doc,
                     })),
                     insert_text: Some(full_name),
                     ..Default::default()
@@ -417,6 +450,86 @@ impl Backend {
 
         let word = &line[start..end];
 
+        // Check if it's an attribute from the data dictionary
+        let dict = self.data_dictionary.blocking_read();
+        if let Some(attr_info) = dict.get_attribute_info(word) {
+            let mut hover_content = format!("### 📊 Attribute: `{}`\n\n", word);
+            hover_content.push_str(&format!("**Description:** {}\n\n", attr_info.description));
+
+            // Type information
+            hover_content.push_str("#### Type Information\n");
+            hover_content.push_str(&format!("- **DSL Type:** `{:?}`\n", attr_info.data_type));
+            if let Some(sql_type) = &attr_info.sql_type {
+                hover_content.push_str(&format!("- **SQL Type:** `{}`\n", sql_type));
+            }
+            if let Some(rust_type) = &attr_info.rust_type {
+                hover_content.push_str(&format!("- **Rust Type:** `{}`\n", rust_type));
+            }
+
+            // Format and validation
+            if let Some(format_mask) = &attr_info.format_mask {
+                hover_content.push_str(&format!("\n#### Format\n- **Mask:** `{}`\n", format_mask));
+            }
+            if let Some(pattern) = &attr_info.pattern {
+                hover_content.push_str(&format!("- **Pattern:** `{}`\n", pattern));
+            }
+
+            // Constraints
+            hover_content.push_str("\n#### Constraints\n");
+            hover_content.push_str(&format!("- **Required:** {}\n", if attr_info.required { "✅ Yes" } else { "❌ No" }));
+            if let Some(min_length) = attr_info.min_length {
+                hover_content.push_str(&format!("- **Min Length:** {}\n", min_length));
+            }
+            if let Some(max_length) = attr_info.max_length {
+                hover_content.push_str(&format!("- **Max Length:** {}\n", max_length));
+            }
+            if let Some(min_value) = &attr_info.min_value {
+                hover_content.push_str(&format!("- **Min Value:** {}\n", min_value));
+            }
+            if let Some(max_value) = &attr_info.max_value {
+                hover_content.push_str(&format!("- **Max Value:** {}\n", max_value));
+            }
+
+            // Domain values
+            if let Some(domain) = &attr_info.domain {
+                hover_content.push_str(&format!("\n#### Domain: `{}`\n", domain));
+                let domain_values = dict.get_domain_values(domain);
+                if !domain_values.is_empty() {
+                    hover_content.push_str("Valid values:\n");
+                    for value in domain_values.iter().take(5) {
+                        hover_content.push_str(&format!("- `{}`\n", value));
+                    }
+                    if domain_values.len() > 5 {
+                        hover_content.push_str(&format!("- ... and {} more\n", domain_values.len() - 5));
+                    }
+                }
+            }
+
+            // Validation rules
+            if !attr_info.validation_rules.is_empty() {
+                hover_content.push_str("\n#### Validation Rules\n");
+                for rule in &attr_info.validation_rules {
+                    hover_content.push_str(&format!("- `{}`\n", rule));
+                }
+            }
+
+            // Examples
+            if !attr_info.examples.is_empty() {
+                hover_content.push_str("\n#### Examples\n");
+                for example in attr_info.examples.iter().take(3) {
+                    hover_content.push_str(&format!("- `{}`\n", example));
+                }
+            }
+
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: hover_content,
+                }),
+                range: None,
+            });
+        }
+
         // Check if it's a function
         for (func, desc) in DSL_FUNCTIONS.iter() {
             if word == *func {
@@ -452,39 +565,6 @@ impl Backend {
                     range: None,
                 });
             }
-        }
-
-        // Check data dictionary
-        let dict = self.data_dictionary.blocking_read();
-        if let Some(attr) = dict.get_attribute_info(word) {
-            let mut hover_text = format!(
-                "**Attribute: {}**\n\n{}\n\nType: {:?}",
-                word, attr.description, attr.data_type
-            );
-
-            if let Some(domain) = &attr.domain {
-                hover_text.push_str(&format!("\n\nDomain: {}", domain));
-                let values = dict.get_domain_values(domain);
-                if !values.is_empty() {
-                    hover_text.push_str(&format!("\nValues: {}", values.join(", ")));
-                }
-            }
-
-            if !attr.validation_rules.is_empty() {
-                hover_text.push_str(&format!("\n\nValidation:\n- {}", attr.validation_rules.join("\n- ")));
-            }
-
-            if !attr.examples.is_empty() {
-                hover_text.push_str(&format!("\n\nExamples: {}", attr.examples.join(", ")));
-            }
-
-            return Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: hover_text,
-                }),
-                range: None,
-            });
         }
 
         None

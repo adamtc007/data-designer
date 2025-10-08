@@ -13,6 +13,9 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 
 ### Language Server Protocol (LSP)
 - **Full IDE Integration** - Professional development environment with IntelliSense
+- **WebSocket Support** - Browser-compatible LSP connection
+- **Enhanced Type System** - SQL types, Rust types, format masks, and validation patterns
+- **Rich Hover Information** - Comprehensive type details on hover
 - **Real-time Diagnostics** - Instant syntax validation and error reporting
 - **AI-powered Assistance** - Optional Gemini/Copilot integration for intelligent suggestions
 - **Data Dictionary Support** - Domain-driven completions for KYC attributes
@@ -80,7 +83,40 @@ npm run tauri build
 
 ## 🎯 Quick Start
 
-### Running the IDE
+### Running the Web IDE (Recommended)
+
+1. **Build and Start the Language Server:**
+```bash
+# Build the LSP server
+cd dsl-lsp
+cargo build --release
+
+# Start with WebSocket support for browser
+./target/release/dsl-lsp-server --port 3030 websocket
+```
+
+2. **Open the IDE in Browser:**
+```bash
+# From project root
+open src/ide.html  # macOS
+# or
+xdg-open src/ide.html  # Linux
+# or
+start src/ide.html  # Windows
+```
+
+3. **Using the IDE:**
+   - The IDE auto-connects to LSP on load
+   - Hover over attributes like `Client.client_id` to see:
+     - SQL type: `VARCHAR(50) PRIMARY KEY`
+     - Rust type: `String`
+     - Format mask: `XXX-999`
+     - Pattern: `^[A-Z]{3}-\d{3,}$`
+     - Required status and constraints
+   - Type `Client.` for intelligent completions
+   - Get real-time syntax validation
+
+### Running the Tauri Desktop App (Alternative)
 
 1. **Start the Language Server:**
 ```bash
@@ -91,11 +127,6 @@ npm run tauri build
 ```bash
 npm run tauri dev
 ```
-
-3. **Open the Enhanced IDE:**
-   - Navigate to the IDE tab
-   - Click "Connect LSP" to enable IntelliSense
-   - Start writing DSL rules with full IDE support
 
 ### Example DSL Rules
 
@@ -161,6 +192,21 @@ The LSP provides professional IDE features:
 - **Hover Info**: Detailed tooltips for functions and attributes
 - **Semantic Tokens**: Advanced syntax highlighting
 - **Code Actions**: AI-powered explanations and optimizations
+
+### Enhanced Type System
+
+The Data Dictionary includes comprehensive type information for all attributes:
+
+| Attribute | SQL Type | Rust Type | Format Mask | Pattern |
+|-----------|----------|-----------|-------------|---------|
+| `Client.client_id` | `VARCHAR(50) PRIMARY KEY` | `String` | `XXX-999` | `^[A-Z]{3}-\d{3,}$` |
+| `Client.legal_entity_name` | `VARCHAR(255) NOT NULL` | `String` | - | - |
+| `Client.lei_code` | `CHAR(20)` | `String` | `XXXXXXXXXXXXXXXXXXXX` | `^[A-Z0-9]{20}$` |
+| `Client.email` | `VARCHAR(255) NOT NULL` | `String` | `xxx@xxx.xxx` | Email pattern |
+| `Client.risk_rating` | `ENUM('LOW','MEDIUM','HIGH')` | `RiskLevel` | - | - |
+| `Client.aum_usd` | `DECIMAL(18,2)` | `rust_decimal::Decimal` | `$999,999,999,999.99` | - |
+| `Client.kyc_status` | `ENUM('PENDING','APPROVED','REJECTED')` | `KycStatus` | - | - |
+| `Client.pep_status` | `BOOLEAN NOT NULL` | `bool` | - | - |
 
 ### Data Dictionary
 
