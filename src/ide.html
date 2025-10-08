@@ -486,6 +486,7 @@
                         <div class="output-tab active" data-panel="output">Output</div>
                         <div class="output-tab" data-panel="problems">Problems</div>
                         <div class="output-tab" data-panel="agent">AI Agent 🤖</div>
+                        <div class="output-tab" data-panel="rules">Rules Catalogue 📋</div>
                     </div>
                     <button class="btn secondary" style="padding: 3px 10px; font-size: 12px;" onclick="clearOutput()">Clear</button>
                 </div>
@@ -1142,14 +1143,24 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         }
 
         function loadDataDictionary() {
-            const attributes = [
-                { name: 'Client.client_id', type: 'String' },
-                { name: 'Client.legal_entity_name', type: 'String' },
-                { name: 'Client.risk_rating', type: 'Enum' },
-                { name: 'Client.aum_usd', type: 'Number' },
-                { name: 'Client.pep_status', type: 'Boolean' },
-                { name: 'Client.email', type: 'String' },
-                { name: 'Client.lei_code', type: 'String' },
+            const businessAttributes = [
+                { name: 'Client.client_id', type: 'String', source: 'client_provided' },
+                { name: 'Client.legal_entity_name', type: 'String', source: 'client_provided' },
+                { name: 'Client.lei_code', type: 'String', source: 'client_provided' },
+                { name: 'Client.email', type: 'String', source: 'client_provided' },
+                { name: 'Client.country_code', type: 'String', source: 'client_provided' },
+                { name: 'Client.risk_rating', type: 'Enum', source: 'internal_assessment' },
+                { name: 'Client.aum_usd', type: 'Number', source: 'client_provided' },
+                { name: 'Client.kyc_status', type: 'Enum', source: 'system_managed' },
+                { name: 'Client.pep_status', type: 'Boolean', source: 'screening_result' },
+            ];
+
+            const derivedAttributes = [
+                { name: 'Client.risk_score', type: 'Number', rule: 'RULE_001' },
+                { name: 'Client.email_valid', type: 'Boolean', rule: 'RULE_002' },
+                { name: 'Client.kyc_completion_percentage', type: 'Number', rule: 'RULE_003' },
+                { name: 'Client.enhanced_dd_required', type: 'Boolean', rule: 'RULE_004' },
+                { name: 'Client.service_tier', type: 'Enum', rule: 'RULE_005' },
             ];
 
             const functions = [
@@ -1157,19 +1168,55 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 { name: 'IS_LEI', type: 'Validation' },
                 { name: 'IS_SWIFT', type: 'Validation' },
                 { name: 'CONCAT', type: 'String' },
+                { name: 'SUBSTRING', type: 'String' },
                 { name: 'LOOKUP', type: 'Data' },
+                { name: 'UPPER', type: 'String' },
+                { name: 'LOWER', type: 'String' },
+                { name: 'LENGTH', type: 'String' },
+                { name: 'ROUND', type: 'Number' },
             ];
 
             const attrList = document.getElementById('attribute-list');
-            attributes.forEach(attr => {
+            attrList.innerHTML = ''; // Clear existing
+
+            // Add Business Attributes section
+            const businessHeader = document.createElement('li');
+            businessHeader.className = 'attribute-section-header';
+            businessHeader.innerHTML = '<strong>📊 Business Data</strong>';
+            businessHeader.style.marginBottom = '8px';
+            businessHeader.style.color = '#90caf9';
+            attrList.appendChild(businessHeader);
+
+            businessAttributes.forEach(attr => {
                 const li = document.createElement('li');
-                li.className = 'attribute-item';
-                li.innerHTML = `${attr.name} <span class="attribute-type">${attr.type}</span>`;
+                li.className = 'attribute-item business-attribute';
+                li.innerHTML = `<span style="color: #90caf9;">●</span> ${attr.name} <span class="attribute-type">${attr.type}</span>`;
+                li.title = `Source: ${attr.source}`;
+                li.onclick = () => insertText(attr.name);
+                attrList.appendChild(li);
+            });
+
+            // Add Derived Attributes section
+            const derivedHeader = document.createElement('li');
+            derivedHeader.className = 'attribute-section-header';
+            derivedHeader.innerHTML = '<strong>🔧 Derived Data</strong>';
+            derivedHeader.style.marginTop = '15px';
+            derivedHeader.style.marginBottom = '8px';
+            derivedHeader.style.color = '#a5d6a7';
+            attrList.appendChild(derivedHeader);
+
+            derivedAttributes.forEach(attr => {
+                const li = document.createElement('li');
+                li.className = 'attribute-item derived-attribute';
+                li.innerHTML = `<span style="color: #a5d6a7;">●</span> ${attr.name} <span class="attribute-type">${attr.type}</span>`;
+                li.title = `Generated by: ${attr.rule}`;
                 li.onclick = () => insertText(attr.name);
                 attrList.appendChild(li);
             });
 
             const funcList = document.getElementById('function-list');
+            funcList.innerHTML = ''; // Clear existing
+
             functions.forEach(func => {
                 const li = document.createElement('li');
                 li.className = 'attribute-item';
@@ -1209,12 +1256,14 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 document.querySelectorAll('.output-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
 
-                // In production, this would switch between different output panels
+                // Switch between different output panels
                 const panel = tab.dataset.panel;
                 if (panel === 'problems') {
                     showProblems();
                 } else if (panel === 'agent') {
                     showAgentChat();
+                } else if (panel === 'rules') {
+                    showRulesCatalogue();
                 } else {
                     showOutput();
                 }
@@ -1584,6 +1633,217 @@ Could you be more specific about what you'd like help with?
         function showOutput() {
             // Output already shows in main output
         }
+
+        // Rules Catalogue Implementation
+        let rulesCatalogue = null;
+        let enhancedDataDictionary = null;
+
+        async function loadRulesCatalogue() {
+            try {
+                // In production, this would load from server/database
+                // For now, using mock data
+                rulesCatalogue = {
+                    rules: [
+                        {
+                            ruleId: "RULE_001",
+                            ruleName: "Calculate Risk Score",
+                            description: "Calculate overall risk score based on client risk rating, PEP status, and AUM",
+                            targetAttribute: "Client.risk_score",
+                            sourceAttributes: ["Client.risk_rating", "Client.pep_status", "Client.aum_usd"],
+                            category: "risk_assessment",
+                            status: "active"
+                        },
+                        {
+                            ruleId: "RULE_002",
+                            ruleName: "Validate Email Format",
+                            description: "Validate client email address format",
+                            targetAttribute: "Client.email_valid",
+                            sourceAttributes: ["Client.email"],
+                            category: "validation",
+                            status: "active"
+                        },
+                        {
+                            ruleId: "RULE_003",
+                            ruleName: "KYC Completion Status",
+                            description: "Determine KYC completion percentage based on required fields",
+                            targetAttribute: "Client.kyc_completion_percentage",
+                            sourceAttributes: ["Client.client_id", "Client.legal_entity_name", "Client.lei_code", "Client.email", "Client.country_code"],
+                            category: "kyc_validation",
+                            status: "active"
+                        },
+                        {
+                            ruleId: "RULE_004",
+                            ruleName: "Enhanced Due Diligence Flag",
+                            description: "Determine if enhanced due diligence is required",
+                            targetAttribute: "Client.enhanced_dd_required",
+                            sourceAttributes: ["Client.risk_rating", "Client.pep_status", "Client.aum_usd", "Client.country_code"],
+                            category: "compliance",
+                            status: "active"
+                        },
+                        {
+                            ruleId: "RULE_005",
+                            ruleName: "Client Tier Classification",
+                            description: "Classify client into service tiers based on AUM",
+                            targetAttribute: "Client.service_tier",
+                            sourceAttributes: ["Client.aum_usd"],
+                            category: "classification",
+                            status: "active"
+                        }
+                    ]
+                };
+                return true;
+            } catch (error) {
+                console.error('Failed to load rules catalogue:', error);
+                return false;
+            }
+        }
+
+        function showRulesCatalogue() {
+            const outputContent = document.getElementById('output-content');
+
+            if (!rulesCatalogue) {
+                loadRulesCatalogue().then(() => showRulesCatalogue());
+                outputContent.innerHTML = '<div class="loading">Loading rules catalogue...</div>';
+                return;
+            }
+
+            outputContent.innerHTML = `
+                <div class="rules-catalogue-container">
+                    <div class="rules-catalogue-header">
+                        <h3>📋 Rules Catalogue</h3>
+                        <div class="rules-actions">
+                            <button class="btn secondary" onclick="addNewRule()">➕ New Rule</button>
+                            <button class="btn secondary" onclick="refreshRulesCatalogue()">🔄 Refresh</button>
+                        </div>
+                    </div>
+
+                    <div class="rules-filters">
+                        <select id="category-filter" onchange="filterRules()">
+                            <option value="">All Categories</option>
+                            <option value="risk_assessment">Risk Assessment</option>
+                            <option value="validation">Data Validation</option>
+                            <option value="kyc_validation">KYC Validation</option>
+                            <option value="compliance">Compliance</option>
+                            <option value="classification">Classification</option>
+                        </select>
+                        <select id="status-filter" onchange="filterRules()">
+                            <option value="">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="draft">Draft</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                        <input type="text" id="rule-search" placeholder="Search rules..." oninput="filterRules()">
+                    </div>
+
+                    <div class="rules-list" id="rules-list">
+                        ${rulesCatalogue.rules.map(rule => `
+                            <div class="rule-card" data-rule-id="${rule.ruleId}">
+                                <div class="rule-header">
+                                    <span class="rule-id">${rule.ruleId}</span>
+                                    <span class="rule-status ${rule.status}">${rule.status.toUpperCase()}</span>
+                                </div>
+                                <h4 class="rule-name">${rule.ruleName}</h4>
+                                <p class="rule-description">${rule.description}</p>
+
+                                <div class="rule-attributes">
+                                    <div class="attribute-group">
+                                        <label>Target (Output):</label>
+                                        <span class="attribute-tag derived">${rule.targetAttribute}</span>
+                                    </div>
+                                    <div class="attribute-group">
+                                        <label>Sources (Inputs):</label>
+                                        ${rule.sourceAttributes.map(attr =>
+                                            `<span class="attribute-tag business">${attr}</span>`
+                                        ).join('')}
+                                    </div>
+                                </div>
+
+                                <div class="rule-actions">
+                                    <button class="btn-small" onclick="editRule('${rule.ruleId}')">✏️ Edit</button>
+                                    <button class="btn-small" onclick="viewRule('${rule.ruleId}')">👁️ View</button>
+                                    <button class="btn-small" onclick="testRule('${rule.ruleId}')">▶️ Test</button>
+                                    <button class="btn-small secondary" onclick="duplicateRule('${rule.ruleId}')">📋 Duplicate</button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function filterRules() {
+            const category = document.getElementById('category-filter')?.value;
+            const status = document.getElementById('status-filter')?.value;
+            const search = document.getElementById('rule-search')?.value?.toLowerCase();
+
+            const ruleCards = document.querySelectorAll('.rule-card');
+            ruleCards.forEach(card => {
+                const rule = rulesCatalogue.rules.find(r => r.ruleId === card.dataset.ruleId);
+                let show = true;
+
+                if (category && rule.category !== category) show = false;
+                if (status && rule.status !== status) show = false;
+                if (search && !rule.ruleName.toLowerCase().includes(search) &&
+                    !rule.description.toLowerCase().includes(search)) show = false;
+
+                card.style.display = show ? 'block' : 'none';
+            });
+        }
+
+        function addNewRule() {
+            // In production, this would open a modal or switch to rule editor
+            alert('Rule editor would open here to create a new rule');
+        }
+
+        function editRule(ruleId) {
+            const rule = rulesCatalogue.rules.find(r => r.ruleId === ruleId);
+            if (rule && rule.ruleDefinition) {
+                // Load rule into editor
+                editor.setValue(rule.ruleDefinition);
+                // Switch to Output tab
+                document.querySelector('[data-panel="output"]').click();
+                addToOutput('info', `Loaded rule ${ruleId} into editor`);
+            }
+        }
+
+        function viewRule(ruleId) {
+            const rule = rulesCatalogue.rules.find(r => r.ruleId === ruleId);
+            if (rule) {
+                alert(`Rule: ${rule.ruleName}\n\nDefinition would be displayed here`);
+            }
+        }
+
+        function testRule(ruleId) {
+            const rule = rulesCatalogue.rules.find(r => r.ruleId === ruleId);
+            if (rule) {
+                addToOutput('info', `Testing rule ${ruleId}: ${rule.ruleName}`);
+                // In production, would execute the rule with test data
+            }
+        }
+
+        function duplicateRule(ruleId) {
+            const rule = rulesCatalogue.rules.find(r => r.ruleId === ruleId);
+            if (rule) {
+                const newRule = { ...rule, ruleId: `RULE_${Date.now()}`, ruleName: rule.ruleName + ' (Copy)' };
+                rulesCatalogue.rules.push(newRule);
+                showRulesCatalogue();
+                addToOutput('success', `Duplicated rule ${ruleId} as ${newRule.ruleId}`);
+            }
+        }
+
+        function refreshRulesCatalogue() {
+            loadRulesCatalogue().then(() => showRulesCatalogue());
+        }
+
+        // Make functions globally available
+        window.showRulesCatalogue = showRulesCatalogue;
+        window.filterRules = filterRules;
+        window.addNewRule = addNewRule;
+        window.editRule = editRule;
+        window.viewRule = viewRule;
+        window.testRule = testRule;
+        window.duplicateRule = duplicateRule;
+        window.refreshRulesCatalogue = refreshRulesCatalogue;
 
         window.goToLine = function(line) {
             editor.revealLineInCenter(line);
@@ -1967,6 +2227,189 @@ Could you be more specific about what you'd like help with?
             background: #0d47a1;
             color: #90caf9;
             border: 1px solid #1565c0;
+        }
+        /* Rules Catalogue Styles */
+        .rules-catalogue-container {
+            height: 100%;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .rules-catalogue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .rules-catalogue-header h3 {
+            margin: 0;
+            color: #e8e8e8;
+        }
+
+        .rules-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .rules-filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .rules-filters select,
+        .rules-filters input {
+            padding: 6px 10px;
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            color: #cccccc;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .rules-filters input {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .rules-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 15px;
+        }
+
+        .rule-card {
+            background: #2d2d30;
+            border: 1px solid #3e3e42;
+            border-radius: 6px;
+            padding: 15px;
+            transition: all 0.2s;
+        }
+
+        .rule-card:hover {
+            border-color: #007acc;
+            box-shadow: 0 2px 8px rgba(0, 122, 204, 0.2);
+        }
+
+        .rule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .rule-id {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #969696;
+            background: #1e1e1e;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .rule-status {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .rule-status.active {
+            background: #1b5e20;
+            color: #a5d6a7;
+        }
+
+        .rule-status.draft {
+            background: #e65100;
+            color: #ffcc80;
+        }
+
+        .rule-status.inactive {
+            background: #424242;
+            color: #9e9e9e;
+        }
+
+        .rule-name {
+            margin: 0 0 8px 0;
+            color: #e8e8e8;
+            font-size: 16px;
+        }
+
+        .rule-description {
+            margin: 0 0 15px 0;
+            color: #969696;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .rule-attributes {
+            margin-bottom: 15px;
+        }
+
+        .attribute-group {
+            margin-bottom: 10px;
+        }
+
+        .attribute-group label {
+            display: block;
+            font-size: 11px;
+            color: #969696;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .attribute-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            margin: 2px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .attribute-tag.business {
+            background: #1565c0;
+            color: #90caf9;
+            border: 1px solid #1976d2;
+        }
+
+        .attribute-tag.derived {
+            background: #2e7d32;
+            color: #a5d6a7;
+            border: 1px solid #388e3c;
+        }
+
+        .rule-actions {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 12px;
+            background: #3c3c3c;
+            color: #cccccc;
+            border: 1px solid #3e3e42;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-small:hover {
+            background: #505050;
+            border-color: #007acc;
+        }
+
+        .btn-small.secondary {
+            background: transparent;
+            border-color: #3e3e42;
+        }
+
+        .btn-small.secondary:hover {
+            background: #3c3c3c;
         }
     </style>
 </body>
