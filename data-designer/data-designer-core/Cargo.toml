@@ -1,0 +1,17 @@
+[package]
+name = "data-designer-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+fasteval.workspace = true
+petgraph.workspace = true
+ndarray.workspace = true
+regex.workspace = true
+nom.workspace = true

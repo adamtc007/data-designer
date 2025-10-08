@@ -191,7 +191,7 @@ is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
 
 - **Production Ready**: Full-featured soft DSL system with working Tauri IDE
 - **6 Parser Extensions**: All implemented and tested including comprehensive regex support
-- **Language Server Protocol**: Full LSP implementation for professional IDE features
+- **Language Server Protocol**: Full LSP implementation with WebSocket connection and status indicators
 - **Dynamic Grammar**: Completely configurable through UI
 - **Advanced UI**: Two-tab interface with live editing
 - **Comprehensive Testing**: 15+ test cases covering all features including regex/KYC validation
@@ -202,6 +202,8 @@ is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
 - **Vector Search**: pgvector integration for semantic similarity search (1536 dimensions)
 - **AI Embeddings**: Automatic embedding generation using OpenAI/Anthropic APIs
 - **Similar Rules Finder**: Find semantically similar rules using cosine similarity
+- **Derived Attribute Builder**: Interactive UI for creating new derived attributes with dependency management
+- **AST-Runtime System**: New modular architecture in data-designer-core with complete feature parity
 
 ## File Structure
 
@@ -335,8 +337,49 @@ cargo build --release
 ### IDE Improvements
 - **Fixed Code Formatting**: Preserves line breaks and indentation
 - **No Juddering**: Eliminated visual artifacts with proper debouncing
-- **Connection Status**: Clear visual indicators for LSP connection state
+- **Connection Status**: Clear visual indicators for LSP connection state (green dot when online)
 - **Graceful Degradation**: IDE remains functional even without LSP server
+
+## Derived Attribute Builder
+
+The IDE includes an interactive UI for creating new derived attributes with proper dependency management:
+
+### Features
+- **Visual Attribute Creation**: Click "+ New" button in the Data Dictionary sidebar
+- **Dependency Selection**: Choose business entity attributes that the rule will use
+- **Type System**: Select return type (String, Number, Boolean, List)
+- **Rule Template Generation**: Automatically creates starter code with examples
+- **Context Management**: Loads selected dependencies with sample test data
+- **Test Data Panel**: Shows loaded business attributes with example values
+
+### Workflow
+1. Click "+ New" button next to "Data Dictionary"
+2. Enter attribute details:
+   - Name (e.g., `risk_score`, `client_category`)
+   - Return type
+   - Description
+3. Select business attributes as dependencies (checkboxes)
+4. Click "Create Attribute" to:
+   - Generate rule template in editor
+   - Load test context with sample data
+   - Add new attribute to sidebar
+   - Update tab name to show rule name
+
+### Test Context Generation
+The system automatically generates smart sample data based on attribute names:
+- `*_id` fields → "CUST_12345"
+- `age` fields → 35
+- `income/balance/amount` → 50000
+- `is_*/has_*` → true
+- `type/category/status` → "standard"
+- `country` → "USA"
+
+### Rule Testing Integration
+When clicking "Run Code", the system:
+- Uses the loaded test context
+- Passes business attributes to the rule engine
+- Shows computed value for the derived attribute
+- Displays test data being used
 
 ## Tauri Configuration Notes
 

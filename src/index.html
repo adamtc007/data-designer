@@ -429,14 +429,19 @@
     <div class="header">
         <h1>🚀 DSL IDE - Language Server Enabled</h1>
         <div class="connection-status">
-            <span id="connection-text">LSP: Initializing...</span>
+            <span id="connection-text" style="white-space: nowrap;">LSP Offline</span>
             <div id="status-indicator" class="status-indicator"></div>
         </div>
     </div>
 
     <div class="main-container">
         <div class="sidebar" id="sidebar">
-            <h2>Data Dictionary</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Data Dictionary</h2>
+                <button class="btn" style="padding: 4px 8px; font-size: 12px;" onclick="showCreateAttributeDialog()">
+                    + New
+                </button>
+            </div>
             <ul id="attribute-list" class="attribute-list">
                 <!-- Attributes will be loaded here -->
             </ul>
@@ -627,6 +632,46 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 registerHoverProvider();
             }, 100);
 
+            // Initialize LSP status display
+            console.log('Initializing LSP status display...');
+            const statusIndicator = document.getElementById('status-indicator');
+            const connectionText = document.getElementById('connection-text');
+            console.log('Connection text element:', connectionText);
+            console.log('Current text:', connectionText ? connectionText.textContent : 'Element not found');
+            if (statusIndicator) statusIndicator.classList.remove('connected');
+            if (connectionText) {
+                connectionText.textContent = 'LSP Offline';
+                console.log('Set connection text to: LSP Offline');
+
+                // Check if something overwrites it
+                setTimeout(() => {
+                    console.log('After 1 second, connection text is:', connectionText.textContent);
+                    console.log('Element innerHTML:', connectionText.innerHTML);
+                    console.log('Element innerText:', connectionText.innerText);
+                    console.log('Computed style display:', window.getComputedStyle(connectionText).display);
+                    console.log('Computed style visibility:', window.getComputedStyle(connectionText).visibility);
+                    console.log('Computed style width:', window.getComputedStyle(connectionText).width);
+                    console.log('Parent element:', connectionText.parentElement);
+                    console.log('Parent innerHTML:', connectionText.parentElement.innerHTML);
+
+                    // Check if there are other elements with similar text
+                    const allElements = document.body.querySelectorAll('*');
+                    allElements.forEach(el => {
+                        if (el.textContent && el.textContent.includes('connection') && !el.textContent.includes('LSP')) {
+                            console.warn('Found element with "connection":', el, 'Text:', el.textContent.substring(0, 50));
+                        }
+                    });
+
+                    if (connectionText.textContent !== 'LSP Offline' && connectionText.textContent !== 'LSP Online') {
+                        console.warn('Something changed the text to:', connectionText.textContent);
+                        // Force it back
+                        connectionText.textContent = 'LSP Offline';
+                    }
+                }, 1000);
+            } else {
+                console.error('Could not find connection-text element!');
+            }
+
             // Auto-connect to LSP on startup (give editor time to fully initialize)
             // Disabled for now to prevent jitter - user can manually connect
             // setTimeout(() => {
@@ -641,9 +686,11 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         const MAX_RECONNECT_ATTEMPTS = 3;
 
         async function connectToLSP(isAutoConnect = false) {
+            console.log('connectToLSP called, isAutoConnect:', isAutoConnect);
             const button = document.getElementById('connect-lsp-btn');
             const statusIndicator = document.getElementById('status-indicator');
             const connectionText = document.getElementById('connection-text');
+            console.log('Found elements:', {button, statusIndicator, connectionText});
 
             // Clear any existing reconnect timeout
             if (reconnectTimeout) {
@@ -669,12 +716,63 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
 
                 // Connect to WebSocket LSP server
                 lspConnection = new WebSocket('ws://localhost:3030');
+                console.log('WebSocket created, readyState:', lspConnection.readyState);
 
                 lspConnection.onopen = () => {
+                    console.log('*** WEBSOCKET ONOPEN CALLED ***');
+                    console.log('WebSocket connected!');
                     isConnecting = false;  // Reset connecting flag
                     reconnectAttempts = 0;  // Reset on successful connection
+
+                    // Double-check we have the right elements
+                    const statusCheck = document.getElementById('status-indicator');
+                    const textCheck = document.getElementById('connection-text');
+                    console.log('Element check - statusIndicator:', statusCheck);
+                    console.log('Element check - connectionText:', textCheck);
+                    console.log('Are they the same?', statusIndicator === statusCheck, connectionText === textCheck);
+
+                    console.log('Updating UI - before:', connectionText.textContent);
+                    console.log('Direct check before:', document.getElementById('connection-text').textContent);
+
                     statusIndicator.classList.add('connected');
                     connectionText.textContent = 'LSP Online';
+
+                    console.log('Updating UI - after:', connectionText.textContent);
+                    console.log('Direct check after:', document.getElementById('connection-text').textContent);
+
+                    // Force a style update
+                    connectionText.style.color = '#4caf50';
+
+                    // Check if it stays after a delay
+                    setTimeout(() => {
+                        // Check for duplicate IDs
+                        const allConnectionTexts = document.querySelectorAll('#connection-text');
+                        console.log('Number of elements with id="connection-text":', allConnectionTexts.length);
+                        allConnectionTexts.forEach((elem, index) => {
+                            console.log(`Element ${index}:`, elem, 'Text:', elem.textContent, 'Parent:', elem.parentElement);
+                        });
+
+                        console.log('After 100ms, text is:', connectionText.textContent);
+                        console.log('After 100ms, color is:', connectionText.style.color);
+                        console.log('After 100ms, element still exists?', document.getElementById('connection-text'));
+
+                        // Force it again just to be sure
+                        const elem = document.getElementById('connection-text');
+                        if (elem && elem.textContent !== 'LSP Online') {
+                            console.warn('Text was changed! Setting it back...');
+                            elem.textContent = 'LSP Online';
+                            elem.style.color = '#4caf50';
+
+                            // Check again after setting
+                            setTimeout(() => {
+                                console.log('After forcing update, text is now:', elem.textContent);
+                                if (elem.textContent !== 'LSP Online') {
+                                    console.error('Something is actively reverting the text!');
+                                }
+                            }, 10);
+                        }
+                    }, 100);
+
                     button.innerHTML = '✅ LSP Online';
                     button.disabled = true;
                     button.style.opacity = '0.7';
@@ -728,7 +826,44 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 };
 
                 lspConnection.onmessage = (event) => {
-                    handleLSPMessage(JSON.parse(event.data));
+                    console.log('Raw LSP message received:', event.data);
+                    try {
+                        let messageData = event.data;
+
+                        // Check if it's already JSON or needs parsing
+                        if (typeof messageData === 'string') {
+                            // If it starts with Content-Length, extract the JSON part
+                            if (messageData.startsWith('Content-Length:')) {
+                                const parts = messageData.split('\r\n\r\n');
+                                if (parts.length > 1) {
+                                    messageData = parts[1]; // Get the JSON part after the headers
+                                    console.log('Extracted JSON from LSP message:', messageData);
+                                } else {
+                                    console.log('Could not extract JSON from LSP protocol message');
+                                    return;
+                                }
+                            }
+
+                            const parsed = JSON.parse(messageData);
+
+                            // Check for JSON-RPC errors
+                            if (parsed.error) {
+                                console.error('LSP Error:', parsed.error);
+                                if (parsed.error.code === -32700) {
+                                    console.error('Parse error - the LSP server could not parse our message');
+                                    // Despite the error, the connection is established
+                                    console.log('Note: Connection is still active despite parse error');
+                                }
+                                return;
+                            }
+
+                            handleLSPMessage(parsed);
+                        } else {
+                            handleLSPMessage(messageData);
+                        }
+                    } catch (error) {
+                        console.error('Failed to parse LSP message:', error, 'Data:', event.data);
+                    }
                 };
 
             } catch (error) {
@@ -745,6 +880,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         let messageId = 1;
 
         function initializeLSP() {
+            console.log('Sending LSP initialize request');
             const initRequest = {
                 jsonrpc: "2.0",
                 id: messageId++,
@@ -772,7 +908,14 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 }
             };
 
-            lspConnection.send(JSON.stringify(initRequest));
+            const message = JSON.stringify(initRequest);
+            console.log('Sending message:', message);
+
+            try {
+                lspConnection.send(message);
+            } catch (error) {
+                console.error('Failed to send initialize request:', error);
+            }
         }
 
         function handleLSPMessage(message) {
@@ -1000,18 +1143,40 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             button.disabled = true;
             button.innerHTML = '<span class="loading"></span> Running...';
 
+            // Show which rule is being tested if we have context
+            if (window.currentRuleContext) {
+                addToOutput('console', `▶ Testing rule: ${window.currentRuleContext.ruleName}`);
+            }
+
             try {
                 // Check if running in Tauri environment
                 if (window.__TAURI__ && window.__TAURI__.invoke) {
-                    // Call Tauri backend to test the rule
+                    // Prepare the test context with the loaded dependencies
+                    const testData = window.ruleTestContext || {};
+
+                    // Call Tauri backend to test the rule with context
                     const result = await window.__TAURI__.invoke('test_rule', {
-                        dslText: code
+                        dslText: code,
+                        context: testData  // Pass the business attributes as context
                     });
 
                     addToOutput('output', `✓ Execution successful:\n${JSON.stringify(result, null, 2)}`);
+
+                    // If we have a rule context, show what value was computed
+                    if (window.currentRuleContext && result[window.currentRuleContext.ruleName]) {
+                        addToOutput('output', `\n${window.currentRuleContext.ruleName} = ${result[window.currentRuleContext.ruleName]}`);
+                    }
                 } else {
                     // Fallback for browser-only mode (simulate execution)
                     addToOutput('output', '⚠️ Running in browser mode (no Tauri backend)');
+
+                    // Show the test context being used
+                    if (window.ruleTestContext) {
+                        addToOutput('output', '\n📊 Test Context:');
+                        Object.entries(window.ruleTestContext).forEach(([key, value]) => {
+                            addToOutput('output', `  ${key} = ${JSON.stringify(value)}`);
+                        });
+                    }
 
                     // Simple client-side validation/simulation
                     const lines = code.split('\n').filter(l => l.trim());
@@ -2487,12 +2652,323 @@ Please be more specific about what you need help with, and I'll provide detailed
             statusDiv.textContent = message;
         }
 
+        // Create New Derived Attribute Functions
+        function showCreateAttributeDialog() {
+            const existingModal = document.getElementById('create-attribute-modal');
+            if (existingModal) {
+                existingModal.style.display = 'block';
+                return;
+            }
+
+            // Get list of business attributes
+            const businessAttrs = getBusinessAttributes();
+
+            const modal = document.createElement('div');
+            modal.id = 'create-attribute-modal';
+            modal.className = 'modal';
+            modal.style.display = 'block';
+
+            modal.innerHTML = `
+                <div class="modal-overlay" onclick="closeCreateAttribute()"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Create New Derived Attribute</h2>
+                        <span class="close" onclick="closeCreateAttribute()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="attr-name">Attribute Name:</label>
+                            <input type="text" id="attr-name" placeholder="e.g., risk_score, client_category" />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="attr-type">Return Type:</label>
+                            <select id="attr-type">
+                                <option value="string">String</option>
+                                <option value="number">Number</option>
+                                <option value="boolean">Boolean</option>
+                                <option value="list">List</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Select Dependencies (Business Attributes):</label>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #444; padding: 10px; background: #2d2d30;">
+                                ${businessAttrs.map(attr => `
+                                    <label style="display: block; margin: 5px 0; cursor: pointer;">
+                                        <input type="checkbox" value="${attr.name}" onchange="updateAttributeDependencies()">
+                                        <span style="margin-left: 5px;">${attr.name} (${attr.type})</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Selected Dependencies:</label>
+                            <div id="selected-deps" style="padding: 10px; background: #2d2d30; min-height: 30px; border-radius: 4px;">
+                                <em style="color: #888;">None selected</em>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="attr-description">Description:</label>
+                            <textarea id="attr-description" rows="3" placeholder="Describe what this attribute calculates..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeCreateAttribute()">Cancel</button>
+                        <button class="btn btn-primary" onclick="createDerivedAttribute()">Create Attribute</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+        }
+
+        function closeCreateAttribute() {
+            const modal = document.getElementById('create-attribute-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        function updateAttributeDependencies() {
+            const checkboxes = document.querySelectorAll('#create-attribute-modal input[type="checkbox"]:checked');
+            const selectedDepsDiv = document.getElementById('selected-deps');
+
+            if (checkboxes.length === 0) {
+                selectedDepsDiv.innerHTML = '<em style="color: #888;">None selected</em>';
+            } else {
+                const deps = Array.from(checkboxes).map(cb => cb.value);
+                selectedDepsDiv.innerHTML = deps.join(', ');
+            }
+        }
+
+        function getBusinessAttributes() {
+            // Get the current business attributes from the data dictionary
+            const attrList = document.querySelectorAll('#attribute-list .attribute-item');
+            const attrs = [];
+
+            attrList.forEach(item => {
+                const name = item.querySelector('.attr-name')?.textContent;
+                const type = item.querySelector('.attr-type')?.textContent;
+                if (name && !name.includes('→')) { // Exclude derived attributes
+                    attrs.push({ name, type: type || 'String' });
+                }
+            });
+
+            // If no attributes loaded yet, use defaults
+            if (attrs.length === 0) {
+                return [
+                    { name: 'Client.client_id', type: 'String' },
+                    { name: 'Client.age', type: 'Number' },
+                    { name: 'Client.income', type: 'Number' },
+                    { name: 'Client.country_code', type: 'String' },
+                    { name: 'Client.risk_tolerance', type: 'String' },
+                    { name: 'Account.account_type', type: 'String' },
+                    { name: 'Account.balance', type: 'Number' },
+                    { name: 'Account.is_active', type: 'Boolean' },
+                    { name: 'Transaction.amount', type: 'Number' },
+                    { name: 'Transaction.type', type: 'String' }
+                ];
+            }
+
+            return attrs;
+        }
+
+        function createDerivedAttribute() {
+            const name = document.getElementById('attr-name').value.trim();
+            const type = document.getElementById('attr-type').value;
+            const description = document.getElementById('attr-description').value.trim();
+            const checkboxes = document.querySelectorAll('#create-attribute-modal input[type="checkbox"]:checked');
+            const dependencies = Array.from(checkboxes).map(cb => cb.value);
+
+            if (!name) {
+                alert('Please enter an attribute name');
+                return;
+            }
+
+            if (dependencies.length === 0) {
+                alert('Please select at least one dependency');
+                return;
+            }
+
+            // Store the current rule context
+            window.currentRuleContext = {
+                ruleName: name,
+                returnType: type,
+                description: description,
+                dependencies: dependencies
+            };
+
+            // Load dependencies into the rules engine context
+            loadDependenciesToContext(name, dependencies);
+
+            // Create a rule template using the selected dependencies
+            const ruleTemplate = createRuleTemplate(name, type, dependencies);
+
+            // Add to the attribute list in the sidebar
+            addDerivedAttributeToSidebar(name, type, dependencies);
+
+            // Load the rule template into the editor
+            if (window.editor) {
+                window.editor.setValue(ruleTemplate);
+
+                // Update the tab to show the rule name
+                const activeTab = document.querySelector('.tab.active');
+                if (activeTab) {
+                    activeTab.textContent = `${name}.rule`;
+                    activeTab.setAttribute('data-file', `${name}.rule`);
+                }
+            }
+
+            // Close the modal
+            closeCreateAttribute();
+
+            // Show success message
+            addToOutput('console', `✅ Created new derived attribute: ${name}`);
+            addToOutput('console', `Dependencies: ${dependencies.join(', ')}`);
+            addToOutput('console', `📝 Rule context loaded with ${dependencies.length} business attributes`);
+        }
+
+        function loadDependenciesToContext(ruleName, dependencies) {
+            // Initialize the test context with the selected dependencies
+            const testContext = {};
+
+            // Load sample values for each dependency (for testing)
+            dependencies.forEach(dep => {
+                // Parse the attribute name to get entity and field
+                const parts = dep.split('.');
+
+                // Set sample values based on type inference from name
+                if (dep.includes('_id') || dep.includes('client_id')) {
+                    testContext[dep] = 'CUST_12345';
+                } else if (dep.includes('age')) {
+                    testContext[dep] = 35;
+                } else if (dep.includes('income') || dep.includes('balance') || dep.includes('amount')) {
+                    testContext[dep] = 50000;
+                } else if (dep.includes('is_') || dep.includes('has_')) {
+                    testContext[dep] = true;
+                } else if (dep.includes('type') || dep.includes('category') || dep.includes('status')) {
+                    testContext[dep] = 'standard';
+                } else if (dep.includes('country')) {
+                    testContext[dep] = 'USA';
+                } else {
+                    testContext[dep] = 'sample_value';
+                }
+            });
+
+            // Store the context for rule testing
+            window.ruleTestContext = testContext;
+
+            // Update the test data display
+            updateTestDataDisplay(testContext);
+
+            console.log('Loaded rule context:', {
+                ruleName: ruleName,
+                dependencies: dependencies,
+                testContext: testContext
+            });
+        }
+
+        function updateTestDataDisplay(context) {
+            // Find or create a test data panel
+            let testDataPanel = document.getElementById('test-data-panel');
+
+            if (!testDataPanel) {
+                // Create test data panel in the output area
+                const outputPanel = document.getElementById('output-panel');
+                if (outputPanel) {
+                    const testDataDiv = document.createElement('div');
+                    testDataDiv.id = 'test-data-panel';
+                    testDataDiv.style.cssText = 'padding: 10px; border-bottom: 1px solid #444; background: #1e1e1e;';
+                    testDataDiv.innerHTML = '<h4 style="margin: 0 0 10px 0; color: #4ec9b0;">Test Data Context:</h4>';
+                    outputPanel.insertBefore(testDataDiv, outputPanel.firstChild);
+                    testDataPanel = testDataDiv;
+                }
+            }
+
+            if (testDataPanel) {
+                let html = '<h4 style="margin: 0 0 10px 0; color: #4ec9b0;">Test Data Context:</h4>';
+                html += '<div style="font-family: monospace; font-size: 12px;">';
+
+                Object.entries(context).forEach(([key, value]) => {
+                    const displayValue = typeof value === 'string' ? `"${value}"` : value;
+                    html += `<div style="margin: 2px 0;"><span style="color: #9cdcfe;">${key}</span> = <span style="color: #ce9178;">${displayValue}</span></div>`;
+                });
+
+                html += '</div>';
+                html += '<div style="margin-top: 10px; font-size: 11px; color: #888;">These values will be used when testing your rule</div>';
+
+                testDataPanel.innerHTML = html;
+            }
+        }
+
+        function createRuleTemplate(name, type, dependencies) {
+            // Create a template rule based on type and dependencies
+            let template = `// Derived Attribute: ${name}\n`;
+            template += `// Type: ${type}\n`;
+            template += `// Dependencies: ${dependencies.join(', ')}\n\n`;
+
+            // Add dependency comments
+            dependencies.forEach(dep => {
+                template += `// ${dep} = <value will be provided at runtime>\n`;
+            });
+            template += '\n';
+
+            // Create a basic rule structure based on type
+            if (type === 'boolean') {
+                template += `// Example: Check a condition\n`;
+                template += `${name} = ${dependencies[0]} > 100\n`;
+            } else if (type === 'number') {
+                template += `// Example: Calculate a value\n`;
+                template += `${name} = ${dependencies[0]} * 1.1\n`;
+            } else if (type === 'string') {
+                template += `// Example: Conditional text\n`;
+                template += `${name} = IF ${dependencies[0]} > 100 THEN "High" ELSE "Low"\n`;
+            } else {
+                template += `// Example: Create a list\n`;
+                template += `${name} = [${dependencies.join(', ')}]\n`;
+            }
+
+            template += `\n// TODO: Implement your business logic here\n`;
+            template += `// Available functions: CONCAT, SUBSTRING, LOOKUP, etc.\n`;
+            template += `// Operators: +, -, *, /, >, <, ==, !=, AND, OR, NOT\n`;
+
+            return template;
+        }
+
+        function addDerivedAttributeToSidebar(name, type, dependencies) {
+            const attrList = document.getElementById('attribute-list');
+
+            // Create new attribute item
+            const li = document.createElement('li');
+            li.className = 'attribute-item derived';
+            li.innerHTML = `
+                <span class="attr-name">→ ${name}</span>
+                <span class="attr-type">${type}</span>
+                <div style="font-size: 11px; color: #888; margin-top: 2px;">
+                    Deps: ${dependencies.slice(0, 2).join(', ')}${dependencies.length > 2 ? '...' : ''}
+                </div>
+            `;
+
+            // Add click handler
+            li.onclick = () => insertText(name);
+
+            // Add to top of list
+            attrList.insertBefore(li, attrList.firstChild);
+        }
+
         // Make functions available globally
         window.showSettings = showSettings;
         window.closeSettings = closeSettings;
         window.updateProviderSettings = updateProviderSettings;
         window.saveSettings = saveSettings;
         window.testAPIKey = testAPIKey;
+        window.showCreateAttributeDialog = showCreateAttributeDialog;
+        window.closeCreateAttribute = closeCreateAttribute;
+        window.createDerivedAttribute = createDerivedAttribute;
+        window.updateAttributeDependencies = updateAttributeDependencies;
 
         // Resizable Panes Implementation
         function initializeResizablePanes() {
