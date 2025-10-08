@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 
+mod websocket_server;
+
 #[derive(Parser)]
 #[command(name = "dsl-lsp-server")]
 #[command(about = "DSL Language Server with AI Agent support", long_about = None)]
@@ -24,6 +26,13 @@ enum Commands {
 
     /// Run the language server using TCP (for remote connections)
     Tcp {
+        /// Address to bind to
+        #[arg(short, long, default_value = "127.0.0.1")]
+        address: String,
+    },
+
+    /// Run the language server using WebSocket (for web-based IDEs)
+    Websocket {
         /// Address to bind to
         #[arg(short, long, default_value = "127.0.0.1")]
         address: String,
@@ -59,6 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("Starting DSL Language Server on TCP {}", addr);
 
             run_tcp_server(addr).await?;
+        }
+
+        Some(Commands::Websocket { address }) => {
+            let addr: SocketAddr = format!("{}:{}", address, cli.port).parse()?;
+            log::info!("Starting DSL Language Server on WebSocket {}", addr);
+
+            websocket_server::run_websocket_server(addr).await?;
         }
 
         Some(Commands::GenerateDict { output }) => {

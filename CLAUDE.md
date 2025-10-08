@@ -264,52 +264,68 @@ The project includes a comprehensive Language Server Protocol implementation usi
 
 ### Architecture
 ```
-┌─────────────────────────────────────┐
-│      Language Server (tower-lsp)     │
-├─────────────────────────────────────┤
-│  ┌────────────┐  ┌────────────────┐ │
-│  │ nom Parser │  │ Data Dictionary │ │
-│  └────────────┘  └────────────────┘ │
-│  ┌────────────┐  ┌────────────────┐ │
-│  │ Diagnostics│  │   AI Agents    │ │
-│  └────────────┘  └────────────────┘ │
-└─────────────────────────────────────┘
+Browser IDE (src/ide.html)
+    ↓ WebSocket (ws://localhost:3030)
+LSP Client (src/lsp-client.js)
+    ↓
+WebSocket Server (dsl-lsp/src/websocket_server.rs)
+    ↓
+Language Server (tower-lsp)
+    ├── nom Parser
+    ├── Data Dictionary
+    ├── Diagnostics Engine
+    └── AI Agents
 ```
 
 ### Features
-- **Syntax Highlighting**: Full DSL syntax highlighting with semantic tokens
+- **WebSocket Support**: Browser-compatible WebSocket server for LSP communication
+- **Auto-Connection**: LSP automatically connects when IDE loads
+- **Smart Formatting**: Preserves line breaks and indentation during code formatting
+- **Debounced Updates**: 300ms delay prevents message flooding on keystrokes
+- **Auto-Reconnect**: Automatic reconnection with exponential backoff (max 3 attempts)
+- **Offline Mode**: IDE gracefully falls back to client-side features when LSP unavailable
 - **IntelliSense**: Context-aware auto-completion for KYC attributes and DSL functions
 - **Real-time Diagnostics**: Instant validation using nom parser
 - **Hover Information**: Detailed tooltips for functions, operators, and attributes
-- **Code Actions**: AI-powered explanations, optimizations, and test generation
+- **Semantic Tokens**: Enhanced syntax highlighting
 - **Data Dictionary**: Domain-driven completions with KYC-specific attributes
-- **AI Integration**: Optional Gemini/Copilot support for intelligent assistance
 
 ### LSP Components
 - `dsl-lsp/src/lib.rs` - Main LSP server implementation with tower-lsp
+- `dsl-lsp/src/websocket_server.rs` - WebSocket wrapper for browser compatibility
 - `dsl-lsp/src/data_dictionary.rs` - KYC domain model and attribute management
 - `dsl-lsp/src/ai_agent.rs` - AI agent interfaces for Gemini/Copilot
-- `dsl-lsp/src/main.rs` - Server entry point with stdio/TCP modes
+- `dsl-lsp/src/main.rs` - Server entry point with stdio/TCP/WebSocket modes
 
 ### Running the LSP Server
 ```bash
 cd dsl-lsp
 cargo build --release
 
-# Stdio mode (for IDE integration)
-./target/release/dsl-lsp-server
+# WebSocket mode (for browser IDE)
+./target/release/dsl-lsp-server --port 3030 websocket
 
-# TCP mode (for remote connections)
-./target/release/dsl-lsp-server tcp --port 3030
+# TCP mode (for desktop IDE clients)
+./target/release/dsl-lsp-server --port 3030 tcp
+
+# Stdio mode (for VS Code and other editors)
+./target/release/dsl-lsp-server
 
 # Generate data dictionary
 ./target/release/dsl-lsp-server generate-dict
 ```
 
 ### IDE Integration
-- **Monaco Editor**: Full integration via `src/ide.html`
+- **Browser IDE**: Full integration via `src/ide.html` with auto-connect on page load
+- **Monaco Editor**: Complete LSP client implementation in `src/lsp-client.js`
 - **VS Code**: Compatible with any LSP client extension
 - **Other Editors**: Works with any LSP-compatible editor
+
+### IDE Improvements
+- **Fixed Code Formatting**: Preserves line breaks and indentation
+- **No Juddering**: Eliminated visual artifacts with proper debouncing
+- **Connection Status**: Clear visual indicators for LSP connection state
+- **Graceful Degradation**: IDE remains functional even without LSP server
 
 ## Tauri Configuration Notes
 

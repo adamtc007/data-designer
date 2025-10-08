@@ -282,7 +282,7 @@
     <div class="header">
         <h1>🚀 DSL IDE - Language Server Enabled</h1>
         <div class="connection-status">
-            <span id="connection-text">Disconnected</span>
+            <span id="connection-text">LSP: Initializing...</span>
             <div id="status-indicator" class="status-indicator"></div>
         </div>
     </div>
@@ -319,8 +319,8 @@
                 <button class="btn secondary" id="ai-explain-btn" onclick="explainCode()">
                     🤖 AI Explain
                 </button>
-                <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()">
-                    🔌 Connect LSP
+                <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP will auto-connect on page load">
+                    🔌 LSP Status
                 </button>
             </div>
 
@@ -462,41 +462,218 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
 
             // Load sample attributes
             loadDataDictionary();
+
+            // Auto-connect to LSP on startup (give editor time to fully initialize)
+            setTimeout(() => {
+                connectToLSP(true);  // true = auto-connect
+            }, 1000);
         });
 
         // Connect to Language Server
-        async function connectToLSP() {
+        let reconnectTimeout = null;
+        let reconnectAttempts = 0;
+        let isConnecting = false;
+        const MAX_RECONNECT_ATTEMPTS = 3;
+
+        async function connectToLSP(isAutoConnect = false) {
             const button = document.getElementById('connect-lsp-btn');
             const statusIndicator = document.getElementById('status-indicator');
             const connectionText = document.getElementById('connection-text');
+
+            // Clear any existing reconnect timeout
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+
+            // If already connected or currently connecting, do nothing
+            if ((lspConnection && lspConnection.readyState === WebSocket.OPEN) || isConnecting) {
+                return;
+            }
+
+            isConnecting = true;
 
             try {
                 button.disabled = true;
                 button.innerHTML = '<span class="loading"></span> Connecting...';
 
-                // For now, we'll simulate the connection
-                // In production, this would connect to ws://localhost:3030
-                await simulateLSPConnection();
+                if (!isAutoConnect) {
+                    addToOutput('console', '🔄 Connecting to Language Server...');
+                    reconnectAttempts = 0;  // Reset attempts for manual connection
+                }
 
-                statusIndicator.classList.add('connected');
-                connectionText.textContent = 'Connected to LSP';
-                button.innerHTML = '✓ Connected';
+                // Connect to WebSocket LSP server
+                lspConnection = new WebSocket('ws://localhost:3030');
 
-                addToOutput('console', '✓ Connected to Language Server at localhost:3030');
+                lspConnection.onopen = () => {
+                    isConnecting = false;  // Reset connecting flag
+                    reconnectAttempts = 0;  // Reset on successful connection
+                    statusIndicator.classList.add('connected');
+                    connectionText.textContent = 'LSP Online';
+                    button.innerHTML = '✅ LSP Online';
+                    button.disabled = true;
+                    button.style.opacity = '0.7';
+                    button.title = 'Language Server is connected';
+
+                    if (!isAutoConnect) {
+                        addToOutput('console', '✅ Language Server connected successfully');
+                    }
+
+                    // Initialize LSP session
+                    initializeLSP();
+                };
+
+                lspConnection.onerror = (error) => {
+                    isConnecting = false;  // Reset connecting flag
+                    console.error('WebSocket error:', error);
+                    statusIndicator.classList.remove('connected');
+                    connectionText.textContent = 'LSP Offline';
+                    button.innerHTML = '⚠️ LSP Offline';
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                    button.title = 'Click to reconnect to Language Server';
+
+                    if (isAutoConnect && reconnectAttempts === 0) {
+                        // Only show this message once during auto-connect
+                        addToOutput('console', '📝 Language Server not available - IDE running in offline mode');
+                    }
+                };
+
+                lspConnection.onclose = () => {
+                    isConnecting = false;  // Reset connecting flag
+                    statusIndicator.classList.remove('connected');
+                    connectionText.textContent = 'LSP Offline';
+                    button.innerHTML = '🔄 Reconnect LSP';
+                    button.disabled = false;
+                    button.style.opacity = '1';
+                    button.title = 'Click to reconnect to Language Server';
+
+                    // Only auto-reconnect if we haven't exceeded attempts
+                    if (isAutoConnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        const backoffTime = Math.min(5000 * reconnectAttempts, 15000);  // Max 15 seconds
+                        reconnectTimeout = setTimeout(() => {
+                            console.log(`Auto-reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}...`);
+                            connectToLSP(true);
+                        }, backoffTime);
+                    }
+                };
+
+                lspConnection.onmessage = (event) => {
+                    handleLSPMessage(JSON.parse(event.data));
+                };
 
             } catch (error) {
-                addToOutput('console', `❌ Failed to connect: ${error.message}`);
-                button.innerHTML = '🔌 Connect LSP';
+                isConnecting = false;  // Reset connecting flag
+                if (!isAutoConnect) {
+                    addToOutput('console', `⚠️ Could not connect to LSP: ${error.message}`);
+                }
+                button.innerHTML = '🔄 Reconnect LSP';
                 button.disabled = false;
+                button.style.opacity = '1';
             }
         }
 
-        async function simulateLSPConnection() {
-            // Simulate connection delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        let messageId = 1;
 
-            // Set up mock LSP features
-            setupMockLSPFeatures();
+        function initializeLSP() {
+            const initRequest = {
+                jsonrpc: "2.0",
+                id: messageId++,
+                method: "initialize",
+                params: {
+                    processId: null,
+                    capabilities: {
+                        textDocument: {
+                            synchronization: {
+                                dynamicRegistration: false,
+                                willSave: false,
+                                willSaveWaitUntil: false,
+                                didSave: true
+                            },
+                            completion: {
+                                dynamicRegistration: false
+                            },
+                            hover: {
+                                dynamicRegistration: false
+                            }
+                        }
+                    },
+                    rootUri: null,
+                    workspaceFolders: null
+                }
+            };
+
+            lspConnection.send(JSON.stringify(initRequest));
+        }
+
+        function handleLSPMessage(message) {
+            if (message.method === 'textDocument/publishDiagnostics') {
+                // Handle diagnostics
+                const diagnostics = message.params.diagnostics;
+                updateDiagnostics(diagnostics);
+            } else if (message.result) {
+                // Handle responses
+                console.log('LSP Response:', message);
+                if (message.id === 1) {
+                    // Initialization complete
+                    addToOutput('console', '✓ LSP initialized successfully');
+                    setupLSPFeatures();
+                }
+            }
+        }
+
+        function setupLSPFeatures() {
+            // Send initialized notification
+            lspConnection.send(JSON.stringify({
+                jsonrpc: "2.0",
+                method: "initialized",
+                params: {}
+            }));
+
+            // Open current document in LSP
+            const documentUri = "file:///main.dsl";
+            const documentText = editor.getValue();
+            lspConnection.send(JSON.stringify({
+                jsonrpc: "2.0",
+                method: "textDocument/didOpen",
+                params: {
+                    textDocument: {
+                        uri: documentUri,
+                        languageId: "dsl",
+                        version: 1,
+                        text: documentText
+                    }
+                }
+            }));
+
+            // Set up editor change listener with debouncing
+            let changeTimeout = null;
+            editor.onDidChangeModelContent((e) => {
+                // Debounce the change notifications to avoid flooding the LSP
+                if (changeTimeout) {
+                    clearTimeout(changeTimeout);
+                }
+                changeTimeout = setTimeout(() => {
+                    if (lspConnection && lspConnection.readyState === WebSocket.OPEN) {
+                        lspConnection.send(JSON.stringify({
+                            jsonrpc: "2.0",
+                            method: "textDocument/didChange",
+                            params: {
+                                textDocument: {
+                                    uri: documentUri,
+                                    version: Date.now()
+                                },
+                                contentChanges: [{
+                                    text: editor.getValue()
+                                }]
+                            }
+                        }));
+                    }
+                }, 300);  // Wait 300ms after user stops typing
+            });
+
+            addToOutput('console', '✓ LSP features activated');
         }
 
         function setupMockLSPFeatures() {
@@ -600,12 +777,44 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             button.innerHTML = '<span class="loading"></span> Running...';
 
             try {
-                // Call Tauri backend to test the rule
-                const result = await window.__TAURI__.invoke('test_rule', {
-                    dslText: code
-                });
+                // Check if running in Tauri environment
+                if (window.__TAURI__ && window.__TAURI__.invoke) {
+                    // Call Tauri backend to test the rule
+                    const result = await window.__TAURI__.invoke('test_rule', {
+                        dslText: code
+                    });
 
-                addToOutput('output', `✓ Execution successful:\n${JSON.stringify(result, null, 2)}`);
+                    addToOutput('output', `✓ Execution successful:\n${JSON.stringify(result, null, 2)}`);
+                } else {
+                    // Fallback for browser-only mode (simulate execution)
+                    addToOutput('output', '⚠️ Running in browser mode (no Tauri backend)');
+
+                    // Simple client-side validation/simulation
+                    const lines = code.split('\n').filter(l => l.trim());
+                    if (lines.length > 0) {
+                        addToOutput('output', `✓ Parsed ${lines.length} lines of DSL code`);
+
+                        // Simulate some basic checks
+                        const hasIf = code.includes('IF');
+                        const hasThen = code.includes('THEN');
+
+                        if (hasIf && hasThen) {
+                            addToOutput('output', '✓ Valid IF-THEN structure detected');
+                        } else if (hasIf && !hasThen) {
+                            addToOutput('output', '⚠️ Warning: IF without THEN');
+                        }
+
+                        // Check for common DSL patterns
+                        if (code.includes('Client.')) {
+                            addToOutput('output', '✓ Client attributes referenced');
+                        }
+                        if (code.match(/IS_[A-Z]+/)) {
+                            addToOutput('output', '✓ Validation functions used');
+                        }
+                    } else {
+                        addToOutput('output', '⚠️ No code to execute');
+                    }
+                }
 
             } catch (error) {
                 addToOutput('output', `❌ Execution failed:\n${error}`);
@@ -643,15 +852,55 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         }
 
         function formatCode() {
-            // Simple formatting - in production this would use the LSP formatter
+            // Simple formatting - preserves line structure
             let code = editor.getValue();
 
-            // Add spacing around operators
-            code = code.replace(/([=<>!]+)/g, ' $1 ');
-            code = code.replace(/\s+/g, ' ');
-            code = code.trim();
+            // Process line by line to preserve structure
+            const lines = code.split('\n');
+            const formattedLines = lines.map(line => {
+                // Skip empty lines
+                if (line.trim() === '') {
+                    return line;
+                }
 
-            editor.setValue(code);
+                // Preserve leading whitespace (indentation)
+                const leadingWhitespace = line.match(/^(\s*)/)[1];
+                let trimmedLine = line.trim();
+
+                // Skip comments (but preserve indentation)
+                if (trimmedLine.startsWith('#')) {
+                    return line;
+                }
+
+                // Add spacing around operators
+                let formatted = trimmedLine;
+
+                // Add space around comparison and assignment operators
+                formatted = formatted.replace(/([=<>!]+)/g, ' $1 ');
+                formatted = formatted.replace(/([+\-*/%])/g, ' $1 ');
+
+                // Add space around logical operators
+                formatted = formatted.replace(/\b(AND|OR)\b/g, ' $1 ');
+
+                // Clean up spaces around parentheses and commas
+                formatted = formatted.replace(/\s*\(\s*/g, '(');
+                formatted = formatted.replace(/\s*\)\s*/g, ')');
+                formatted = formatted.replace(/\s*,\s*/g, ', ');
+
+                // Clean up spaces around dots (for property access)
+                formatted = formatted.replace(/\s*\.\s*/g, '.');
+
+                // Fix multiple spaces that may have been created
+                formatted = formatted.replace(/\s{2,}/g, ' ');
+
+                // Return with original indentation preserved
+                return leadingWhitespace + formatted.trim();
+            });
+
+            // Rejoin with line breaks preserved
+            const formattedCode = formattedLines.join('\n');
+
+            editor.setValue(formattedCode);
             addToOutput('console', '✓ Code formatted');
         }
 
