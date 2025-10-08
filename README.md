@@ -27,6 +27,14 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 - **Context-Aware Help** - Understands current rule and provides relevant suggestions
 - **Never Fails** - Always provides helpful responses, even without API keys
 
+### Database & Vector Search
+- **PostgreSQL Integration** - Full database persistence for rules and attributes
+- **pgvector Extension** - Vector similarity search with 1536-dimensional embeddings
+- **Semantic Search** - Find similar rules using cosine similarity
+- **Automatic Embeddings** - Generate embeddings using OpenAI/Anthropic APIs
+- **Rule Versioning** - Track rule changes over time
+- **Execution Logging** - Audit trail for all rule executions
+
 ### Development Environment
 - **Tauri Desktop App** - Native cross-platform application
 - **Monaco Editor Integration** - VS Code-quality editing experience
@@ -66,6 +74,36 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 - Rust 1.70+
 - Node.js 18+
 - Tauri CLI
+- PostgreSQL 14+ (for database persistence)
+- pgvector extension (for semantic search)
+
+### Database Setup
+
+```bash
+# Install PostgreSQL (if not already installed)
+# macOS:
+brew install postgresql@14
+
+# Install pgvector extension
+cd /tmp
+git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+cd pgvector
+make
+make install
+
+# Create database
+createdb data_designer
+
+# Initialize schema
+cd /path/to/data-designer
+psql -d data_designer < database/schema-simple.sql
+
+# Load sample data (optional)
+psql -d data_designer < database/init-sample-data.sql
+
+# Set environment variable
+export DATABASE_URL="postgres://$(whoami)@localhost/data_designer"
+```
 
 ### Build from Source
 

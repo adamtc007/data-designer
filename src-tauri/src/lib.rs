@@ -7,6 +7,7 @@ use tauri::State;
 
 mod database;
 use database::{DbPool, CreateRuleRequest};
+mod embeddings;
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -667,6 +668,36 @@ async fn db_get_categories(pool: State<'_, DbPool>) -> Result<Vec<database::Rule
         .map_err(|e| e.to_string())
 }
 
+// Embedding commands
+#[tauri::command]
+async fn db_find_similar_rules(
+    pool: State<'_, DbPool>,
+    dsl_text: String,
+    limit: i32
+) -> Result<Vec<embeddings::SimilarRule>, String> {
+    embeddings::find_similar_rules(&pool, &dsl_text, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_update_rule_embedding(
+    pool: State<'_, DbPool>,
+    rule_id: String,
+    dsl_text: String
+) -> Result<(), String> {
+    embeddings::update_rule_embedding(&pool, &rule_id, &dsl_text)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_generate_all_embeddings(pool: State<'_, DbPool>) -> Result<(), String> {
+    embeddings::generate_all_embeddings(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -703,7 +734,11 @@ pub fn run() {
             db_search_rules,
             db_get_business_attributes,
             db_get_derived_attributes,
-            db_get_categories
+            db_get_categories,
+            // Embedding commands
+            db_find_similar_rules,
+            db_update_rule_embedding,
+            db_generate_all_embeddings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

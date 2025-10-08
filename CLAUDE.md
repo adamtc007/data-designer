@@ -198,6 +198,10 @@ is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
 - **Runtime Evaluation**: Complex expression engine with precedence
 - **External Integration**: Lookup table system for external data
 - **Tauri Integration**: Fully functional desktop app with proper API connectivity
+- **PostgreSQL Database**: Full persistence layer with rules, attributes, and categories
+- **Vector Search**: pgvector integration for semantic similarity search (1536 dimensions)
+- **AI Embeddings**: Automatic embedding generation using OpenAI/Anthropic APIs
+- **Similar Rules Finder**: Find semantically similar rules using cosine similarity
 
 ## File Structure
 
@@ -217,12 +221,19 @@ src/
 src-tauri/
 ├── src/lib.rs          # Tauri commands for rules and grammar
 ├── src/main.rs         # Tauri entry point
+├── src/database.rs     # PostgreSQL database layer with SQLx
+├── src/embeddings.rs   # Vector embedding generation and similarity search
 └── tauri.conf.json     # Tauri config with withGlobalTauri enabled
 
 dsl-lsp/                # Language Server Protocol implementation
 ├── src/lib.rs          # LSP server with IntelliSense and diagnostics
 ├── Cargo.toml          # LSP dependencies
 └── build.sh            # Build script for LSP server
+
+database/
+├── schema-simple.sql   # PostgreSQL schema with pgvector
+├── init-sample-data.sql # Sample rules and attributes
+└── migrations/         # Database migration scripts
 
 examples/
 └── regex_kyc_validation.dsl  # Regex and KYC validation examples
