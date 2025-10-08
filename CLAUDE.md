@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, testing, and managing dynamic data transformation rules using a soft DSL (Domain Specific Language) system. The project features:
 
 - **Dynamic Grammar System**: EBNF-based soft DSL where grammar rules are data-driven and editable through the UI
-- **Advanced Parser**: Full nom-based parser with 5 major extensions (arithmetic, strings, functions, lookups, runtime resolution)
+- **Advanced Parser**: Full nom-based parser with 6 major extensions (arithmetic, strings, functions, lookups, runtime resolution, regex)
 - **Interactive Rule Editor**: Monaco Editor with live rule testing and validation
 - **Grammar Editor**: Visual EBNF rule editor for modifying the DSL itself
 - **Rules Engine**: Runtime expression evaluation with complex operator precedence and function calls
@@ -18,7 +18,7 @@ This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, 
 
 1. **Dynamic Grammar System** (src-tauri/src/lib.rs:221-290):
    - Load/save EBNF grammar as JSON data
-   - Runtime Pest grammar generation
+   - Runtime grammar generation from EBNF
    - Grammar validation and hot-reload
 
 2. **Enhanced Expression Engine** (src/lib.rs:42-192):
@@ -44,8 +44,8 @@ This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, 
 
 ### Key Files
 
-- `src/lib.rs`: Enhanced Rust library with expression engine and Pest parser
-- `src/parser.rs`: Complete nom parser with 5 extensions
+- `src/lib.rs`: Enhanced Rust library with expression engine and nom parser
+- `src/parser.rs`: Complete nom parser with 6 extensions including regex
 - `grammar_rules.json`: Dynamic grammar storage with metadata
 - `src/index.html`: Two-tab UI with Rules and Grammar editors
 - `src/main.js`: Advanced frontend with grammar management and live testing
@@ -112,6 +112,23 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 # Combines arithmetic, lookup, and string operations
 ```
 
+### 6. Regex Support and Pattern Matching
+```
+# Regex literals and MATCHES operator
+valid_email = email ~ /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+matches_pattern = text MATCHES r"\d{3}-\d{2}-\d{4}"  # SSN pattern
+
+# KYC validation functions
+is_valid_email = IS_EMAIL(email_address)
+is_valid_lei = IS_LEI(legal_entity_id)
+is_valid_swift = IS_SWIFT(swift_code)
+is_valid_phone = IS_PHONE(phone_number)
+
+# Pattern extraction and validation
+extracted_code = EXTRACT(text, r"CODE-(\d+)")  # Extracts captured group
+is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
+```
+
 ## Dynamic Grammar System
 
 ### Grammar Storage Format (grammar_rules.json)
@@ -134,6 +151,7 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 
 ## Test Rules Available
 
+### Basic Operations
 1. **Complex Math**: `100 + 25 * 2 - 10 / 2` → Number(145.0)
 2. **String Concatenation**: `"Hello " & name & "!"` → String("Hello World!")
 3. **Parentheses Precedence**: `(100 + 50) * 2` → Number(300.0)
@@ -142,6 +160,15 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 6. **LOOKUP Function**: `LOOKUP(country_code, "countries")` → String("United States")
 7. **Ultimate Test**: `CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")` → String("Rate: 20%")
 8. **Runtime Calculation**: `price * quantity + tax` → Number(33.65)
+
+### Regex and KYC Validation
+9. **Email Validation**: `IS_EMAIL("user@example.com")` → Boolean(true)
+10. **LEI Validation**: `IS_LEI("529900T8BM49AURSDO55")` → Boolean(true)
+11. **SWIFT Validation**: `IS_SWIFT("DEUTDEFF")` → Boolean(true)
+12. **Phone Validation**: `IS_PHONE("+1-555-0123")` → Boolean(true)
+13. **Pattern Matching**: `"ABC123" ~ /^[A-Z]+\d+$/` → Boolean(true)
+14. **Pattern Extraction**: `EXTRACT("CODE-789", r"CODE-(\d+)")` → String("789")
+15. **Generic Validation**: `VALIDATE("XY123456", r"^[A-Z]{2}\d{6}$")` → Boolean(true)
 
 ## UI Features
 
@@ -163,10 +190,11 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 ## Current State
 
 - **Production Ready**: Full-featured soft DSL system with working Tauri IDE
-- **5 Parser Extensions**: All implemented and tested
+- **6 Parser Extensions**: All implemented and tested including comprehensive regex support
+- **Language Server Protocol**: Full LSP implementation for professional IDE features
 - **Dynamic Grammar**: Completely configurable through UI
 - **Advanced UI**: Two-tab interface with live editing
-- **Comprehensive Testing**: 8 test cases covering all features - all passing
+- **Comprehensive Testing**: 15+ test cases covering all features including regex/KYC validation
 - **Runtime Evaluation**: Complex expression engine with precedence
 - **External Integration**: Lookup table system for external data
 - **Tauri Integration**: Fully functional desktop app with proper API connectivity
@@ -177,9 +205,11 @@ result = CONCAT("Rate: ", (base_rate + LOOKUP(tier, "rates")) * 100, "%")
 src/
 ├── lib.rs              # Enhanced Rust library with expression engine
 ├── main.rs             # Comprehensive test suite
-├── parser.rs           # Complete nom parser with 5 extensions
+├── parser.rs           # Complete nom parser with 6 extensions including regex
+├── test_regex.rs       # Comprehensive regex and KYC validation test suite
 ├── index.html          # Two-tab UI (Rules + Grammar) with Tauri API integration
 ├── main.js             # Advanced frontend with grammar management
+├── dsl-language.js     # Monaco Editor DSL language definition
 ├── main-simple.js      # Simplified version for debugging/testing
 ├── test.html           # Basic test page for Tauri connectivity
 └── simple.js           # Simple JavaScript test utilities
@@ -188,6 +218,18 @@ src-tauri/
 ├── src/lib.rs          # Tauri commands for rules and grammar
 ├── src/main.rs         # Tauri entry point
 └── tauri.conf.json     # Tauri config with withGlobalTauri enabled
+
+dsl-lsp/                # Language Server Protocol implementation
+├── src/lib.rs          # LSP server with IntelliSense and diagnostics
+├── Cargo.toml          # LSP dependencies
+└── build.sh            # Build script for LSP server
+
+examples/
+└── regex_kyc_validation.dsl  # Regex and KYC validation examples
+
+test_data/              # KYC domain test data
+├── source_attributes.json    # Source data for testing
+└── target_attributes.json    # Target attribute mappings
 
 grammar_rules.json      # Dynamic grammar storage
 ```
@@ -215,6 +257,59 @@ grammar_rules.json      # Dynamic grammar storage
 ```
 
 The DSL is now completely "soft" - modifiable through the UI without code changes!
+
+## Language Server Protocol (LSP)
+
+The project includes a comprehensive Language Server Protocol implementation using tower-lsp for professional IDE features:
+
+### Architecture
+```
+┌─────────────────────────────────────┐
+│      Language Server (tower-lsp)     │
+├─────────────────────────────────────┤
+│  ┌────────────┐  ┌────────────────┐ │
+│  │ nom Parser │  │ Data Dictionary │ │
+│  └────────────┘  └────────────────┘ │
+│  ┌────────────┐  ┌────────────────┐ │
+│  │ Diagnostics│  │   AI Agents    │ │
+│  └────────────┘  └────────────────┘ │
+└─────────────────────────────────────┘
+```
+
+### Features
+- **Syntax Highlighting**: Full DSL syntax highlighting with semantic tokens
+- **IntelliSense**: Context-aware auto-completion for KYC attributes and DSL functions
+- **Real-time Diagnostics**: Instant validation using nom parser
+- **Hover Information**: Detailed tooltips for functions, operators, and attributes
+- **Code Actions**: AI-powered explanations, optimizations, and test generation
+- **Data Dictionary**: Domain-driven completions with KYC-specific attributes
+- **AI Integration**: Optional Gemini/Copilot support for intelligent assistance
+
+### LSP Components
+- `dsl-lsp/src/lib.rs` - Main LSP server implementation with tower-lsp
+- `dsl-lsp/src/data_dictionary.rs` - KYC domain model and attribute management
+- `dsl-lsp/src/ai_agent.rs` - AI agent interfaces for Gemini/Copilot
+- `dsl-lsp/src/main.rs` - Server entry point with stdio/TCP modes
+
+### Running the LSP Server
+```bash
+cd dsl-lsp
+cargo build --release
+
+# Stdio mode (for IDE integration)
+./target/release/dsl-lsp-server
+
+# TCP mode (for remote connections)
+./target/release/dsl-lsp-server tcp --port 3030
+
+# Generate data dictionary
+./target/release/dsl-lsp-server generate-dict
+```
+
+### IDE Integration
+- **Monaco Editor**: Full integration via `src/ide.html`
+- **VS Code**: Compatible with any LSP client extension
+- **Other Editors**: Works with any LSP-compatible editor
 
 ## Tauri Configuration Notes
 

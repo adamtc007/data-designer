@@ -15,9 +15,13 @@ env_logger = "0.10"
 nom = "7.1"
 regex = "1.10"
 lazy_static = "1.4"
+clap = { version = "4", features = ["derive"] }
+async-trait = "0.1"
+futures-util = "0.3"
+tokio-tungstenite = "0.21"
 
-# Use the parent data-designer library for parser
-data-designer = { path = ".." }
+# Use the parent data_designer library for parser
+data_designer = { path = ".." }
 
 [[bin]]
 name = "dsl-lsp-server"

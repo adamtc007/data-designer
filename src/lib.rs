@@ -1,4 +1,4 @@
-mod parser;
+pub mod parser;
 mod test_regex;
 
 use parser::{parse_rule, ASTNode};
