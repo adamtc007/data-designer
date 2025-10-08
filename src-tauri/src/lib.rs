@@ -3,6 +3,10 @@ use std::fs;
 use data_designer::{BusinessRule, generate_test_context};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Value as JsonValue};
+use tauri::State;
+
+mod database;
+use database::{DbPool, CreateRuleRequest};
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -606,10 +610,78 @@ fn test_rule_with_dataset(rule_expression: String, dataset_id: String) -> TestRe
     }
 }
 
+// Database commands
+#[tauri::command]
+async fn db_get_all_rules(pool: State<'_, DbPool>) -> Result<Vec<database::Rule>, String> {
+    database::get_all_rules(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_get_rule(pool: State<'_, DbPool>, rule_id: String) -> Result<Option<database::Rule>, String> {
+    database::get_rule_by_id(&pool, &rule_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_create_rule(pool: State<'_, DbPool>, request: CreateRuleRequest) -> Result<database::Rule, String> {
+    database::create_rule(&pool, request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_update_rule(pool: State<'_, DbPool>, rule_id: String, rule_definition: String) -> Result<database::Rule, String> {
+    database::update_rule(&pool, &rule_id, &rule_definition)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_search_rules(pool: State<'_, DbPool>, query: String) -> Result<Vec<database::Rule>, String> {
+    database::search_rules(&pool, &query)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_get_business_attributes(pool: State<'_, DbPool>) -> Result<Vec<database::BusinessAttribute>, String> {
+    database::get_all_business_attributes(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_get_derived_attributes(pool: State<'_, DbPool>) -> Result<Vec<database::DerivedAttribute>, String> {
+    database::get_all_derived_attributes(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_get_categories(pool: State<'_, DbPool>) -> Result<Vec<database::RuleCategory>, String> {
+    database::get_all_categories(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Create async runtime for database
+    let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
+    // Initialize database pool
+    let db_pool = runtime.block_on(async {
+        database::create_pool()
+            .await
+            .expect("Failed to create database pool")
+    });
+
     tauri::Builder::default()
+        .manage(db_pool)
         .invoke_handler(tauri::generate_handler![
             save_rules,
             get_test_rules,
@@ -622,7 +694,16 @@ pub fn run() {
             get_api_keys,
             load_source_data,
             load_target_rules,
-            test_rule_with_dataset
+            test_rule_with_dataset,
+            // Database commands
+            db_get_all_rules,
+            db_get_rule,
+            db_create_rule,
+            db_update_rule,
+            db_search_rules,
+            db_get_business_attributes,
+            db_get_derived_attributes,
+            db_get_categories
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

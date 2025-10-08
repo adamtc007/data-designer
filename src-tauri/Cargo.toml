@@ -26,3 +26,9 @@ tauri-plugin-log = "2"
 chrono = { version = "0.4", features = ["serde"] }
 data_designer = { path = ".." }
 rhai = "1.17"
+
+# Database dependencies
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "json", "chrono"] }
+uuid = { version = "1.5", features = ["v4", "serde"] }
+anyhow = "1.0"
