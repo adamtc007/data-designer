@@ -74,22 +74,22 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 - Rust 1.70+
 - Node.js 18+
 - Tauri CLI
-- PostgreSQL 14+ (for database persistence)
-- pgvector extension (for semantic search)
+- PostgreSQL 17 (for database persistence)
+- pgvector 0.8.1+ (for semantic search)
 
 ### Database Setup
 
 ```bash
 # Install PostgreSQL (if not already installed)
 # macOS:
-brew install postgresql@14
+brew install postgresql@17
 
 # Install pgvector extension
 cd /tmp
-git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector
-make
-make install
+PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make
+PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make install
 
 # Create database
 createdb data_designer
