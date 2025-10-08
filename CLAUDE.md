@@ -393,3 +393,20 @@ When clicking "Run Code", the system:
 - If Tauri API not detected: Verify import from '@tauri-apps/api/core' in index.html
 - If rules don't load: Check invoke function is properly accessible via window.__TAURI__.invoke
 - If tests fail with parameter error: Ensure frontend sends `dslText` not `rule` to test_rule command
+- If editor content doesn't refresh: Ensure Monaco editor is exposed to window.editor and use setValue() with layout() and focus()
+
+## Recent Updates (October 2025)
+
+### Derived Attribute Builder Enhancements
+- **Editor Content Refresh Fix**: Fixed issue where editor wouldn't update with rule template
+  - Monaco editor now properly exposed to `window.editor` for global access
+  - Editor clears before setting new content to force refresh
+  - Uses `editor.layout()` and `editor.focus()` to ensure visual update
+  - Tab name correctly updates to show new attribute name
+  - Rule template with business attributes now loads properly
+
+### Key UI Improvements
+- **Single Tab Design**: Simplified to "Current Rule" tab that updates dynamically
+- **Smart Template Generation**: Creates context-aware rule templates based on attribute types
+- **Test Data Panel**: Shows live context values for selected dependencies
+- **Auto-Save**: Rules automatically saved as user types

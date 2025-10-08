@@ -455,9 +455,8 @@
         <div class="splitter-vertical" id="splitter-vertical"></div>
 
         <div class="editor-container" id="editor-container">
-            <div class="tabs">
-                <div class="tab active" data-file="main.dsl">main.dsl</div>
-                <div class="tab" data-file="test.dsl">test.dsl</div>
+            <div class="tabs" id="editor-tabs">
+                <div class="tab active" data-file="no-rule" id="main-tab">No Rule Selected</div>
             </div>
 
             <div class="toolbar">
@@ -580,18 +579,17 @@
                 }
             });
 
-            // Create editor instance
+            // Create editor instance and expose globally
             editor = monaco.editor.create(document.getElementById('monaco-editor'), {
-                value: `# DSL IDE - Test your code here
-# This editor has full Language Server Protocol support
-
-# Example: KYC Risk Assessment Rule
-risk_score = 0
-
-IF Client.risk_rating == "HIGH" THEN
-    risk_score = risk_score + 50
-ELSE
-    risk_score = risk_score + 10
+                value: `// No rule selected
+//
+// Click "+ New" next to Data Dictionary to create a new derived attribute
+// Or select an existing rule from the sidebar
+//
+// Once you create or select a rule:
+// - The rule name will appear in the tab above
+// - Test data will load in the panel below
+// - You can start writing your business logic
 
 IF Client.pep_status == true THEN
     risk_score = risk_score + 30
@@ -622,6 +620,9 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                 autoClosingQuotes: 'always',
                 formatOnPaste: true,
             });
+
+            // Expose editor globally for easier access
+            window.editor = editor;
 
             // Load sample attributes
             loadDataDictionary();
@@ -961,6 +962,12 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             // Set up editor change listener with debouncing
             let changeTimeout = null;
             editor.onDidChangeModelContent((e) => {
+                // Save current rule content if we're editing a derived attribute
+                if (window.currentAttributeName && window.currentEditMode === 'derived_attribute') {
+                    if (!window.attributeRules) window.attributeRules = {};
+                    window.attributeRules[window.currentAttributeName] = editor.getValue();
+                }
+
                 // Debounce the change notifications to avoid flooding the LSP
                 if (changeTimeout) {
                     clearTimeout(changeTimeout);
@@ -2810,16 +2817,85 @@ Please be more specific about what you need help with, and I'll provide detailed
             // Add to the attribute list in the sidebar
             addDerivedAttributeToSidebar(name, type, dependencies);
 
-            // Load the rule template into the editor
-            if (window.editor) {
-                window.editor.setValue(ruleTemplate);
+            // Update the main tab FIRST to show the current rule
+            const mainTab = document.getElementById('main-tab');
+            console.log('Looking for main-tab element...');
+            console.log('Main tab found:', mainTab);
 
-                // Update the tab to show the rule name
-                const activeTab = document.querySelector('.tab.active');
-                if (activeTab) {
-                    activeTab.textContent = `${name}.rule`;
-                    activeTab.setAttribute('data-file', `${name}.rule`);
+            if (!mainTab) {
+                // If no main tab, try to find it by class
+                const tabs = document.querySelectorAll('.tab');
+                console.log('Found tabs:', tabs);
+                if (tabs.length > 0) {
+                    const firstTab = tabs[0];
+                    firstTab.id = 'main-tab';
+                    console.log('Set ID on first tab');
                 }
+            }
+
+            // Try again after setting ID
+            const updatedMainTab = document.getElementById('main-tab');
+            if (updatedMainTab) {
+                console.log('Updating tab text from:', updatedMainTab.textContent, 'to:', name);
+
+                // Update tab text and styling
+                updatedMainTab.textContent = name;
+                updatedMainTab.setAttribute('data-file', `${name}.dsl`);
+                updatedMainTab.setAttribute('data-attribute-name', name);
+                updatedMainTab.classList.add('active');
+
+                // Visual indicator for derived attribute
+                updatedMainTab.style.fontWeight = 'bold';
+                updatedMainTab.style.color = '#4ec9b0';
+                updatedMainTab.style.borderBottom = '2px solid #4ec9b0';
+
+                console.log('Tab should now show:', updatedMainTab.textContent);
+
+                // Force a repaint
+                updatedMainTab.offsetHeight;
+            } else {
+                console.error('Could not find or create main tab!');
+            }
+
+            // Load the rule template into the editor
+            console.log('Attempting to load template into editor...');
+            console.log('Template content:', ruleTemplate);
+
+            // Check both local and window scope for editor
+            const editorInstance = editor || window.editor;
+
+            if (editorInstance) {
+                // Store the rule content for this attribute
+                if (!window.attributeRules) {
+                    window.attributeRules = {};
+                }
+                window.attributeRules[name] = ruleTemplate;
+
+                console.log('Editor instance found, setting value...');
+
+                // Clear editor first to ensure refresh
+                editorInstance.setValue('');
+
+                // Set the new template
+                editorInstance.setValue(ruleTemplate);
+
+                // Force editor to refresh and focus
+                editorInstance.layout();
+                editorInstance.focus();
+
+                // Trigger a change event to ensure Monaco updates
+                editorInstance.trigger('createDerivedAttribute', 'editor.action.formatDocument');
+
+                // Store that we're in attribute editing mode
+                window.currentEditMode = 'derived_attribute';
+                window.currentAttributeName = name;
+
+                console.log('✅ Editor loaded with rule for:', name);
+                console.log('✅ Editor current value:', editorInstance.getValue().substring(0, 200));
+            } else {
+                console.error('❌ Editor not found! Cannot set template.');
+                console.error('Local editor:', typeof editor);
+                console.error('Window editor:', typeof window.editor);
             }
 
             // Close the modal
@@ -2910,33 +2986,43 @@ Please be more specific about what you need help with, and I'll provide detailed
             template += `// Type: ${type}\n`;
             template += `// Dependencies: ${dependencies.join(', ')}\n\n`;
 
-            // Add dependency comments
+            // List available source attributes with their test values
+            template += `// Available Source Attributes:\n`;
             dependencies.forEach(dep => {
-                template += `// ${dep} = <value will be provided at runtime>\n`;
+                const testValue = window.ruleTestContext ? window.ruleTestContext[dep] : '<runtime value>';
+                const displayValue = typeof testValue === 'string' ? `"${testValue}"` : testValue;
+                template += `// ${dep} = ${displayValue}\n`;
             });
             template += '\n';
 
+            // Start the rule with the attribute name
+            template += `// Define your rule:\n`;
+
             // Create a basic rule structure based on type
             if (type === 'boolean') {
-                template += `// Example: Check a condition\n`;
-                template += `${name} = ${dependencies[0]} > 100\n`;
+                template += `${name} = ${dependencies[0]} > 100  // Modify this condition\n`;
             } else if (type === 'number') {
-                template += `// Example: Calculate a value\n`;
-                template += `${name} = ${dependencies[0]} * 1.1\n`;
+                if (dependencies.length > 1) {
+                    template += `${name} = ${dependencies[0]} + ${dependencies[1]}  // Modify this calculation\n`;
+                } else {
+                    template += `${name} = ${dependencies[0]} * 1.1  // Modify this calculation\n`;
+                }
             } else if (type === 'string') {
-                template += `// Example: Conditional text\n`;
-                template += `${name} = IF ${dependencies[0]} > 100 THEN "High" ELSE "Low"\n`;
+                template += `${name} = IF ${dependencies[0]} > 100 THEN "High" ELSE "Low"  // Modify this logic\n`;
             } else {
-                template += `// Example: Create a list\n`;
-                template += `${name} = [${dependencies.join(', ')}]\n`;
+                template += `${name} = [${dependencies.join(', ')}]  // Modify this list\n`;
             }
 
-            template += `\n// TODO: Implement your business logic here\n`;
-            template += `// Available functions: CONCAT, SUBSTRING, LOOKUP, etc.\n`;
-            template += `// Operators: +, -, *, /, >, <, ==, !=, AND, OR, NOT\n`;
+            template += `\n// Available functions:\n`;
+            template += `// - CONCAT(str1, str2, ...)  // Concatenate strings\n`;
+            template += `// - SUBSTRING(str, start, end)  // Extract substring\n`;
+            template += `// - LOOKUP(key, table)  // Look up value in table\n`;
+            template += `// - UPPER(str), LOWER(str)  // Change case\n`;
+            template += `// - IF condition THEN value ELSE value  // Conditional logic\n`;
 
             return template;
         }
+
 
         function addDerivedAttributeToSidebar(name, type, dependencies) {
             const attrList = document.getElementById('attribute-list');
@@ -2952,8 +3038,42 @@ Please be more specific about what you need help with, and I'll provide detailed
                 </div>
             `;
 
-            // Add click handler
-            li.onclick = () => insertText(name);
+            // Add click handler to load this rule
+            li.onclick = () => {
+                // Load this attribute's rule into the editor
+                if (window.attributeRules && window.attributeRules[name]) {
+                    // Update the main tab
+                    const mainTab = document.getElementById('main-tab');
+                    if (mainTab) {
+                        mainTab.innerHTML = '';
+                        mainTab.appendChild(document.createTextNode(name));
+                        mainTab.setAttribute('data-file', `${name}.dsl`);
+                        mainTab.setAttribute('data-attribute-name', name);
+                        mainTab.style.fontWeight = 'bold';
+                        mainTab.style.color = '#4ec9b0';
+                        mainTab.style.borderBottom = '2px solid #4ec9b0';
+                    }
+
+                    // Load the rule content
+                    if (window.editor) {
+                        window.editor.setValue(window.attributeRules[name]);
+                    }
+
+                    // Update current context
+                    window.currentEditMode = 'derived_attribute';
+                    window.currentAttributeName = name;
+
+                    // Reload test context if available
+                    if (window.currentRuleContext && window.currentRuleContext.ruleName === name) {
+                        loadDependenciesToContext(name, window.currentRuleContext.dependencies);
+                    }
+
+                    addToOutput('console', `📝 Loaded rule: ${name}`);
+                } else {
+                    // No saved rule, just insert the attribute name
+                    insertText(name);
+                }
+            };
 
             // Add to top of list
             attrList.insertBefore(li, attrList.firstChild);
