@@ -1439,9 +1439,39 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         }
 
         async function callAIAgent(message, context) {
-            // Check if API key is configured
-            const apiKey = localStorage.getItem('ai_api_key');
-            const apiProvider = localStorage.getItem('ai_provider') || 'openai';
+            // First try to get API keys from system environment via Tauri
+            let apiKey = localStorage.getItem('ai_api_key');
+            let apiProvider = localStorage.getItem('ai_provider') || 'anthropic';
+
+            // If no localStorage key and running in Tauri, try to get from environment
+            if (!apiKey && window.__TAURI__ && window.__TAURI__.invoke) {
+                try {
+                    const systemKeys = await window.__TAURI__.invoke('get_api_keys');
+                    if (systemKeys) {
+                        // Prefer Anthropic key if available
+                        if (systemKeys.anthropic) {
+                            apiKey = systemKeys.anthropic;
+                            apiProvider = 'anthropic';
+                            // Optionally save to localStorage for this session
+                            sessionStorage.setItem('ai_api_key', apiKey);
+                            sessionStorage.setItem('ai_provider', apiProvider);
+                        } else if (systemKeys.openai) {
+                            apiKey = systemKeys.openai;
+                            apiProvider = 'openai';
+                            sessionStorage.setItem('ai_api_key', apiKey);
+                            sessionStorage.setItem('ai_provider', apiProvider);
+                        }
+                    }
+                } catch (error) {
+                    console.log('Could not retrieve system API keys:', error);
+                }
+            }
+
+            // Check sessionStorage as well for temporary keys
+            if (!apiKey) {
+                apiKey = sessionStorage.getItem('ai_api_key');
+                apiProvider = sessionStorage.getItem('ai_provider') || apiProvider;
+            }
 
             if (!apiKey) {
                 // If no API key, use intelligent mock responses
@@ -1859,10 +1889,11 @@ Could you be more specific about what you'd like help with?
         window.connectToLSP = connectToLSP;
         window.clearOutput = clearOutput;
         // Settings Modal Functions
-        function showSettings() {
+        async function showSettings() {
             const existingModal = document.getElementById('settings-modal');
             if (existingModal) {
                 existingModal.style.display = 'block';
+                checkSystemKeys();
                 return;
             }
 
@@ -1888,9 +1919,10 @@ Could you be more specific about what you'd like help with?
                             <label id="api-key-label">OpenAI API Key:</label>
                             <input type="password"
                                    id="api-key-input"
-                                   placeholder="sk-..."
+                                   placeholder="sk-... (leave empty to use system key)"
                                    value="${localStorage.getItem('ai_api_key') || ''}">
-                            <small>Your API key is stored locally and never sent to any server except the AI provider.</small>
+                            <small>Leave empty to use system environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY).<br>
+                                   Manual entry will override system keys. Keys are stored locally and never sent to any server except the AI provider.</small>
                         </div>
 
                         <div class="setting-group">
@@ -1913,9 +1945,48 @@ Could you be more specific about what you'd like help with?
             document.body.appendChild(modal);
 
             // Load saved settings
-            const savedProvider = localStorage.getItem('ai_provider') || 'openai';
+            const savedProvider = localStorage.getItem('ai_provider') || 'anthropic';
             document.getElementById('ai-provider').value = savedProvider;
             updateProviderSettings();
+
+            // Check for system keys
+            checkSystemKeys();
+        }
+
+        async function checkSystemKeys() {
+            if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                return;
+            }
+
+            try {
+                const systemKeys = await window.__TAURI__.invoke('get_api_keys');
+                const statusDiv = document.getElementById('settings-status');
+
+                if (systemKeys) {
+                    let detectedKeys = [];
+                    if (systemKeys.anthropic) {
+                        detectedKeys.push('ANTHROPIC_API_KEY');
+                        // Auto-select Anthropic if system key found
+                        if (!localStorage.getItem('ai_api_key')) {
+                            document.getElementById('ai-provider').value = 'anthropic';
+                            updateProviderSettings();
+                        }
+                    }
+                    if (systemKeys.openai) {
+                        detectedKeys.push('OPENAI_API_KEY');
+                    }
+
+                    if (detectedKeys.length > 0) {
+                        showSettingsStatus(
+                            `✅ System API keys detected: ${detectedKeys.join(', ')}. ` +
+                            `The AI Agent will use these automatically unless you override with manual settings.`,
+                            'success'
+                        );
+                    }
+                }
+            } catch (error) {
+                console.log('Could not check for system keys:', error);
+            }
         }
 
         function closeSettings() {

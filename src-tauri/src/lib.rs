@@ -485,6 +485,34 @@ fn save_grammar(grammar: DynamicGrammar) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_api_keys() -> Result<HashMap<String, String>, String> {
+    use std::env;
+
+    let mut keys = HashMap::new();
+
+    // Check for Anthropic/Claude API key
+    if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
+        keys.insert("anthropic".to_string(), key);
+    }
+
+    // Check for OpenAI API key
+    if let Ok(key) = env::var("OPENAI_API_KEY") {
+        keys.insert("openai".to_string(), key);
+    }
+
+    // Check for alternate Claude key
+    if let Ok(key) = env::var("CLAUDE_API_KEY") {
+        keys.insert("claude".to_string(), key);
+    }
+
+    if keys.is_empty() {
+        Err("No API keys found in environment variables".to_string())
+    } else {
+        Ok(keys)
+    }
+}
+
+#[tauri::command]
 fn load_source_data() -> Result<SourceData, String> {
     let data_path = "../test_data/source_attributes.json";
     let content = fs::read_to_string(data_path)
@@ -591,6 +619,7 @@ pub fn run() {
             generate_grammar_visualization,
             load_grammar,
             save_grammar,
+            get_api_keys,
             load_source_data,
             load_target_rules,
             test_rule_with_dataset
