@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO rule_dependencies (rule_id, attribute_id, dependency_type)\n                    VALUES ($1, $2, 'input')\n                    ON CONFLICT (rule_id, attribute_id) DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "08d178e2ad3ef626ed821b046556fc088a8c4bfd6e6854c61a0825c51fd83a38"
+}

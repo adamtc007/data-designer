@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO rules (\n            rule_id, rule_name, rule_definition, target_attribute_id, status\n        ) VALUES ($1, $2, $3, $4, 'active')\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4c9ba167b703187bf084ab1ed696bda7a3c90aa32f30b87d56b07ea81bc87622"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE rules SET\n            compiled_rust_code = $1,\n            compilation_status = 'success',\n            compilation_timestamp = NOW(),\n            compiler_version = $2\n        WHERE id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce49a91ed2fdae3cde007cfb0c9a29fbab50238b7e36cc2c787cada54917d68e"
+}

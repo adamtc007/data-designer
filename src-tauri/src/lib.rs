@@ -9,6 +9,8 @@ mod database;
 use database::{DbPool, CreateRuleRequest};
 mod embeddings;
 mod schema_visualizer;
+mod data_dictionary;
+use data_dictionary::{CreateDerivedAttributeRequest};
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -929,6 +931,52 @@ async fn db_generate_all_embeddings(pool: State<'_, DbPool>) -> Result<(), Strin
         .map_err(|e| e.to_string())
 }
 
+// Data Dictionary commands
+#[tauri::command]
+async fn dd_get_data_dictionary(
+    pool: State<'_, DbPool>,
+    entity_filter: Option<String>
+) -> Result<data_dictionary::DataDictionaryResponse, String> {
+    data_dictionary::get_data_dictionary(&pool, entity_filter)
+        .await
+}
+
+#[tauri::command]
+async fn dd_refresh_data_dictionary(pool: State<'_, DbPool>) -> Result<(), String> {
+    data_dictionary::refresh_data_dictionary(&pool)
+        .await
+}
+
+#[tauri::command]
+async fn dd_create_derived_attribute(
+    pool: State<'_, DbPool>,
+    request: CreateDerivedAttributeRequest
+) -> Result<i32, String> {
+    data_dictionary::create_derived_attribute(&pool, request)
+        .await
+}
+
+#[tauri::command]
+async fn dd_create_and_compile_rule(
+    pool: State<'_, DbPool>,
+    rule_name: String,
+    dsl_code: String,
+    target_attribute_id: i32,
+    dependencies: Vec<String>
+) -> Result<data_dictionary::CompiledRule, String> {
+    data_dictionary::create_and_compile_rule(&pool, rule_name, dsl_code, target_attribute_id, dependencies)
+        .await
+}
+
+#[tauri::command]
+async fn dd_search_attributes(
+    pool: State<'_, DbPool>,
+    search_term: String
+) -> Result<Vec<data_dictionary::AttributeDefinition>, String> {
+    data_dictionary::search_attributes(&pool, search_term)
+        .await
+}
+
 // Schema visualization commands
 #[tauri::command]
 async fn db_get_schema_info(pool: State<'_, DbPool>) -> Result<schema_visualizer::SchemaInfo, String> {
@@ -1022,6 +1070,12 @@ pub fn run() {
             db_generate_all_embeddings,
             // AST visualization
             visualize_ast,
+            // Data Dictionary
+            dd_get_data_dictionary,
+            dd_refresh_data_dictionary,
+            dd_create_derived_attribute,
+            dd_create_and_compile_rule,
+            dd_search_attributes,
             // Schema visualization
             db_get_schema_info,
             db_get_table_relationships,

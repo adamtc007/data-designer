@@ -62,3 +62,8 @@ coverage/
 *.dll
 *.so
 *.dylib
+
+# Local development files (not for source control)
+database/SCHEMA_CHANGE_TEMPLATES.md
+*_local.md
+*_private.md

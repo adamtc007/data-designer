@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Data Dictionary Integration</title>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+        window.__TAURI_INVOKE__ = invoke;
+    </script>
+    <style>
+        body {
+            font-family: 'Monaco', 'Menlo', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2d2d30;
+            border-radius: 5px;
+        }
+        .test-button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .test-button:hover {
+            background: #005a9e;
+        }
+        .result {
+            background: #252526;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .success { border-left: 4px solid #4caf50; }
+        .error { border-left: 4px solid #f44336; }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Data Dictionary Integration Test</h1>
+
+    <div class="test-section">
+        <h3>1. Load Data Dictionary</h3>
+        <button class="test-button" onclick="testLoadDictionary()">Test Load Dictionary</button>
+        <div id="result1" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Create Derived Attribute</h3>
+        <button class="test-button" onclick="testCreateDerivedAttribute()">Test Create Attribute</button>
+        <div id="result2" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Compile Rule</h3>
+        <button class="test-button" onclick="testCompileRule()">Test Compile Rule</button>
+        <div id="result3" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>4. Search Attributes</h3>
+        <input type="text" id="searchInput" placeholder="Search term..."
+               style="background: #1e1e1e; color: #d4d4d4; border: 1px solid #3e3e42; padding: 8px; margin-right: 10px;">
+        <button class="test-button" onclick="testSearchAttributes()">Test Search</button>
+        <div id="result4" class="result"></div>
+    </div>
+
+    <script>
+        async function testLoadDictionary() {
+            const result = document.getElementById('result1');
+            result.innerHTML = 'Loading...';
+
+            try {
+                const invoke = window.__TAURI_INVOKE__;
+                const data = await invoke('dd_get_data_dictionary', {});
+
+                result.className = 'result success';
+                result.innerHTML = `
+                    <h4>✅ Success!</h4>
+                    <p><strong>Total Attributes:</strong> ${data.total_count}</p>
+                    <p><strong>Entities:</strong> ${Object.keys(data.entities).join(', ')}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                result.className = 'result error';
+                result.innerHTML = `
+                    <h4>❌ Error!</h4>
+                    <pre>${error}</pre>
+                `;
+            }
+        }
+
+        async function testCreateDerivedAttribute() {
+            const result = document.getElementById('result2');
+            result.innerHTML = 'Creating...';
+
+            try {
+                const invoke = window.__TAURI_INVOKE__;
+                const request = {
+                    entity_name: 'Client',
+                    attribute_name: 'test_score_' + Date.now(),
+                    data_type: 'Number',
+                    description: 'Test derived attribute',
+                    dependencies: ['Client.client_id', 'Client.risk_rating']
+                };
+
+                const attributeId = await invoke('dd_create_derived_attribute', { request });
+
+                result.className = 'result success';
+                result.innerHTML = `
+                    <h4>✅ Success!</h4>
+                    <p><strong>Created Attribute ID:</strong> ${attributeId}</p>
+                    <pre>${JSON.stringify(request, null, 2)}</pre>
+                `;
+            } catch (error) {
+                result.className = 'result error';
+                result.innerHTML = `
+                    <h4>❌ Error!</h4>
+                    <pre>${error}</pre>
+                `;
+            }
+        }
+
+        async function testCompileRule() {
+            const result = document.getElementById('result3');
+            result.innerHTML = 'Compiling...';
+
+            try {
+                const invoke = window.__TAURI_INVOKE__;
+
+                // First create a derived attribute
+                const request = {
+                    entity_name: 'Client',
+                    attribute_name: 'compiled_test_' + Date.now(),
+                    data_type: 'Number',
+                    description: 'Test compiled rule',
+                    dependencies: ['Client.risk_rating', 'Client.aum_usd']
+                };
+
+                const attributeId = await invoke('dd_create_derived_attribute', { request });
+
+                // Then compile a rule
+                const compiled = await invoke('dd_create_and_compile_rule', {
+                    ruleName: 'Test Rule',
+                    dslCode: 'risk_rating * 2 + aum_usd / 1000',
+                    targetAttributeId: attributeId,
+                    dependencies: ['Client.risk_rating', 'Client.aum_usd']
+                });
+
+                result.className = 'result success';
+                result.innerHTML = `
+                    <h4>✅ Success!</h4>
+                    <p><strong>Rule ID:</strong> ${compiled.rule_id}</p>
+                    <p><strong>Compilation Status:</strong> ${compiled.compilation_status}</p>
+                    <details>
+                        <summary>Generated Rust Code</summary>
+                        <pre>${compiled.rust_code}</pre>
+                    </details>
+                `;
+            } catch (error) {
+                result.className = 'result error';
+                result.innerHTML = `
+                    <h4>❌ Error!</h4>
+                    <pre>${error}</pre>
+                `;
+            }
+        }
+
+        async function testSearchAttributes() {
+            const result = document.getElementById('result4');
+            const searchTerm = document.getElementById('searchInput').value || 'client';
+            result.innerHTML = 'Searching...';
+
+            try {
+                const invoke = window.__TAURI_INVOKE__;
+                const attributes = await invoke('dd_search_attributes', { searchTerm });
+
+                result.className = 'result success';
+                result.innerHTML = `
+                    <h4>✅ Found ${attributes.length} attributes</h4>
+                    <ul>
+                        ${attributes.map(attr =>
+                            `<li><strong>${attr.full_path}</strong> (${attr.data_type}) - ${attr.description || 'No description'}</li>`
+                        ).join('')}
+                    </ul>
+                `;
+            } catch (error) {
+                result.className = 'result error';
+                result.innerHTML = `
+                    <h4>❌ Error!</h4>
+                    <pre>${error}</pre>
+                `;
+            }
+        }
+
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testLoadDictionary();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

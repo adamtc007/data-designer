@@ -467,3 +467,34 @@ When clicking "Run Code", the system:
   - User: `adamtc007`
   - Role: `data_designer_app` with full schema permissions
   - 16 tables total including rules, attributes, and investment mandate tables
+
+### PostgreSQL Data Dictionary Integration (NEW - January 2025)
+- **Unified Attribute Source**: PostgreSQL-based data dictionary replaces hardcoded attribute lists
+- **Dynamic Schema Discovery**: Automatically detects and catalogs attributes from all database tables
+- **Compiled Rule Storage**: Enhanced rules table stores both DSL source and compiled Rust code
+- **Key Features**:
+  - Materialized view `mv_data_dictionary` combines business, derived, and system attributes
+  - Real-time attribute picker loads from database with 94 total attributes
+  - Rule compilation pipeline: DSL → AST → Rust → optional WASM
+  - Async compilation queue for background processing
+  - Search functionality across all attributes
+  - Dependency tracking between rules and source attributes
+- **Backend Implementation**:
+  - `data_dictionary.rs`: Core module for attribute management and rule compilation
+  - Database migrations in `database/migrations/` for schema enhancements
+  - Tauri commands: `dd_get_data_dictionary`, `dd_create_derived_attribute`, `dd_create_and_compile_rule`
+  - Compilation status tracking with error handling and retry logic
+- **Frontend Integration**:
+  - `data-dictionary.js`: JavaScript module for PostgreSQL integration
+  - Auto-loading attribute picker populates from database on startup
+  - Enhanced sidebar shows business/derived/system attributes grouped by entity
+  - Rule creation automatically persists to database with compilation
+- **Storage Strategy**:
+  - Compiled Rust code stored as TEXT in rules table (up to 1MB)
+  - WASM binaries stored as BYTEA for performance-critical rules
+  - Rule compilation queue manages async processing
+  - Performance metrics tracked per rule execution
+- **Testing**:
+  - `test_data_dictionary.html`: Comprehensive integration test suite
+  - Tests attribute loading, creation, compilation, and search functionality
+  - Verifies end-to-end PostgreSQL connectivity
