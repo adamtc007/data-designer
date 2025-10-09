@@ -8,6 +8,7 @@ use tauri::State;
 mod database;
 use database::{DbPool, CreateRuleRequest};
 mod embeddings;
+mod schema_visualizer;
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -928,6 +929,56 @@ async fn db_generate_all_embeddings(pool: State<'_, DbPool>) -> Result<(), Strin
         .map_err(|e| e.to_string())
 }
 
+// Schema visualization commands
+#[tauri::command]
+async fn db_get_schema_info(pool: State<'_, DbPool>) -> Result<schema_visualizer::SchemaInfo, String> {
+    schema_visualizer::get_schema_info(&pool)
+        .await
+}
+
+#[tauri::command]
+async fn open_schema_viewer(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // Check if window already exists
+    if let Some(window) = app.get_webview_window("schema-viewer") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        // Create new window for schema viewer in Tauri v2
+        // Using the correct API for Tauri v2
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "schema-viewer",
+            tauri::WebviewUrl::App("schema.html".into())
+        )
+        .title("Database Schema Visualizer")
+        .inner_size(1200.0, 800.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn db_get_table_relationships(
+    pool: State<'_, DbPool>,
+    table_name: String,
+) -> Result<Vec<schema_visualizer::RelationshipInfo>, String> {
+    schema_visualizer::get_table_relationships(&pool, &table_name)
+        .await
+}
+
+#[tauri::command]
+async fn db_execute_sql(
+    pool: State<'_, DbPool>,
+    query: String,
+) -> Result<schema_visualizer::SqlQueryResult, String> {
+    schema_visualizer::execute_sql_query(&pool, &query)
+        .await
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -970,7 +1021,12 @@ pub fn run() {
             db_update_rule_embedding,
             db_generate_all_embeddings,
             // AST visualization
-            visualize_ast
+            visualize_ast,
+            // Schema visualization
+            db_get_schema_info,
+            db_get_table_relationships,
+            db_execute_sql,
+            open_schema_viewer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

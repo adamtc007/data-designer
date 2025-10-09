@@ -213,7 +213,9 @@ src/
 ├── main.rs             # Comprehensive test suite
 ├── parser.rs           # Complete nom parser with 6 extensions including regex
 ├── test_regex.rs       # Comprehensive regex and KYC validation test suite
-├── index.html          # Two-tab UI (Rules + Grammar) with Tauri API integration
+├── index.html          # Main IDE interface with DSL editor and tools
+├── schema.html         # Database schema visualizer (separate window)
+├── index-enhanced.html # Experimental multi-mode version (archived)
 ├── main.js             # Advanced frontend with grammar management
 ├── dsl-language.js     # Monaco Editor DSL language definition
 ├── main-simple.js      # Simplified version for debugging/testing
@@ -225,6 +227,7 @@ src-tauri/
 ├── src/main.rs         # Tauri entry point
 ├── src/database.rs     # PostgreSQL database layer with SQLx
 ├── src/embeddings.rs   # Vector embedding generation and similarity search
+├── src/schema_visualizer.rs # Database schema introspection and visualization
 └── tauri.conf.json     # Tauri config with withGlobalTauri enabled
 
 dsl-lsp/                # Language Server Protocol implementation
@@ -235,6 +238,7 @@ dsl-lsp/                # Language Server Protocol implementation
 database/
 ├── schema-simple.sql   # PostgreSQL schema with pgvector
 ├── init-sample-data.sql # Sample rules and attributes
+├── investment_mandate_schema.sql # Investment mandate tables and relationships
 └── migrations/         # Database migration scripts
 
 examples/
@@ -431,3 +435,35 @@ When clicking "Run Code", the system:
 - **Smart Template Generation**: Creates context-aware rule templates based on attribute types
 - **Test Data Panel**: Shows live context values for selected dependencies
 - **Auto-Save**: Rules automatically saved as user types
+
+### Database Schema Visualizer (NEW - October 2025)
+- **Multi-Window Architecture**: Proper Tauri v2 pattern with separate windows for different tools
+- **Interactive Schema Visualization**: D3.js force-directed graph showing tables and relationships
+- **Features**:
+  - Click "🗄️ Schema View" button to open dedicated schema window
+  - Draggable table nodes with automatic force simulation
+  - Foreign key relationships shown as directed edges
+  - Zoom and pan controls for large schemas
+  - Table sidebar for quick navigation
+  - Export to SVG functionality
+  - Multiple layout algorithms (force-directed, hierarchical, circular)
+- **Backend Components**:
+  - `src-tauri/src/schema_visualizer.rs`: PostgreSQL introspection module
+  - Queries `information_schema` for table metadata and relationships
+  - Safe SQL execution (SELECT queries only)
+  - Tauri commands: `db_get_schema_info`, `db_execute_sql`, `db_get_table_relationships`
+  - Window management: `open_schema_viewer` command
+- **Investment Mandate Schema**:
+  - Comprehensive schema for investment mandate management
+  - 7 normalized tables: mandates, instruments, benchmarks, venues, channels, etc.
+  - Foreign key relationships properly configured
+  - Helper function `insert_mandate_with_instruments()` for complex JSON inserts
+  - Located in `database/investment_mandate_schema.sql`
+- **UI Files**:
+  - `src/schema.html`: Standalone schema visualizer interface
+  - `src/index-enhanced.html`: Experimental multi-mode version (archived)
+- **Database Configuration**:
+  - PostgreSQL database: `data_designer`
+  - User: `adamtc007`
+  - Role: `data_designer_app` with full schema permissions
+  - 16 tables total including rules, attributes, and investment mandate tables

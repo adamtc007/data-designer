@@ -487,6 +487,9 @@
                 <button class="btn secondary" id="show-ast-btn" onclick="showAST()">
                     🌳 Show AST
                 </button>
+                <button class="btn secondary" id="schema-viewer-btn" onclick="openSchemaViewer()">
+                    🗄️ Schema View
+                </button>
                 <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP will auto-connect on page load">
                     🔌 LSP Status
                 </button>
@@ -2426,6 +2429,21 @@ Please be more specific about what you need help with, and I'll provide detailed
 
         window.refreshAST = function() {
             window.showAST();
+        }
+
+        window.openSchemaViewer = async function() {
+            try {
+                const invoke = window.__TAURI_INVOKE__ || (window.__TAURI__ && window.__TAURI__.invoke);
+                if (!invoke) {
+                    addToOutput('error', 'Tauri API not available');
+                    return;
+                }
+                await invoke('open_schema_viewer');
+                addToOutput('success', 'Opening Schema Viewer in new window...');
+            } catch (error) {
+                console.error('Failed to open schema viewer:', error);
+                addToOutput('error', `Failed to open schema viewer: ${error}`);
+            }
         }
 
         window.switchASTView = function(view) {

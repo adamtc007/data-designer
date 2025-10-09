@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Database Schema Visualizer</title>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+        window.__TAURI_INVOKE__ = invoke;
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #2d2d30;
+            padding: 10px 20px;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background: #005a9e;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: #252526;
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid #3e3e42;
+        }
+
+        .table-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #2d2d30;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .table-item:hover {
+            background: #3e3e42;
+        }
+
+        .table-item.selected {
+            background: #007acc;
+        }
+
+        .schema-canvas {
+            flex: 1;
+            position: relative;
+            overflow: auto;
+        }
+
+        #schemaVisualization {
+            width: 100%;
+            height: 100%;
+        }
+
+        .error-message {
+            padding: 20px;
+            background: #3d1f1f;
+            border: 1px solid #f44336;
+            border-radius: 4px;
+            margin: 20px;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+
+        .spinner {
+            border: 3px solid #3e3e42;
+            border-top: 3px solid #007acc;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h2>📊 Database Schema Visualizer</h2>
+        <div class="toolbar">
+            <button class="btn" onclick="refreshSchema()">🔄 Refresh</button>
+            <button class="btn" onclick="autoLayout()">📐 Auto Layout</button>
+            <button class="btn" onclick="exportSVG()">💾 Export</button>
+            <select id="layoutType" style="padding: 6px; background: #2d2d30; color: #d4d4d4; border: 1px solid #3e3e42;">
+                <option value="force">Force Directed</option>
+                <option value="hierarchical">Hierarchical</option>
+                <option value="circular">Circular</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <h3 style="margin-bottom: 15px;">Tables</h3>
+            <div id="tableList">
+                <div class="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="schema-canvas">
+            <svg id="schemaVisualization"></svg>
+        </div>
+    </div>
+
+    <script>
+        let schemaData = null;
+        let simulation = null;
+        let selectedTable = null;
+
+        async function loadSchemaData() {
+            const tableList = document.getElementById('tableList');
+            tableList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                const invoke = window.__TAURI_INVOKE__;
+                if (!invoke) {
+                    throw new Error('Tauri API not available');
+                }
+
+                console.log('Fetching schema info...');
+                schemaData = await invoke('db_get_schema_info');
+                console.log('Schema loaded:', schemaData);
+                console.log('Tables:', schemaData.tables?.length);
+                console.log('Relationships:', schemaData.relationships?.length);
+
+                renderTableList(schemaData.tables);
+                renderVisualization(schemaData);
+            } catch (error) {
+                console.error('Failed to load schema:', error);
+                tableList.innerHTML = `<div class="error-message">Failed to load schema: ${error}</div>`;
+            }
+        }
+
+        function renderTableList(tables) {
+            const listContainer = document.getElementById('tableList');
+            listContainer.innerHTML = '';
+
+            tables.forEach(table => {
+                const div = document.createElement('div');
+                div.className = 'table-item';
+                div.innerHTML = `
+                    <strong>${table.name}</strong>
+                    <div style="font-size: 12px; color: #888; margin-top: 5px;">
+                        ${table.columns.length} columns
+                    </div>
+                `;
+                div.onclick = () => selectTable(table);
+                listContainer.appendChild(div);
+            });
+        }
+
+        function selectTable(table) {
+            selectedTable = table;
+
+            // Update sidebar selection
+            document.querySelectorAll('.table-item').forEach(item => {
+                item.classList.remove('selected');
+                if (item.querySelector('strong').textContent === table.name) {
+                    item.classList.add('selected');
+                }
+            });
+
+            // Highlight in visualization
+            d3.selectAll('.table-node')
+                .style('stroke', d => d.name === table.name ? '#ffa500' : '#007acc')
+                .style('stroke-width', d => d.name === table.name ? 3 : 1);
+        }
+
+        function renderVisualization(data) {
+            const svg = d3.select('#schemaVisualization');
+            svg.selectAll('*').remove();
+
+            // Ensure we have valid data
+            if (!data.tables || data.tables.length === 0) {
+                svg.append('text')
+                    .attr('x', 100)
+                    .attr('y', 100)
+                    .text('No tables found in database')
+                    .attr('fill', '#888');
+                return;
+            }
+
+            const width = window.innerWidth - 250;
+            const height = window.innerHeight - 60;
+
+            svg.attr('width', width).attr('height', height);
+
+            // Add zoom behavior
+            const g = svg.append('g');
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                });
+            svg.call(zoom);
+
+            // Create force simulation
+            // D3's forceLink expects links to have source/target properties
+            // We need to map our relationship data to D3's expected format
+            const links = (data.relationships || []).map(d => ({
+                source: d.from_table,
+                target: d.to_table,
+                ...d
+            }));
+
+            simulation = d3.forceSimulation(data.tables)
+                .force('link', d3.forceLink(links)
+                    .id(d => d.name)
+                    .distance(200))
+                .force('charge', d3.forceManyBody().strength(-800))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(150));
+
+            // Add arrow markers
+            svg.append('defs').append('marker')
+                .attr('id', 'arrowhead')
+                .attr('viewBox', '-0 -5 10 10')
+                .attr('refX', 40)
+                .attr('refY', 0)
+                .attr('orient', 'auto')
+                .attr('markerWidth', 10)
+                .attr('markerHeight', 10)
+                .append('path')
+                .attr('d', 'M 0,-5 L 10,0 L 0,5')
+                .attr('fill', '#007acc');
+
+            // Create links
+            const link = g.append('g')
+                .selectAll('line')
+                .data(links)
+                .join('line')
+                .attr('stroke', '#007acc')
+                .attr('stroke-opacity', 0.6)
+                .attr('stroke-width', 2)
+                .attr('marker-end', 'url(#arrowhead)');
+
+            // Create table nodes
+            const node = g.append('g')
+                .selectAll('g')
+                .data(data.tables)
+                .join('g')
+                .attr('class', 'table-node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended))
+                .on('click', (event, d) => selectTable(d));
+
+            // Table background
+            node.append('rect')
+                .attr('width', d => Math.max(180, d.name.length * 10))
+                .attr('height', d => 40 + Math.min(10, d.columns.length) * 18)
+                .attr('fill', '#2d2d30')
+                .attr('stroke', '#007acc')
+                .attr('stroke-width', 1)
+                .attr('rx', 4);
+
+            // Table header
+            node.append('rect')
+                .attr('width', d => Math.max(180, d.name.length * 10))
+                .attr('height', 30)
+                .attr('fill', '#007acc')
+                .attr('rx', 4);
+
+            // Table name
+            node.append('text')
+                .text(d => d.name)
+                .attr('x', d => Math.max(180, d.name.length * 10) / 2)
+                .attr('y', 20)
+                .attr('text-anchor', 'middle')
+                .attr('fill', 'white')
+                .attr('font-weight', 'bold')
+                .attr('font-size', '14px');
+
+            // Add column count
+            node.append('text')
+                .text(d => `${d.columns.length} columns`)
+                .attr('x', d => Math.max(180, d.name.length * 10) / 2)
+                .attr('y', 50)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#888')
+                .attr('font-size', '12px');
+
+            // Show key columns
+            node.each(function(d) {
+                const g = d3.select(this);
+                const keyColumns = d.columns.filter(c => c.is_primary_key || c.is_foreign_key).slice(0, 3);
+
+                keyColumns.forEach((col, i) => {
+                    g.append('text')
+                        .text(`${col.is_primary_key ? '🔑' : '🔗'} ${col.name}`)
+                        .attr('x', 10)
+                        .attr('y', 70 + i * 18)
+                        .attr('fill', '#d4d4d4')
+                        .attr('font-size', '11px');
+                });
+            });
+
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x + 90)
+                    .attr('y1', d => d.source.y + 30)
+                    .attr('x2', d => d.target.x + 90)
+                    .attr('y2', d => d.target.y + 30);
+
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        function refreshSchema() {
+            loadSchemaData();
+        }
+
+        function autoLayout() {
+            if (simulation) {
+                simulation.alpha(1).restart();
+            }
+        }
+
+        function exportSVG() {
+            const svg = document.getElementById('schemaVisualization');
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(svg);
+            const blob = new Blob([svgString], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'database_schema.svg';
+            a.click();
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            loadSchemaData();
+        });
+    </script>
+</body>
+</html>
