@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>DSL IDE with Language Server</title>
+    <script type="module">
+        // Import Tauri API
+        import { invoke } from '@tauri-apps/api/core';
+        // Make it globally available
+        window.__TAURI_INVOKE__ = invoke;
+    </script>
     <style>
         * {
             margin: 0;
@@ -478,6 +484,9 @@
                 <button class="btn secondary" id="find-similar-btn" onclick="findSimilarRules()">
                     🔍 Find Similar
                 </button>
+                <button class="btn secondary" id="show-ast-btn" onclick="showAST()">
+                    🌳 Show AST
+                </button>
                 <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP will auto-connect on page load">
                     🔌 LSP Status
                 </button>
@@ -494,11 +503,42 @@
                         <div class="output-tab" data-panel="problems">Problems</div>
                         <div class="output-tab" data-panel="agent">AI Agent 🤖</div>
                         <div class="output-tab" data-panel="rules">Rules Catalogue 📋</div>
+                        <div class="output-tab" data-panel="ast">AST View 🌳</div>
                     </div>
                     <button class="btn secondary" style="padding: 3px 10px; font-size: 12px;" onclick="clearOutput()">Clear</button>
                 </div>
                 <div class="output-content" id="output-content">
                     <!-- Output will appear here -->
+                </div>
+
+                <!-- AST Panel -->
+                <div class="output-panel-content" id="ast-panel" style="display: none;">
+                    <div style="padding: 20px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <button class="btn secondary" onclick="refreshAST()">🔄 Refresh</button>
+                            <button class="btn secondary" onclick="exportAST('json')">📋 Export JSON</button>
+                            <button class="btn secondary" onclick="exportAST('dot')">📊 Export DOT</button>
+                            <button class="btn secondary" onclick="copyAST('text')">📝 Copy Tree</button>
+                        </div>
+
+                        <div class="ast-tabs" style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid #3e3e42;">
+                            <button class="ast-view-tab active" data-view="tree" onclick="switchASTView('tree')">Tree View</button>
+                            <button class="ast-view-tab" data-view="json" onclick="switchASTView('json')">JSON</button>
+                            <button class="ast-view-tab" data-view="dot" onclick="switchASTView('dot')">DOT Graph</button>
+                        </div>
+
+                        <div id="ast-tree-view" class="ast-view">
+                            <pre id="ast-tree-content" style="color: #d4d4d4; font-family: 'Consolas', 'Monaco', monospace;"></pre>
+                        </div>
+
+                        <div id="ast-json-view" class="ast-view" style="display: none;">
+                            <pre id="ast-json-content" style="color: #d4d4d4; font-family: 'Consolas', 'Monaco', monospace;"></pre>
+                        </div>
+
+                        <div id="ast-dot-view" class="ast-view" style="display: none;">
+                            <pre id="ast-dot-content" style="color: #d4d4d4; font-family: 'Consolas', 'Monaco', monospace;"></pre>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2329,6 +2369,132 @@ Please be more specific about what you need help with, and I'll provide detailed
             }
         }
 
+        let currentASTData = null;
+
+        window.showAST = async function() {
+            const code = editor.getValue();
+            console.log('showAST called with code:', code);
+
+            if (!code.trim()) {
+                addToOutput('error', 'Please enter some DSL code to visualize its AST');
+                return;
+            }
+
+            try {
+                const invoke = window.__TAURI_INVOKE__ || (window.__TAURI__ && window.__TAURI__.invoke);
+
+                if (invoke) {
+                    console.log('Invoking visualize_ast command...');
+                    const astData = await invoke('visualize_ast', {
+                        dslText: code
+                    });
+
+                    console.log('AST data received:', astData);
+                    currentASTData = astData;
+
+                    // Switch to AST tab
+                    document.querySelectorAll('.output-tab').forEach(tab => {
+                        tab.classList.remove('active');
+                    });
+                    document.querySelector('.output-tab[data-panel="ast"]').classList.add('active');
+
+                    // Show AST panel, hide others
+                    document.getElementById('output-content').style.display = 'none';
+                    document.getElementById('ast-panel').style.display = 'block';
+
+                    // Update AST content
+                    const treeContent = document.getElementById('ast-tree-content');
+                    const jsonContent = document.getElementById('ast-json-content');
+                    const dotContent = document.getElementById('ast-dot-content');
+
+                    console.log('Elements found:', { treeContent, jsonContent, dotContent });
+
+                    if (treeContent) treeContent.textContent = astData.text_tree || 'No tree data';
+                    if (jsonContent) jsonContent.textContent = astData.json_format || 'No JSON data';
+                    if (dotContent) dotContent.textContent = astData.dot_format || 'No DOT data';
+
+                    addToOutput('success', '🌳 AST generated successfully');
+                } else {
+                    console.error('Tauri API not available');
+                    addToOutput('error', 'Tauri API not available - cannot generate AST');
+                }
+            } catch (error) {
+                console.error('Failed to generate AST:', error);
+                addToOutput('error', `Failed to generate AST: ${error.message || error}`);
+            }
+        }
+
+        window.refreshAST = function() {
+            window.showAST();
+        }
+
+        window.switchASTView = function(view) {
+            // Update tab active states
+            document.querySelectorAll('.ast-view-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.view === view) {
+                    tab.classList.add('active');
+                }
+            });
+
+            // Show/hide views
+            document.getElementById('ast-tree-view').style.display = view === 'tree' ? 'block' : 'none';
+            document.getElementById('ast-json-view').style.display = view === 'json' ? 'block' : 'none';
+            document.getElementById('ast-dot-view').style.display = view === 'dot' ? 'block' : 'none';
+        }
+
+        window.exportAST = function(format) {
+            if (!currentASTData) {
+                addToOutput('error', 'No AST data to export. Generate AST first.');
+                return;
+            }
+
+            let content = '';
+            let filename = '';
+            let mimeType = '';
+
+            switch (format) {
+                case 'json':
+                    content = currentASTData.json_format;
+                    filename = 'ast.json';
+                    mimeType = 'application/json';
+                    break;
+                case 'dot':
+                    content = currentASTData.dot_format;
+                    filename = 'ast.dot';
+                    mimeType = 'text/plain';
+                    break;
+            }
+
+            // Create download link
+            const blob = new Blob([content], { type: mimeType });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            addToOutput('success', `✅ AST exported as ${filename}`);
+        }
+
+        window.copyAST = function(format) {
+            if (!currentASTData) {
+                addToOutput('error', 'No AST data to copy. Generate AST first.');
+                return;
+            }
+
+            let content = currentASTData.text_tree;
+
+            navigator.clipboard.writeText(content).then(() => {
+                addToOutput('success', '📋 AST tree copied to clipboard');
+            }).catch(err => {
+                addToOutput('error', `Failed to copy: ${err}`);
+            });
+        }
+
         async function findSimilarRules() {
             const dslText = editor.getValue();
 
@@ -3202,6 +3368,31 @@ Please be more specific about what you need help with, and I'll provide detailed
             // DOM already loaded
             setTimeout(initializeResizablePanes, 100);
         }
+        // Tab switching for output panels
+        document.addEventListener('DOMContentLoaded', () => {
+            const outputTabs = document.querySelectorAll('.output-tab');
+            outputTabs.forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    const panel = e.target.dataset.panel;
+
+                    // Remove active class from all tabs
+                    outputTabs.forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    // Hide all panels
+                    document.getElementById('output-content').style.display = panel === 'ast' ? 'none' : 'block';
+                    const astPanel = document.getElementById('ast-panel');
+                    if (astPanel) {
+                        astPanel.style.display = panel === 'ast' ? 'block' : 'none';
+                    }
+
+                    // Handle specific panels
+                    if (panel === 'output' || panel === 'problems' || panel === 'agent' || panel === 'rules') {
+                        // These panels use the output-content div
+                    }
+                });
+            });
+        });
     </script>
 
     <style>
@@ -3552,6 +3743,61 @@ Please be more specific about what you need help with, and I'll provide detailed
 
         .btn-small.secondary:hover {
             background: #3c3c3c;
+        }
+
+        /* AST Visualization Styles */
+        .ast-view-tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            color: #858585;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .ast-view-tab:hover {
+            color: #d4d4d4;
+        }
+
+        .ast-view-tab.active {
+            color: #007acc;
+            border-bottom-color: #007acc;
+        }
+
+        .ast-view {
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .ast-node {
+            margin: 2px 0;
+            padding: 4px 8px;
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+
+        .ast-node:hover {
+            background: #2d2d30;
+        }
+
+        .ast-node-type {
+            color: #4ec9b0;
+            font-weight: bold;
+        }
+
+        .ast-node-value {
+            color: #ce9178;
+        }
+
+        .ast-node-metadata {
+            color: #858585;
+            font-size: 11px;
+            margin-left: 20px;
         }
     </style>
 </body>

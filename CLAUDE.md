@@ -397,6 +397,27 @@ When clicking "Run Code", the system:
 
 ## Recent Updates (October 2025)
 
+### AST Visualization Feature (NEW)
+- **Interactive AST Viewer**: Click "🌳 Show AST" button to visualize Abstract Syntax Trees
+- **Multiple View Formats**:
+  - Tree View: ASCII art hierarchical representation
+  - JSON View: Complete AST structure with all node metadata
+  - DOT Graph: GraphViz format for rendering visual diagrams
+- **Export Capabilities**: Export AST as JSON or DOT files for documentation
+- **Implementation Details**:
+  - Backend command: `visualize_ast(dslText: String)`
+  - Uses nom parser from `data_designer::parser::parse_rule`
+  - Converts parser AST to visualization-friendly format
+  - Generates three output formats simultaneously
+- **UI Integration**:
+  - New tab in output panel: "AST View 🌳"
+  - Switchable views with export/copy buttons
+  - Debug output in both terminal and browser console
+- **Key Files Modified**:
+  - `src-tauri/src/lib.rs`: Added `visualize_ast` command and AST conversion functions
+  - `src/index.html`: Added AST UI panel and JavaScript functions
+  - Functions exposed globally: `showAST()`, `switchASTView()`, `exportAST()`, `copyAST()`
+
 ### Derived Attribute Builder Enhancements
 - **Editor Content Refresh Fix**: Fixed issue where editor wouldn't update with rule template
   - Monaco editor now properly exposed to `window.editor` for global access

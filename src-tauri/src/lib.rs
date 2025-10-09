@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use data_designer::{BusinessRule, generate_test_context};
+use data_designer::{BusinessRule, generate_test_context, parser::{parse_rule, ASTNode as ParserASTNode}};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Value as JsonValue};
 use tauri::State;
@@ -97,6 +97,22 @@ struct DynamicGrammar {
     metadata: GrammarMetadata,
     grammar: Grammar,
     extensions: GrammarExtensions,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ASTNode {
+    node_type: String,
+    value: Option<String>,
+    children: Vec<ASTNode>,
+    metadata: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ASTVisualization {
+    ast: ASTNode,
+    dot_format: String,
+    json_format: String,
+    text_tree: String,
 }
 
 // Data Dictionary Structures
@@ -489,6 +505,220 @@ fn save_grammar(grammar: DynamicGrammar) -> Result<String, String> {
     Ok("Grammar saved successfully".to_string())
 }
 
+fn parser_ast_to_viz_node(node: &ParserASTNode) -> ASTNode {
+    use ParserASTNode::*;
+
+    match node {
+        Number(n) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("data_type".to_string(), "Number".to_string());
+
+            ASTNode {
+                node_type: "Number".to_string(),
+                value: Some(n.to_string()),
+                children: vec![],
+                metadata,
+            }
+        },
+        String(s) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("data_type".to_string(), "String".to_string());
+
+            ASTNode {
+                node_type: "String".to_string(),
+                value: Some(format!("\"{}\"", s)),
+                children: vec![],
+                metadata,
+            }
+        },
+        Boolean(b) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("data_type".to_string(), "Boolean".to_string());
+
+            ASTNode {
+                node_type: "Boolean".to_string(),
+                value: Some(b.to_string()),
+                children: vec![],
+                metadata,
+            }
+        },
+        Regex(r) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("data_type".to_string(), "Regex".to_string());
+
+            ASTNode {
+                node_type: "Regex".to_string(),
+                value: Some(format!("/{}/", r)),
+                children: vec![],
+                metadata,
+            }
+        },
+        Identifier(name) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("identifier_type".to_string(), "Variable".to_string());
+
+            ASTNode {
+                node_type: "Identifier".to_string(),
+                value: Some(name.clone()),
+                children: vec![],
+                metadata,
+            }
+        },
+        Assignment { target, value } => {
+            let mut metadata = HashMap::new();
+            metadata.insert("target".to_string(), target.clone());
+
+            ASTNode {
+                node_type: "Assignment".to_string(),
+                value: Some(format!("{} =", target)),
+                children: vec![parser_ast_to_viz_node(value)],
+                metadata,
+            }
+        },
+        BinaryOp { op, left, right } => {
+            let mut metadata = HashMap::new();
+            let op_str = format!("{:?}", op);
+            metadata.insert("operator".to_string(), op_str.clone());
+
+            ASTNode {
+                node_type: "BinaryOp".to_string(),
+                value: Some(op_str),
+                children: vec![
+                    parser_ast_to_viz_node(left),
+                    parser_ast_to_viz_node(right),
+                ],
+                metadata,
+            }
+        },
+        UnaryOp { op, operand } => {
+            let mut metadata = HashMap::new();
+            let op_str = format!("{:?}", op);
+            metadata.insert("operator".to_string(), op_str.clone());
+
+            ASTNode {
+                node_type: "UnaryOp".to_string(),
+                value: Some(op_str),
+                children: vec![parser_ast_to_viz_node(operand)],
+                metadata,
+            }
+        },
+        FunctionCall { name, args } => {
+            let mut metadata = HashMap::new();
+            metadata.insert("function_name".to_string(), name.clone());
+            metadata.insert("arg_count".to_string(), args.len().to_string());
+
+            ASTNode {
+                node_type: "FunctionCall".to_string(),
+                value: Some(format!("{}()", name)),
+                children: args.iter().map(parser_ast_to_viz_node).collect(),
+                metadata,
+            }
+        },
+        List(items) => {
+            let mut metadata = HashMap::new();
+            metadata.insert("item_count".to_string(), items.len().to_string());
+
+            ASTNode {
+                node_type: "List".to_string(),
+                value: Some(format!("[{} items]", items.len())),
+                children: items.iter().map(parser_ast_to_viz_node).collect(),
+                metadata,
+            }
+        },
+    }
+}
+
+fn generate_dot_format(node: &ASTNode, node_id: &mut usize) -> String {
+    let current_id = *node_id;
+    *node_id += 1;
+
+    let label = if let Some(ref val) = node.value {
+        format!("{}\\n{}", node.node_type, val)
+    } else {
+        node.node_type.clone()
+    };
+
+    let mut dot = format!("  node{} [label=\"{}\"];\n", current_id, label);
+
+    for child in &node.children {
+        let child_id = *node_id;
+        dot += &generate_dot_format(child, node_id);
+        dot += &format!("  node{} -> node{};\n", current_id, child_id);
+    }
+
+    dot
+}
+
+fn generate_text_tree(node: &ASTNode, prefix: &str, is_last: bool) -> String {
+    let mut result = String::new();
+
+    let connector = if is_last { "└─ " } else { "├─ " };
+    let value_str = if let Some(ref val) = node.value {
+        format!("{}: {}", node.node_type, val)
+    } else {
+        node.node_type.clone()
+    };
+
+    result += &format!("{}{}{}\n", prefix, connector, value_str);
+
+    let child_prefix = if is_last {
+        format!("{}   ", prefix)
+    } else {
+        format!("{}│  ", prefix)
+    };
+
+    for (i, child) in node.children.iter().enumerate() {
+        let is_last_child = i == node.children.len() - 1;
+        result += &generate_text_tree(child, &child_prefix, is_last_child);
+    }
+
+    result
+}
+
+#[tauri::command]
+fn visualize_ast(dslText: String) -> Result<ASTVisualization, String> {
+    println!("visualize_ast called with: {}", dslText);
+
+    // Parse the DSL expression
+    let parser_ast = match parse_rule(&dslText) {
+        Ok((_, ast)) => {
+            println!("Parse successful: {:?}", ast);
+            ast
+        },
+        Err(e) => {
+            let error_msg = format!("Parse error: {:?}", e);
+            println!("{}", error_msg);
+            return Err(error_msg);
+        }
+    };
+
+    // Convert to AST node representation
+    let ast = parser_ast_to_viz_node(&parser_ast);
+    println!("Converted AST: {:?}", ast);
+
+    // Generate DOT format for GraphViz
+    let mut node_id = 0;
+    let dot_content = generate_dot_format(&ast, &mut node_id);
+    let dot_format = format!("digraph AST {{\n  rankdir=TB;\n  node [shape=box];\n{}}}", dot_content);
+
+    // Generate JSON format
+    let json_format = serde_json::to_string_pretty(&ast)
+        .map_err(|e| e.to_string())?;
+
+    // Generate text tree
+    let text_tree = generate_text_tree(&ast, "", true);
+
+    println!("Generated text_tree length: {}", text_tree.len());
+    println!("Text tree:\n{}", text_tree);
+
+    Ok(ASTVisualization {
+        ast,
+        dot_format,
+        json_format,
+        text_tree,
+    })
+}
+
 #[tauri::command]
 fn get_api_keys() -> Result<HashMap<String, String>, String> {
     use std::env;
@@ -738,7 +968,9 @@ pub fn run() {
             // Embedding commands
             db_find_similar_rules,
             db_update_rule_embedding,
-            db_generate_all_embeddings
+            db_generate_all_embeddings,
+            // AST visualization
+            visualize_ast
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

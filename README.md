@@ -42,6 +42,7 @@ A sophisticated Domain-Specific Language (DSL) system for designing, testing, an
 - **Grammar Editor** - Visual EBNF rule modification interface
 - **Resizable Panes** - Adjustable layout with persistent preferences
 - **Rules Catalogue** - Comprehensive rule management with source/target tracking
+- **AST Visualization** - Interactive Abstract Syntax Tree viewer with multiple formats
 
 ## 🏗️ Architecture
 
@@ -269,6 +270,38 @@ result = CONCAT("Risk Score: ", risk_score, " - Status: ",
 - Logical: `AND`, `OR`, `NOT`
 - String: `&` (concatenation)
 - Regex: `~` or `MATCHES`
+
+## 🌳 AST Visualization
+
+The IDE includes a powerful Abstract Syntax Tree (AST) visualization feature that helps understand how DSL rules are parsed and interpreted:
+
+### Features
+- **Interactive Viewer** - Click "🌳 Show AST" to visualize any DSL rule
+- **Multiple Formats**:
+  - **Tree View** - ASCII art hierarchical representation
+  - **JSON View** - Complete AST structure with metadata
+  - **DOT Graph** - GraphViz format for visual diagrams
+- **Export Options** - Download AST as JSON or DOT files
+- **Copy to Clipboard** - Quick copy of tree representation
+
+### Example AST Output
+
+For the rule `result = price * quantity + tax`:
+
+```
+└─ Assignment: result =
+   └─ BinaryOp: Add
+      ├─ BinaryOp: Multiply
+      │  ├─ Identifier: price
+      │  └─ Identifier: quantity
+      └─ Identifier: tax
+```
+
+### Use Cases
+- **Debug Complex Rules** - Understand operator precedence and expression nesting
+- **Educational Tool** - Learn how the parser interprets DSL expressions
+- **Documentation** - Generate visual representations for rule documentation
+- **Validation** - Verify that rules are parsed as intended
 
 ## 📚 Documentation
 
