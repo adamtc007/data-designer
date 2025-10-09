@@ -10,7 +10,9 @@ use database::{DbPool, CreateRuleRequest};
 mod embeddings;
 mod schema_visualizer;
 mod data_dictionary;
-use data_dictionary::{CreateDerivedAttributeRequest};
+use data_dictionary::{CreateDerivedAttributeRequest, DataDictionaryState};
+pub mod web_server_simple;
+pub mod web_server_minimal;
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -1030,7 +1032,7 @@ async fn db_execute_sql(
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Create async runtime for database
+    // Create async runtime for database and web server
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
     // Initialize database pool
@@ -1039,6 +1041,14 @@ pub fn run() {
             .await
             .expect("Failed to create database pool")
     });
+
+    // Create data dictionary state
+    let _data_dict_state = std::sync::Arc::new(DataDictionaryState::new(db_pool.clone()));
+
+    // NOTE: Embedded server disabled for two-process development
+    // Run standalone server with: cargo run --bin test_minimal --features ssr
+    println!("🎯 Tauri expects server at http://127.0.0.1:3001");
+    println!("💡 Run in separate terminal: cargo run --bin test_minimal --features ssr");
 
     tauri::Builder::default()
         .manage(db_pool)

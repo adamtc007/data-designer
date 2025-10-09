@@ -191,13 +191,17 @@ is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
 
 - **Production Ready**: Full-featured soft DSL system with working Tauri IDE
 - **6 Parser Extensions**: All implemented and tested including comprehensive regex support
-- **Language Server Protocol**: Full LSP implementation with WebSocket connection and status indicators
+- **Leptos SSR Integration**: Server-side rendered IDE with stable Monaco Editor mounting eliminates DOM race conditions
+- **Enhanced LSP Features**: Professional language server protocol integration with real-time diagnostics, auto-completion, and hover information
+- **Dynamic Data Dictionary**: PostgreSQL-backed attribute catalog with live loading and caching
+- **Two-Tab Interface**: Attributes and Schema visualization with collapsible entity browsing
+- **Professional Monaco Editor**: VS Code-level syntax highlighting, error detection, and IntelliSense
+- **New Attribute Creation**: Modal dialog for creating derived attributes with automatic rule template generation
 - **Dynamic Grammar**: Completely configurable through UI
-- **Advanced UI**: Two-tab interface with live editing
 - **Comprehensive Testing**: 15+ test cases covering all features including regex/KYC validation
 - **Runtime Evaluation**: Complex expression engine with precedence
 - **External Integration**: Lookup table system for external data
-- **Tauri Integration**: Fully functional desktop app with proper API connectivity
+- **Tauri Integration**: Fully functional desktop app with proper API connectivity (two-process architecture)
 - **PostgreSQL Database**: Full persistence layer with rules, attributes, and categories
 - **Vector Search**: pgvector integration for semantic similarity search (1536 dimensions)
 - **AI Embeddings**: Automatic embedding generation using OpenAI/Anthropic APIs

@@ -3,6 +3,17 @@ use sqlx::postgres::PgPool;
 use sqlx::FromRow;
 use std::collections::HashMap;
 
+// State management for Leptos SSR
+pub struct DataDictionaryState {
+    pub db_pool: PgPool,
+}
+
+impl DataDictionaryState {
+    pub fn new(db_pool: PgPool) -> Self {
+        Self { db_pool }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AttributeDefinition {
     pub attribute_type: String,
