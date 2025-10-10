@@ -316,7 +316,8 @@ pub fn execute_rule(context: &HashMap<String, Value>) -> Result<Value, String> {
     )
 }
 
-// Get attribute dependencies for a rule
+// Get attribute dependencies for a rule (unused - keeping for potential future use)
+#[allow(dead_code)]
 pub async fn get_rule_dependencies(
     pool: &PgPool,
     rule_id: i32,

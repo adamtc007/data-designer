@@ -19,12 +19,14 @@ struct EmbeddingData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct AnthropicEmbeddingRequest {
     model: String,
     input: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct AnthropicEmbeddingResponse {
     embeddings: Vec<Vec<f32>>,
 }

@@ -4,10 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.tauri.dev",
   "build": {
-    "frontendDist": "../src",
-    "devUrl": "http://127.0.0.1:3001",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "frontendDist": "../src/dist"
   },
   "app": {
     "withGlobalTauri": true,

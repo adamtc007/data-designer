@@ -19,14 +19,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "app"
 path = "src/main.rs"
 
-# Test binaries
-[[bin]]
-name = "leptos_test"
-path = "src/bin/leptos_test.rs"
-
-[[bin]]
-name = "test_minimal"
-path = "src/bin/test_minimal.rs"
 
 [features]
 ssr = [

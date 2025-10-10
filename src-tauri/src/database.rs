@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::env;
-use uuid::Uuid;
 
 // Database connection pool
 pub type DbPool = Pool<Postgres>;
@@ -78,20 +77,9 @@ pub struct RuleCategory {
     pub color: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct RuleExecution {
-    pub id: Uuid,
-    pub rule_id: i32,
-    pub execution_time: chrono::DateTime<chrono::Utc>,
-    pub input_data: serde_json::Value,
-    pub output_value: Option<serde_json::Value>,
-    pub execution_duration_ms: Option<i32>,
-    pub success: bool,
-    pub error_message: Option<String>,
-    pub context: Option<serde_json::Value>,
-}
 
-// Database connection management
+// Database connection management (unused - keeping for potential future use)
+#[allow(dead_code)]
 pub async fn create_pool() -> Result<DbPool> {
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://adamtc007@localhost/data_designer".to_string());
@@ -286,7 +274,8 @@ pub async fn get_all_derived_attributes(pool: &DbPool) -> Result<Vec<DerivedAttr
     Ok(attributes)
 }
 
-// Rule execution logging
+// Rule execution logging (unused - keeping for potential future use)
+#[allow(dead_code)]
 pub async fn log_rule_execution(
     pool: &DbPool,
     rule_id: i32,

@@ -1,18 +1,22 @@
 use std::collections::HashMap;
 use std::fs;
-use data_designer::{BusinessRule, generate_test_context, parser::{parse_rule, ASTNode as ParserASTNode}};
+use data_designer::{generate_test_context, BusinessRule, parser::{parse_rule, ASTNode as ParserASTNode}};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Value as JsonValue};
 use tauri::State;
 
+// Unified database interface
+mod db;
+use db::{DbPool, RuleOperations};
+use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
+use data_dictionary::CreateDerivedAttributeRequest;
+
+// Legacy modules (to be cleaned up)
 mod database;
-use database::{DbPool, CreateRuleRequest};
 mod embeddings;
 mod schema_visualizer;
 mod data_dictionary;
-use data_dictionary::{CreateDerivedAttributeRequest, DataDictionaryState};
-pub mod web_server_simple;
-pub mod web_server_minimal;
+use data_dictionary::DataDictionaryState;
 
 #[derive(Serialize, Deserialize)]
 struct TestRule {
@@ -681,11 +685,11 @@ fn generate_text_tree(node: &ASTNode, prefix: &str, is_last: bool) -> String {
 }
 
 #[tauri::command]
-fn visualize_ast(dslText: String) -> Result<ASTVisualization, String> {
-    println!("visualize_ast called with: {}", dslText);
+fn visualize_ast(dsl_text: String) -> Result<ASTVisualization, String> {
+    println!("visualize_ast called with: {}", dsl_text);
 
     // Parse the DSL expression
-    let parser_ast = match parse_rule(&dslText) {
+    let parser_ast = match parse_rule(&dsl_text) {
         Ok((_, ast)) => {
             println!("Parse successful: {:?}", ast);
             ast
@@ -1029,15 +1033,59 @@ async fn db_execute_sql(
         .await
 }
 
+// ====================
+// NEW RULE WORKFLOW COMMANDS (FIXED POOL DEREFERENCING ISSUES)
+// ====================
+
+#[tauri::command]
+async fn check_attribute_exists(
+    pool: State<'_, DbPool>,
+    attribute_name: String,
+) -> Result<bool, String> {
+    RuleOperations::check_attribute_exists(&*pool, &attribute_name).await
+}
+
+#[tauri::command]
+async fn get_business_attributes(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    RuleOperations::get_business_attributes(&*pool).await
+}
+
+// Removed: Now using unified database interface
+
+#[tauri::command]
+async fn create_rule_with_template(
+    pool: State<'_, DbPool>,
+    request: CreateRuleWithTemplateRequest,
+) -> Result<(), String> {
+    RuleOperations::create_rule_with_template(&*pool, request).await
+}
+
+#[tauri::command]
+async fn get_existing_rules(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    RuleOperations::get_existing_rules(&*pool).await
+}
+
+#[tauri::command]
+async fn get_rule_by_id(
+    pool: State<'_, DbPool>,
+    rule_id: String,
+) -> Result<serde_json::Value, String> {
+    RuleOperations::get_rule_by_id(&*pool, &rule_id).await
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Create async runtime for database and web server
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
-    // Initialize database pool
+    // Initialize database pool using unified interface
     let db_pool = runtime.block_on(async {
-        database::create_pool()
+        db::init_db()
             .await
             .expect("Failed to create database pool")
     });
@@ -1090,7 +1138,13 @@ pub fn run() {
             db_get_schema_info,
             db_get_table_relationships,
             db_execute_sql,
-            open_schema_viewer
+            open_schema_viewer,
+            // New rule workflow commands (pool dereferencing fixed)
+            check_attribute_exists,
+            get_business_attributes,
+            create_rule_with_template,
+            get_existing_rules,
+            get_rule_by_id
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
