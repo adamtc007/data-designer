@@ -63,30 +63,197 @@
             position: relative;
         }
 
-        .sidebar {
-            width: 250px;
-            min-width: 150px;
-            max-width: 500px;
+        .rule-manager {
+            width: 300px;
+            min-width: 200px;
+            max-width: 600px;
             background: #252526;
             padding: 20px;
             overflow-y: auto;
             position: relative;
+            border-right: 1px solid #3e3e42;
         }
 
-        .splitter-vertical {
-            width: 5px;
+        .rule-manager-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .rule-manager-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #d4d4d4;
+            margin: 0;
+        }
+
+        .rule-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .creation-steps {
+            margin-top: 20px;
+        }
+
+        .step {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #3e3e42;
+            border-radius: 8px;
+            background: #2d2d30;
+        }
+
+        .step h3 {
+            font-size: 14px;
+            color: #d4d4d4;
+            margin: 0 0 15px 0;
+            font-weight: 600;
+        }
+
+        .step-content {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .form-input {
+            padding: 8px 12px;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+
+        .validation-message {
+            font-size: 12px;
+            color: #f48771;
+            margin-top: -10px;
+        }
+
+        .validation-message.success {
+            color: #89d185;
+        }
+
+        .attribute-picker {
+            max-height: 300px;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            background: #1e1e1e;
+        }
+
+        .picker-search {
+            padding: 10px;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .picker-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .attribute-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #2d2d30;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .attribute-item:hover {
+            background: #2d2d30;
+        }
+
+        .attribute-item.selected {
+            background: #073655;
+            border-color: #007acc;
+        }
+
+        .attribute-info {
+            flex: 1;
+        }
+
+        .attribute-name {
+            font-weight: 500;
+            color: #d4d4d4;
+        }
+
+        .attribute-path {
+            font-size: 12px;
+            color: #969696;
+        }
+
+        .attribute-type {
+            font-size: 11px;
+            color: #ffd700;
+            font-weight: 500;
+        }
+
+        .selected-attributes {
+            margin-top: 15px;
+        }
+
+        .selected-attributes h4 {
+            font-size: 12px;
+            color: #969696;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .selected-tag {
+            display: inline-block;
+            background: #073655;
+            color: #d4d4d4;
+            padding: 4px 8px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .selected-tag .remove {
+            margin-left: 5px;
+            cursor: pointer;
+            color: #f48771;
+        }
+
+        .rules-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .rule-item {
+            padding: 12px;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            background: #2d2d30;
+        }
+
+        .rule-item:hover {
             background: #3e3e42;
-            cursor: col-resize;
-            position: relative;
-            user-select: none;
         }
 
-        .splitter-vertical:hover {
-            background: #007acc;
+        .rule-name {
+            font-weight: 500;
+            color: #d4d4d4;
+            margin-bottom: 4px;
         }
 
-        .splitter-vertical.dragging {
-            background: #007acc;
+        .rule-desc {
+            font-size: 12px;
+            color: #969696;
         }
 
         .splitter-horizontal {
@@ -104,12 +271,19 @@
             background: #007acc;
         }
 
-        .sidebar h2 {
+        .existing-rules {
+            margin-top: 20px;
+        }
+
+        .existing-rules h3 {
             font-size: 14px;
-            font-weight: 600;
+            color: #d4d4d4;
             margin-bottom: 15px;
-            text-transform: uppercase;
-            color: #969696;
+            font-weight: 600;
+        }
+
+        .rule-search {
+            margin-bottom: 15px;
         }
 
         .editor-container {
@@ -441,24 +615,80 @@
     </div>
 
     <div class="main-container">
-        <div class="sidebar" id="sidebar">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2>Data Dictionary</h2>
-                <button class="btn" style="padding: 4px 8px; font-size: 12px;" onclick="showCreateAttributeDialog()">
-                    + New
-                </button>
+        <!-- Rule Management Panel -->
+        <div class="rule-manager" id="rule-manager">
+            <div class="rule-manager-header">
+                <h2>Rule Manager</h2>
+                <div class="rule-actions">
+                    <button class="btn primary" onclick="startNewRule()">
+                        ✨ Add New Rule
+                    </button>
+                    <button class="btn secondary" onclick="showEditExisting()">
+                        📝 Edit Existing
+                    </button>
+                </div>
             </div>
-            <ul id="attribute-list" class="attribute-list">
-                <!-- Attributes will be loaded here -->
-            </ul>
 
-            <h2 style="margin-top: 20px;">Functions</h2>
-            <ul id="function-list" class="attribute-list">
-                <!-- Functions will be loaded here -->
-            </ul>
+            <!-- New Rule Creation Steps -->
+            <div class="creation-steps" id="creation-steps" style="display: none;">
+                <!-- Step 1: Target Attribute Name -->
+                <div class="step" id="step-1">
+                    <h3>Step 1: Target Attribute Name</h3>
+                    <div class="step-content">
+                        <input type="text" id="target-attribute-name" placeholder="Enter unique attribute name (e.g., risk_score, client_category)" class="form-input">
+                        <div class="validation-message" id="name-validation"></div>
+                        <button class="btn" onclick="validateAndNextStep(1)">Next →</button>
+                        <button class="btn secondary" onclick="cancelRuleCreation()">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Source Attributes -->
+                <div class="step" id="step-2" style="display: none;">
+                    <h3>Step 2: Select Source Attributes</h3>
+                    <div class="step-content">
+                        <div class="attribute-picker" id="attribute-picker">
+                            <div class="picker-search">
+                                <input type="text" id="attribute-search" placeholder="Search attributes..." onkeyup="filterAttributes()">
+                            </div>
+                            <div class="picker-list" id="picker-list">
+                                <!-- Will be populated with business attributes -->
+                            </div>
+                        </div>
+                        <div class="selected-attributes">
+                            <h4>Selected Attributes:</h4>
+                            <div id="selected-list"></div>
+                        </div>
+                        <button class="btn" onclick="validateAndNextStep(2)">Next →</button>
+                        <button class="btn secondary" onclick="previousStep(2)">← Previous</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Rule Creation -->
+                <div class="step" id="step-3" style="display: none;">
+                    <h3>Step 3: Create Rule</h3>
+                    <div class="step-content">
+                        <div class="rule-template" id="rule-template">
+                            <p>Creating rule for: <strong id="target-name-display"></strong></p>
+                            <p>Using attributes: <span id="source-attrs-display"></span></p>
+                        </div>
+                        <button class="btn" onclick="createRuleRecord()">Create Rule →</button>
+                        <button class="btn secondary" onclick="previousStep(3)">← Previous</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edit Existing Rules -->
+            <div class="existing-rules" id="existing-rules" style="display: none;">
+                <h3>Edit Existing Rule</h3>
+                <div class="rule-search">
+                    <input type="text" id="rule-search" placeholder="Search existing rules..." onkeyup="filterRules()">
+                </div>
+                <div class="rules-list" id="rules-list">
+                    <!-- Will be populated with existing rules -->
+                </div>
+                <button class="btn secondary" onclick="hideEditExisting()">Cancel</button>
+            </div>
         </div>
-
-        <div class="splitter-vertical" id="splitter-vertical"></div>
 
         <div class="editor-container" id="editor-container">
             <div class="tabs" id="editor-tabs">
@@ -490,7 +720,7 @@
                 <button class="btn secondary" id="schema-viewer-btn" onclick="openSchemaViewer()">
                     🗄️ Schema View
                 </button>
-                <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP will auto-connect on page load">
+                <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP auto-connects on page load">
                     🔌 LSP Status
                 </button>
             </div>
@@ -719,10 +949,9 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             }
 
             // Auto-connect to LSP on startup (give editor time to fully initialize)
-            // Disabled for now to prevent jitter - user can manually connect
-            // setTimeout(() => {
-            //     connectToLSP(true);  // true = auto-connect
-            // }, 1000);
+            setTimeout(() => {
+                connectToLSP(true);  // true = auto-connect
+            }, 1000);
         });
 
         // Connect to Language Server
@@ -3413,6 +3642,368 @@ Please be more specific about what you need help with, and I'll provide detailed
                 });
             });
         });
+
+        // ====================
+        // NEW RULE WORKFLOW FUNCTIONS
+        // ====================
+
+        let currentRuleData = {
+            targetAttribute: '',
+            sourceAttributes: [],
+            step: 0
+        };
+
+        // Start new rule creation workflow
+        function startNewRule() {
+            currentRuleData = { targetAttribute: '', sourceAttributes: [], step: 1 };
+
+            // Hide other panels
+            document.getElementById('existing-rules').style.display = 'none';
+
+            // Show creation steps
+            document.getElementById('creation-steps').style.display = 'block';
+
+            // Show step 1, hide others
+            document.getElementById('step-1').style.display = 'block';
+            document.getElementById('step-2').style.display = 'none';
+            document.getElementById('step-3').style.display = 'none';
+
+            // Focus on input
+            document.getElementById('target-attribute-name').focus();
+        }
+
+        // Show edit existing rules
+        function showEditExisting() {
+            // Hide creation steps
+            document.getElementById('creation-steps').style.display = 'none';
+
+            // Show existing rules
+            document.getElementById('existing-rules').style.display = 'block';
+
+            // Load existing rules
+            loadExistingRules();
+        }
+
+        // Hide edit existing panel
+        function hideEditExisting() {
+            document.getElementById('existing-rules').style.display = 'none';
+        }
+
+        // Cancel rule creation
+        function cancelRuleCreation() {
+            document.getElementById('creation-steps').style.display = 'none';
+            currentRuleData = { targetAttribute: '', sourceAttributes: [], step: 0 };
+        }
+
+        // Validate and move to next step
+        async function validateAndNextStep(currentStep) {
+            if (currentStep === 1) {
+                const targetName = document.getElementById('target-attribute-name').value.trim();
+                const validation = document.getElementById('name-validation');
+
+                if (!targetName) {
+                    validation.textContent = 'Please enter an attribute name';
+                    validation.className = 'validation-message';
+                    return;
+                }
+
+                // Validate name format (alphanumeric + underscore)
+                if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(targetName)) {
+                    validation.textContent = 'Name must start with letter and contain only letters, numbers, and underscores';
+                    validation.className = 'validation-message';
+                    return;
+                }
+
+                // Check if name already exists
+                const exists = await checkAttributeExists(targetName);
+                if (exists) {
+                    validation.textContent = 'Attribute name already exists. Choose a different name.';
+                    validation.className = 'validation-message';
+                    return;
+                }
+
+                validation.textContent = '✓ Valid attribute name';
+                validation.className = 'validation-message success';
+
+                currentRuleData.targetAttribute = targetName;
+
+                // Move to step 2
+                document.getElementById('step-1').style.display = 'none';
+                document.getElementById('step-2').style.display = 'block';
+
+                // Load source attributes
+                loadSourceAttributes();
+
+            } else if (currentStep === 2) {
+                if (currentRuleData.sourceAttributes.length === 0) {
+                    alert('Please select at least one source attribute');
+                    return;
+                }
+
+                // Move to step 3
+                document.getElementById('step-2').style.display = 'none';
+                document.getElementById('step-3').style.display = 'block';
+
+                // Update display
+                document.getElementById('target-name-display').textContent = currentRuleData.targetAttribute;
+                document.getElementById('source-attrs-display').textContent =
+                    currentRuleData.sourceAttributes.map(attr => attr.attribute_name).join(', ');
+            }
+        }
+
+        // Go to previous step
+        function previousStep(currentStep) {
+            if (currentStep === 2) {
+                document.getElementById('step-2').style.display = 'none';
+                document.getElementById('step-1').style.display = 'block';
+            } else if (currentStep === 3) {
+                document.getElementById('step-3').style.display = 'none';
+                document.getElementById('step-2').style.display = 'block';
+            }
+        }
+
+        // Check if attribute name exists
+        async function checkAttributeExists(name) {
+            try {
+                // Check in PostgreSQL via Tauri command
+                const result = await window.__TAURI__.invoke('check_attribute_exists', {
+                    attributeName: name
+                });
+                return result;
+            } catch (error) {
+                console.error('Error checking attribute existence:', error);
+                return false;
+            }
+        }
+
+        // Load source attributes from PostgreSQL
+        async function loadSourceAttributes() {
+            try {
+                const attributes = await window.__TAURI__.invoke('get_business_attributes');
+                const pickerList = document.getElementById('picker-list');
+
+                pickerList.innerHTML = '';
+
+                attributes.forEach(attr => {
+                    const item = document.createElement('div');
+                    item.className = 'attribute-item';
+                    item.onclick = () => toggleAttributeSelection(attr, item);
+
+                    item.innerHTML = `
+                        <div class="attribute-info">
+                            <div class="attribute-name">${attr.attribute_name}</div>
+                            <div class="attribute-path">${attr.full_path}</div>
+                        </div>
+                        <div class="attribute-type">${attr.data_type}</div>
+                    `;
+
+                    pickerList.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Error loading source attributes:', error);
+                document.getElementById('picker-list').innerHTML =
+                    '<div style="padding: 20px; text-align: center; color: #f48771;">Error loading attributes</div>';
+            }
+        }
+
+        // Toggle attribute selection
+        function toggleAttributeSelection(attr, element) {
+            const index = currentRuleData.sourceAttributes.findIndex(a => a.attribute_name === attr.attribute_name);
+
+            if (index >= 0) {
+                // Remove selection
+                currentRuleData.sourceAttributes.splice(index, 1);
+                element.classList.remove('selected');
+            } else {
+                // Add selection
+                currentRuleData.sourceAttributes.push(attr);
+                element.classList.add('selected');
+            }
+
+            updateSelectedDisplay();
+        }
+
+        // Update selected attributes display
+        function updateSelectedDisplay() {
+            const selectedList = document.getElementById('selected-list');
+            selectedList.innerHTML = '';
+
+            currentRuleData.sourceAttributes.forEach(attr => {
+                const tag = document.createElement('span');
+                tag.className = 'selected-tag';
+                tag.innerHTML = `
+                    ${attr.attribute_name}
+                    <span class="remove" onclick="removeSelectedAttribute('${attr.attribute_name}')">×</span>
+                `;
+                selectedList.appendChild(tag);
+            });
+        }
+
+        // Remove selected attribute
+        function removeSelectedAttribute(attrName) {
+            const index = currentRuleData.sourceAttributes.findIndex(a => a.attribute_name === attrName);
+            if (index >= 0) {
+                currentRuleData.sourceAttributes.splice(index, 1);
+                updateSelectedDisplay();
+
+                // Update UI to remove selection
+                const items = document.querySelectorAll('.attribute-item');
+                items.forEach(item => {
+                    if (item.querySelector('.attribute-name').textContent === attrName) {
+                        item.classList.remove('selected');
+                    }
+                });
+            }
+        }
+
+        // Filter attributes by search
+        function filterAttributes() {
+            const search = document.getElementById('attribute-search').value.toLowerCase();
+            const items = document.querySelectorAll('.attribute-item');
+
+            items.forEach(item => {
+                const name = item.querySelector('.attribute-name').textContent.toLowerCase();
+                const path = item.querySelector('.attribute-path').textContent.toLowerCase();
+
+                if (name.includes(search) || path.includes(search)) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // Create rule record in PostgreSQL
+        async function createRuleRecord() {
+            try {
+                const ruleData = {
+                    rule_id: `rule_${Date.now()}`,
+                    rule_name: currentRuleData.targetAttribute,
+                    description: `Rule for calculating ${currentRuleData.targetAttribute}`,
+                    target_attribute_name: currentRuleData.targetAttribute,
+                    source_attributes: currentRuleData.sourceAttributes.map(attr => attr.attribute_name),
+                    rule_definition: `// Rule for ${currentRuleData.targetAttribute}\n// Using: ${currentRuleData.sourceAttributes.map(attr => attr.attribute_name).join(', ')}\n\n// TODO: Implement your rule logic here\nresult = ${currentRuleData.sourceAttributes[0]?.attribute_name || 'value'}`
+                };
+
+                await window.__TAURI__.invoke('create_rule_with_template', ruleData);
+
+                // Success - load rule into editor
+                loadRuleIntoEditor(ruleData.rule_name, ruleData.rule_definition);
+
+                // Hide creation steps
+                document.getElementById('creation-steps').style.display = 'none';
+
+                // Reset data
+                currentRuleData = { targetAttribute: '', sourceAttributes: [], step: 0 };
+
+                showMessage('Rule created successfully! You can now edit the rule logic.', 'success');
+
+            } catch (error) {
+                console.error('Error creating rule:', error);
+                showMessage('Error creating rule: ' + error, 'error');
+            }
+        }
+
+        // Load existing rules
+        async function loadExistingRules() {
+            try {
+                const rules = await window.__TAURI__.invoke('get_existing_rules');
+                const rulesList = document.getElementById('rules-list');
+
+                rulesList.innerHTML = '';
+
+                rules.forEach(rule => {
+                    const item = document.createElement('div');
+                    item.className = 'rule-item';
+                    item.onclick = () => loadExistingRule(rule);
+
+                    item.innerHTML = `
+                        <div class="rule-name">${rule.rule_name}</div>
+                        <div class="rule-desc">${rule.description || 'No description'}</div>
+                    `;
+
+                    rulesList.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Error loading existing rules:', error);
+                document.getElementById('rules-list').innerHTML =
+                    '<div style="padding: 20px; text-align: center; color: #f48771;">Error loading rules</div>';
+            }
+        }
+
+        // Load existing rule into editor
+        async function loadExistingRule(rule) {
+            try {
+                const fullRule = await window.__TAURI__.invoke('get_rule_by_id', {
+                    ruleId: rule.rule_id
+                });
+
+                loadRuleIntoEditor(fullRule.rule_name, fullRule.rule_definition);
+
+                // Hide existing rules panel
+                document.getElementById('existing-rules').style.display = 'none';
+
+                showMessage(`Loaded rule: ${fullRule.rule_name}`, 'success');
+
+            } catch (error) {
+                console.error('Error loading rule:', error);
+                showMessage('Error loading rule: ' + error, 'error');
+            }
+        }
+
+        // Load rule into Monaco editor and focus
+        function loadRuleIntoEditor(ruleName, ruleDefinition) {
+            if (window.editor) {
+                // Update tab name
+                const mainTab = document.getElementById('main-tab');
+                mainTab.textContent = ruleName;
+                mainTab.setAttribute('data-file', ruleName);
+
+                // Clear and set new content
+                window.editor.setValue('');
+                window.editor.setValue(ruleDefinition);
+
+                // Focus editor
+                window.editor.focus();
+                window.editor.setPosition({ lineNumber: 1, column: 1 });
+
+                // Refresh layout
+                window.editor.layout();
+
+                console.log(`Rule loaded: ${ruleName}`);
+            } else {
+                console.error('Monaco editor not available');
+            }
+        }
+
+        // Filter existing rules
+        function filterRules() {
+            const search = document.getElementById('rule-search').value.toLowerCase();
+            const items = document.querySelectorAll('.rule-item');
+
+            items.forEach(item => {
+                const name = item.querySelector('.rule-name').textContent.toLowerCase();
+                const desc = item.querySelector('.rule-desc').textContent.toLowerCase();
+
+                if (name.includes(search) || desc.includes(search)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // Show message to user
+        function showMessage(message, type) {
+            // You can enhance this with a proper notification system
+            if (type === 'error') {
+                alert('Error: ' + message);
+            } else {
+                console.log(message);
+                // Could show in status bar or toast notification
+            }
+        }
+
     </script>
 
     <style>
