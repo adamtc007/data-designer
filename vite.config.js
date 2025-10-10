@@ -1,8 +1,19 @@
 import { defineConfig } from "vite";
+import { resolve } from "path";
 
 export default defineConfig({
   // Add this line to tell Vite where your HTML file is
   root: "src",
+
+  // Configure multi-page app build
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "src/index.html"),
+        schema: resolve(__dirname, "src/schema.html")
+      }
+    }
+  },
 
   // prevent vite from clearing screen
   clearScreen: false,
