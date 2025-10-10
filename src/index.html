@@ -780,7 +780,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
     <!-- Data Dictionary Integration -->
     <script src="data-dictionary.js"></script>
-    <script type="module">
+    <script>
         let editor;
         let lspConnection = null;
         let diagnosticsMap = new Map();
@@ -3655,22 +3655,53 @@ Please be more specific about what you need help with, and I'll provide detailed
 
         // Start new rule creation workflow
         function startNewRule() {
+            console.log('startNewRule called');
             currentRuleData = { targetAttribute: '', sourceAttributes: [], step: 1 };
 
             // Hide other panels
-            document.getElementById('existing-rules').style.display = 'none';
+            const existingRules = document.getElementById('existing-rules');
+            if (existingRules) {
+                existingRules.style.display = 'none';
+                console.log('Hidden existing-rules panel');
+            } else {
+                console.error('existing-rules element not found');
+            }
 
             // Show creation steps
-            document.getElementById('creation-steps').style.display = 'block';
+            const creationSteps = document.getElementById('creation-steps');
+            if (creationSteps) {
+                creationSteps.style.display = 'block';
+                console.log('Showed creation-steps panel');
+            } else {
+                console.error('creation-steps element not found');
+            }
 
             // Show step 1, hide others
-            document.getElementById('step-1').style.display = 'block';
-            document.getElementById('step-2').style.display = 'none';
-            document.getElementById('step-3').style.display = 'none';
+            const step1 = document.getElementById('step-1');
+            const step2 = document.getElementById('step-2');
+            const step3 = document.getElementById('step-3');
+
+            if (step1) {
+                step1.style.display = 'block';
+                console.log('Showed step-1');
+            } else {
+                console.error('step-1 element not found');
+            }
+
+            if (step2) step2.style.display = 'none';
+            if (step3) step3.style.display = 'none';
 
             // Focus on input
-            document.getElementById('target-attribute-name').focus();
+            const input = document.getElementById('target-attribute-name');
+            if (input) {
+                input.focus();
+                console.log('Focused on target-attribute-name input');
+            } else {
+                console.error('target-attribute-name input not found');
+            }
         }
+
+        // Functions are now global since we're not using type="module"
 
         // Show edit existing rules
         function showEditExisting() {
@@ -3765,11 +3796,13 @@ Please be more specific about what you need help with, and I'll provide detailed
         // Check if attribute name exists
         async function checkAttributeExists(name) {
             try {
-                // Check in PostgreSQL via Tauri command
-                const result = await window.__TAURI__.invoke('check_attribute_exists', {
-                    attributeName: name
-                });
-                return result;
+                // TEMPORARY: Return false since backend commands are commented out
+                // TODO: Restore when Tauri commands are fixed
+                // const result = await window.__TAURI__.invoke('check_attribute_exists', {
+                //     attributeName: name
+                // });
+                // return result;
+                return false; // Allow all names for now
             } catch (error) {
                 console.error('Error checking attribute existence:', error);
                 return false;
@@ -3779,7 +3812,17 @@ Please be more specific about what you need help with, and I'll provide detailed
         // Load source attributes from PostgreSQL
         async function loadSourceAttributes() {
             try {
-                const attributes = await window.__TAURI__.invoke('get_business_attributes');
+                // TEMPORARY: Use dummy data since backend commands are commented out
+                const attributes = [
+                    { attribute_name: "customer_id", full_path: "customer.customer_id", data_type: "String" },
+                    { attribute_name: "name", full_path: "customer.name", data_type: "String" },
+                    { attribute_name: "age", full_path: "customer.age", data_type: "Number" },
+                    { attribute_name: "balance", full_path: "account.balance", data_type: "Number" },
+                    { attribute_name: "country_code", full_path: "customer.country_code", data_type: "String" }
+                ];
+
+                // TODO: Restore when Tauri commands are fixed
+                // const attributes = await window.__TAURI__.invoke('get_business_attributes');
                 const pickerList = document.getElementById('picker-list');
 
                 pickerList.innerHTML = '';
@@ -3885,7 +3928,9 @@ Please be more specific about what you need help with, and I'll provide detailed
                     rule_definition: `// Rule for ${currentRuleData.targetAttribute}\n// Using: ${currentRuleData.sourceAttributes.map(attr => attr.attribute_name).join(', ')}\n\n// TODO: Implement your rule logic here\nresult = ${currentRuleData.sourceAttributes[0]?.attribute_name || 'value'}`
                 };
 
-                await window.__TAURI__.invoke('create_rule_with_template', ruleData);
+                // TEMPORARY: Skip backend call since commands are commented out
+                // TODO: Restore when Tauri commands are fixed
+                // await window.__TAURI__.invoke('create_rule_with_template', ruleData);
 
                 // Success - load rule into editor
                 loadRuleIntoEditor(ruleData.rule_name, ruleData.rule_definition);

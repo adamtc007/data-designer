@@ -9,7 +9,7 @@ use tauri::State;
 mod db;
 use db::{DbPool, RuleOperations};
 use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
-use data_dictionary::CreateDerivedAttributeRequest;
+use db::CreateDerivedAttributeRequest;
 
 // Legacy modules (to be cleaned up)
 mod database;
@@ -913,7 +913,7 @@ async fn db_find_similar_rules(
     pool: State<'_, DbPool>,
     dsl_text: String,
     limit: i32
-) -> Result<Vec<embeddings::SimilarRule>, String> {
+) -> Result<Vec<db::SimilarRule>, String> {
     embeddings::find_similar_rules(&pool, &dsl_text, limit)
         .await
         .map_err(|e| e.to_string())
@@ -1020,7 +1020,7 @@ async fn db_get_table_relationships(
     pool: State<'_, DbPool>,
     table_name: String,
 ) -> Result<Vec<schema_visualizer::RelationshipInfo>, String> {
-    schema_visualizer::get_table_relationships(&pool, &table_name)
+    schema_visualizer::get_table_relationships(&pool)
         .await
 }
 
@@ -1093,10 +1093,9 @@ pub fn run() {
     // Create data dictionary state
     let _data_dict_state = std::sync::Arc::new(DataDictionaryState::new(db_pool.clone()));
 
-    // NOTE: Embedded server disabled for two-process development
-    // Run standalone server with: cargo run --bin test_minimal --features ssr
-    println!("🎯 Tauri expects server at http://127.0.0.1:3001");
-    println!("💡 Run in separate terminal: cargo run --bin test_minimal --features ssr");
+    // Pure desktop application - no external server required
+    println!("🚀 Data Designer Desktop IDE starting...");
+    println!("📦 Using bundled frontend from src/dist/");
 
     tauri::Builder::default()
         .manage(db_pool)

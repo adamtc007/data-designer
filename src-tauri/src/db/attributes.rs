@@ -37,23 +37,8 @@ pub struct DerivedAttribute {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateDerivedAttributeRequest {
-    pub name: String,
-    pub data_type: String,
-    pub description: Option<String>,
-    pub rule_logic: Option<String>,
-    pub tags: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DataDictionaryResponse {
-    pub attributes: Vec<serde_json::Value>,
-    pub total_count: i64,
-    pub business_count: i64,
-    pub derived_count: i64,
-    pub system_count: i64,
-}
+// Import from data_dictionary module to avoid duplication
+use super::data_dictionary::{CreateDerivedAttributeRequest, DataDictionaryResponse};
 
 // Attribute database operations
 pub struct AttributeOperations;

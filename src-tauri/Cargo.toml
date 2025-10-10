@@ -21,20 +21,8 @@ path = "src/main.rs"
 
 
 [features]
-ssr = [
-    "dep:axum",
-    "dep:tower",
-    "dep:tower-http",
-    "leptos/ssr",
-    "leptos_meta/ssr",
-    "leptos_router/ssr",
-    "leptos_axum/default",
-]
-hydrate = [
-    "leptos/hydrate",
-    "leptos_meta/hydrate",
-    "leptos_router/hydrate",
-]
+# Desktop-only features
+default = []
 
 [build-dependencies]
 tauri-build = { version = "2.4.1", features = [] }
@@ -61,12 +49,4 @@ reqwest = { version = "0.11", features = ["json"] }
 async-openai = "0.18"
 rand = "0.8"
 
-# Leptos SSR dependencies
-leptos = { version = "0.6", features = ["ssr"] }
-leptos_axum = { version = "0.6" }
-leptos_meta = { version = "0.6", features = ["ssr"] }
-leptos_router = { version = "0.6", features = ["ssr"] }
-axum = { version = "0.7", optional = true }
-tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = ["fs"], optional = true }
-wasm-bindgen = "0.2"
+# Pure desktop application - no web dependencies needed

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, testing, and managing dynamic data transformation rules using a soft DSL (Domain Specific Language) system. The project features:
+This is a sophisticated **pure desktop Tauri application** for designing, testing, and managing dynamic data transformation rules using a soft DSL (Domain Specific Language) system. The project features:
 
 - **Dynamic Grammar System**: EBNF-based soft DSL where grammar rules are data-driven and editable through the UI
 - **Advanced Parser**: Full nom-based parser with 6 major extensions (arithmetic, strings, functions, lookups, runtime resolution, regex)
@@ -14,70 +14,74 @@ This is a sophisticated hybrid Rust/JavaScript Tauri application for designing, 
 
 ## Architecture
 
+### Pure Desktop Application
+This is a Tauri-based desktop application with **no web/SSR dependencies**. The frontend is bundled and served directly from the Rust backend without external servers.
+
 ### Core Components
 
-1. **Dynamic Grammar System** (src-tauri/src/lib.rs:221-290):
+1. **Centralized Database Layer** (src-tauri/src/db/):
+   - `mod.rs`: Core `DbOperations` struct with comprehensive database access patterns
+   - `data_dictionary.rs`: Attribute and metadata management operations
+   - `embeddings.rs`: Vector similarity and AI embedding operations
+   - PostgreSQL connection pooling with SQLx and transaction management
+
+2. **Dynamic Grammar System** (src-tauri/src/lib.rs):
    - Load/save EBNF grammar as JSON data
    - Runtime grammar generation from EBNF
    - Grammar validation and hot-reload
 
-2. **Enhanced Expression Engine** (src/lib.rs:42-192):
+3. **Enhanced Expression Engine** (data-designer-core/):
    - Complex arithmetic with operator precedence
    - String operations (concatenation, substring)
    - Function calls (CONCAT, SUBSTRING, LOOKUP)
    - Runtime attribute resolution from context
 
-3. **Nom Parser Integration** (src/lib.rs:217-480):
+4. **Nom Parser Integration** (parser.rs):
    - Enhanced transpiler with full grammar support
    - Expression parsing with precedence handling
-   - Runtime expression evaluation
+   - Runtime expression evaluation including regex support
 
-4. **Dual Rules Engines** (src/lib.rs:483-537):
-   - EnhancedRulesEngine: Supports complex expressions
-   - RulesEngine: Backward compatibility for simple rules
-
-5. **Advanced UI** (src/index.html, src/main.js):
-   - Two-tab interface: Rules + Grammar editors
-   - Live grammar rule editing and validation
-   - Test rule execution with results display
-   - Grammar visualization preview
+5. **Desktop UI** (src/index.html, src/main.js):
+   - Single-tab interface with dynamic rule editing
+   - PostgreSQL-backed data dictionary
+   - Live rule testing and validation
+   - AST visualization and export capabilities
 
 ### Key Files
 
-- `src/lib.rs`: Enhanced Rust library with expression engine and nom parser
-- `src/parser.rs`: Complete nom parser with 6 extensions including regex
-- `grammar_rules.json`: Dynamic grammar storage with metadata
-- `src/index.html`: Two-tab UI with Rules and Grammar editors
-- `src/main.js`: Advanced frontend with grammar management and live testing
 - `src-tauri/src/lib.rs`: Tauri commands for rule testing and grammar management
-- `src/main.rs`: Comprehensive test suite demonstrating all 5 parser extensions
+- `src-tauri/src/db/mod.rs`: Centralized database operations with PostgreSQL
+- `src-tauri/src/db/data_dictionary.rs`: Attribute and metadata management
+- `src-tauri/src/db/embeddings.rs`: Vector similarity operations
+- `src/index.html`: Single-tab UI with Rules editor and data dictionary
+- `src/main.js`: Advanced frontend with PostgreSQL integration
+- `grammar_rules.json`: Dynamic grammar storage with metadata
+- `data-designer-core/`: Enhanced Rust library with expression engine and nom parser
 
 ## Development Commands
 
-### Frontend Development
+### Pure Desktop Development
 ```bash
-npm run dev          # Start Vite dev server on port 1420
-npm run build        # Build frontend assets
-```
+# Frontend build (required before running Tauri)
+npm run build        # Build frontend assets to src/dist/
 
-### Rust Development
-```bash
-# From project root (for enhanced parser testing)
-cargo run            # Run comprehensive test suite with all 5 extensions
+# Desktop application development
+cd src-tauri
+cargo tauri dev      # Run pure desktop app with bundled frontend
+cargo tauri build    # Build desktop app for production
+
+# Core library development (optional)
+cd data-designer-core
 cargo build          # Build the enhanced Rust library
 cargo test           # Run Rust tests
-
-# From src-tauri directory (for Tauri app)
-cd src-tauri
-cargo tauri dev      # Run enhanced Tauri app with grammar editor
-cargo tauri build    # Build Tauri app for production
 ```
 
-### Full Application
-The Tauri app automatically runs `npm run dev` and provides:
-- Interactive rule testing with dropdown selection
-- Live grammar editing and validation
-- Grammar visualization from EBNF rules
+### Application Features
+The pure desktop Tauri app provides:
+- Interactive rule testing with PostgreSQL data dictionary
+- Live AST visualization and export
+- Schema browser in separate window
+- Centralized database operations
 
 ## Enhanced DSL Features
 
@@ -189,25 +193,25 @@ is_valid_format = VALIDATE(input, r"^[A-Z]{2}\d{6}$")
 
 ## Current State
 
-- **Production Ready**: Full-featured soft DSL system with working Tauri IDE
+- **Production Ready**: Pure desktop application with no web/SSR dependencies
+- **Centralized Database Layer**: Unified PostgreSQL access through standardized operations
 - **6 Parser Extensions**: All implemented and tested including comprehensive regex support
-- **Leptos SSR Integration**: Server-side rendered IDE with stable Monaco Editor mounting eliminates DOM race conditions
-- **Enhanced LSP Features**: Professional language server protocol integration with real-time diagnostics, auto-completion, and hover information
+- **Enhanced AST Visualization**: Interactive AST viewer with multiple export formats
 - **Dynamic Data Dictionary**: PostgreSQL-backed attribute catalog with live loading and caching
-- **Two-Tab Interface**: Attributes and Schema visualization with collapsible entity browsing
+- **Single-Tab Interface**: Streamlined UI with dynamic rule editing and data dictionary
 - **Professional Monaco Editor**: VS Code-level syntax highlighting, error detection, and IntelliSense
-- **New Attribute Creation**: Modal dialog for creating derived attributes with automatic rule template generation
+- **Schema Visualizer**: Separate window with D3.js visualization of database relationships
 - **Dynamic Grammar**: Completely configurable through UI
 - **Comprehensive Testing**: 15+ test cases covering all features including regex/KYC validation
 - **Runtime Evaluation**: Complex expression engine with precedence
 - **External Integration**: Lookup table system for external data
-- **Tauri Integration**: Fully functional desktop app with proper API connectivity (two-process architecture)
+- **Pure Desktop Architecture**: Self-contained Tauri app with bundled frontend
 - **PostgreSQL Database**: Full persistence layer with rules, attributes, and categories
 - **Vector Search**: pgvector integration for semantic similarity search (1536 dimensions)
 - **AI Embeddings**: Automatic embedding generation using OpenAI/Anthropic APIs
 - **Similar Rules Finder**: Find semantically similar rules using cosine similarity
 - **Derived Attribute Builder**: Interactive UI for creating new derived attributes with dependency management
-- **AST-Runtime System**: New modular architecture in data-designer-core with complete feature parity
+- **Modular Core Library**: Enhanced data-designer-core with complete feature parity
 
 ## File Structure
 
@@ -229,8 +233,10 @@ src/
 src-tauri/
 ├── src/lib.rs          # Tauri commands for rules and grammar
 ├── src/main.rs         # Tauri entry point
-├── src/database.rs     # PostgreSQL database layer with SQLx
-├── src/embeddings.rs   # Vector embedding generation and similarity search
+├── src/db/
+│   ├── mod.rs          # Centralized database operations and connection management
+│   ├── data_dictionary.rs # Attribute and metadata management operations
+│   └── embeddings.rs   # Vector embedding generation and similarity search
 ├── src/schema_visualizer.rs # Database schema introspection and visualization
 └── tauri.conf.json     # Tauri config with withGlobalTauri enabled
 
@@ -404,6 +410,25 @@ When clicking "Run Code", the system:
 - If editor content doesn't refresh: Ensure Monaco editor is exposed to window.editor and use setValue() with layout() and focus()
 
 ## Recent Updates (October 2025)
+
+### Pure Desktop Architecture Migration (NEW - October 2025)
+- **Complete SSR/Web Removal**: Successfully converted from hybrid web/desktop to pure desktop application
+- **Database Access Centralization**: Unified all PostgreSQL operations through centralized `src-tauri/src/db/` module
+  - Core operations in `mod.rs` with comprehensive `DbOperations` struct
+  - Specialized modules: `data_dictionary.rs`, `embeddings.rs`
+  - Eliminated duplicate database connection patterns
+  - Fixed 26+ compilation errors related to database access
+- **File Structure Cleanup**:
+  - Removed Leptos SSR frontend directory and configurations
+  - Deleted unused web server files: `web_server.rs`, `web_server_simple.rs`, etc.
+  - Removed problematic test binaries and legacy code
+  - Cleaned up empty directories: `src-tauri/assets/`, `src-tauri/src/bin/`
+- **Dependencies Cleanup**:
+  - Removed all Leptos/SSR dependencies from `Cargo.toml` (19GB+ savings)
+  - Updated to desktop-only feature set: `default = []`
+  - Pure desktop application - no web dependencies needed
+- **Compilation Success**: ✅ Clean compilation and successful `cargo tauri dev` execution
+- **Frontend Configuration**: Uses bundled static files (`../src/dist`) without external servers
 
 ### AST Visualization Feature (NEW)
 - **Interactive AST Viewer**: Click "🌳 Show AST" button to visualize Abstract Syntax Trees

@@ -1,56 +1,27 @@
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgPool;
 use sqlx::FromRow;
+use crate::db::{DbPool, DataDictionaryOperations, EmbeddingOperations, DbOperations};
 use std::collections::HashMap;
 
-// State management for Leptos SSR
+// State management - now uses centralized DbPool
 pub struct DataDictionaryState {
-    pub db_pool: PgPool,
+    pub db_pool: DbPool,
 }
 
 impl DataDictionaryState {
-    pub fn new(db_pool: PgPool) -> Self {
+    pub fn new(db_pool: DbPool) -> Self {
         Self { db_pool }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct AttributeDefinition {
-    pub attribute_type: String,
-    pub entity_name: String,
-    pub attribute_name: String,
-    pub full_path: String,
-    pub data_type: String,
-    pub sql_type: String,
-    pub rust_type: String,
-    pub description: Option<String>,
-    pub required: bool,
-    pub validation_pattern: Option<String>,
-    pub rule_definition: Option<String>,
-    pub rule_id: Option<i32>,
-    pub status: String,
-}
+// Re-export types from centralized db module
+pub use crate::db::{AttributeDefinition, CreateDerivedAttributeRequest, DataDictionaryResponse};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupedAttributes {
     pub business: Vec<AttributeDefinition>,
     pub derived: Vec<AttributeDefinition>,
     pub system: Vec<AttributeDefinition>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DataDictionaryResponse {
-    pub entities: HashMap<String, GroupedAttributes>,
-    pub total_count: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateDerivedAttributeRequest {
-    pub entity_name: String,
-    pub attribute_name: String,
-    pub data_type: String,
-    pub description: Option<String>,
-    pub dependencies: Vec<String>, // List of attribute full paths
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,170 +33,123 @@ pub struct CompiledRule {
     pub compiler_version: Option<String>,
 }
 
-// Get all attributes from the data dictionary
+// === WRAPPER FUNCTIONS THAT DELEGATE TO CENTRALIZED OPERATIONS ===
+
+/// Get all attributes from the data dictionary
 pub async fn get_data_dictionary(
-    pool: &PgPool,
+    pool: &DbPool,
     entity_filter: Option<String>,
 ) -> Result<DataDictionaryResponse, String> {
-    let query = if let Some(entity) = entity_filter {
-        sqlx::query_as::<_, AttributeDefinition>(
-            "SELECT * FROM mv_data_dictionary WHERE entity_name = $1 ORDER BY entity_name, attribute_type, attribute_name"
-        )
-        .bind(entity)
-    } else {
-        sqlx::query_as::<_, AttributeDefinition>(
-            "SELECT * FROM mv_data_dictionary ORDER BY entity_name, attribute_type, attribute_name"
-        )
-    };
-
-    let attributes = query
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch data dictionary: {}", e))?;
-
-    // Group attributes by entity and type
-    let mut entities: HashMap<String, GroupedAttributes> = HashMap::new();
-    let total_count = attributes.len();
-
-    for attr in attributes {
-        let entity = entities.entry(attr.entity_name.clone()).or_insert_with(|| {
-            GroupedAttributes {
-                business: Vec::new(),
-                derived: Vec::new(),
-                system: Vec::new(),
-            }
-        });
-
-        match attr.attribute_type.as_str() {
-            "business" => entity.business.push(attr),
-            "derived" => entity.derived.push(attr),
-            "system" => entity.system.push(attr),
-            _ => {}
-        }
-    }
-
-    Ok(DataDictionaryResponse {
-        entities,
-        total_count,
-    })
+    // Use centralized operations
+    DataDictionaryOperations::get_data_dictionary(pool, entity_filter.as_deref()).await
 }
 
-// Refresh the materialized view
-pub async fn refresh_data_dictionary(pool: &PgPool) -> Result<(), String> {
-    sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_data_dictionary")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Failed to refresh data dictionary: {}", e))?;
-
-    Ok(())
+/// Refresh the materialized view
+pub async fn refresh_data_dictionary(pool: &DbPool) -> Result<(), String> {
+    // Use centralized operations
+    DataDictionaryOperations::refresh_data_dictionary(pool).await
 }
 
-// Create a new derived attribute
+/// Create a new derived attribute
 pub async fn create_derived_attribute(
-    pool: &PgPool,
+    pool: &DbPool,
     request: CreateDerivedAttributeRequest,
 ) -> Result<i32, String> {
-    // Determine SQL and Rust types based on data_type
-    let (sql_type, rust_type) = match request.data_type.as_str() {
-        "String" => ("VARCHAR(255)", "String"),
-        "Number" => ("NUMERIC(15,3)", "f64"),
-        "Integer" => ("INTEGER", "i32"),
-        "Boolean" => ("BOOLEAN", "bool"),
-        "Date" => ("DATE", "NaiveDate"),
-        "DateTime" => ("TIMESTAMP", "DateTime<Utc>"),
-        "Json" => ("JSONB", "serde_json::Value"),
-        _ => ("VARCHAR(255)", "String"),
-    };
-
-    let result = sqlx::query!(
-        r#"
-        INSERT INTO derived_attributes (
-            entity_name, attribute_name, data_type, sql_type, rust_type, description
-        ) VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id
-        "#,
-        request.entity_name,
-        request.attribute_name,
-        request.data_type,
-        sql_type,
-        rust_type,
-        request.description
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| format!("Failed to create derived attribute: {}", e))?;
-
-    // Refresh the materialized view
-    refresh_data_dictionary(pool).await?;
-
-    Ok(result.id)
+    // Use centralized operations
+    DataDictionaryOperations::create_derived_attribute(pool, request).await
 }
 
-// Create and compile a rule
+/// Search attributes by name or description
+pub async fn search_attributes(
+    pool: &DbPool,
+    search_term: String,
+) -> Result<Vec<AttributeDefinition>, String> {
+    // Use centralized operations
+    DataDictionaryOperations::search_attributes(pool, &search_term, Some(50)).await
+}
+
+/// Get rule dependencies for a specific rule
+pub async fn get_rule_dependencies(
+    pool: &DbPool,
+    rule_id: i32,
+) -> Result<Vec<AttributeDefinition>, String> {
+    // Use centralized operations
+    DataDictionaryOperations::get_rule_dependencies(pool, rule_id).await
+}
+
+/// Generate test context for rule evaluation
+pub async fn generate_test_context(
+    pool: &DbPool,
+    attribute_names: Vec<String>,
+) -> Result<HashMap<String, serde_json::Value>, String> {
+    // Use centralized operations
+    DataDictionaryOperations::generate_test_context(pool, attribute_names).await
+}
+
+/// Create and compile a rule
 pub async fn create_and_compile_rule(
-    pool: &PgPool,
+    pool: &DbPool,
     rule_name: String,
     dsl_code: String,
     target_attribute_id: i32,
     dependencies: Vec<String>,
 ) -> Result<CompiledRule, String> {
-    // Start a transaction
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| format!("Failed to start transaction: {}", e))?;
+    // Start a transaction using centralized transaction management
+    let mut tx = DbOperations::begin_transaction(pool).await?;
 
-    // Create the rule
-    let rule = sqlx::query!(
-        r#"
+    // Create the rule using centralized query operations
+    let rule_id_query = r#"
         INSERT INTO rules (
             rule_id, rule_name, rule_definition, target_attribute_id, status
         ) VALUES ($1, $2, $3, $4, 'active')
         RETURNING id
-        "#,
-        format!("RULE_{:06}", rand::random::<u32>() % 1000000),
-        rule_name,
-        dsl_code.clone(),
-        target_attribute_id
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to create rule: {}", e))?;
+    "#;
 
-    // Create rule dependencies
+    let rule_id = format!("RULE_{:06}", rand::random::<u32>() % 1000000);
+    let rule_result: (i32,) = sqlx::query_as(rule_id_query)
+        .bind(&rule_id)
+        .bind(&rule_name)
+        .bind(&dsl_code)
+        .bind(target_attribute_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to create rule: {}", e))?;
+
+    let rule_id = rule_result.0;
+
+    // Create rule dependencies using centralized operations
     for dep_path in &dependencies {
-        // Parse the dependency path (e.g., "Client.email")
         let parts: Vec<&str> = dep_path.split('.').collect();
         if parts.len() == 2 {
             let entity = parts[0];
             let attribute = parts[1];
 
             // Find the business attribute ID
-            let attr = sqlx::query!(
-                r#"
+            let attr_query = r#"
                 SELECT id FROM business_attributes
                 WHERE entity_name = $1 AND attribute_name = $2
-                "#,
-                entity,
-                attribute
-            )
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to find attribute {}: {}", dep_path, e))?;
+            "#;
 
-            if let Some(attr) = attr {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO rule_dependencies (rule_id, attribute_id, dependency_type)
-                    VALUES ($1, $2, 'input')
-                    ON CONFLICT (rule_id, attribute_id) DO NOTHING
-                    "#,
-                    rule.id,
-                    attr.id
-                )
-                .execute(&mut *tx)
+            if let Ok(attr_result) = sqlx::query_as::<_, (i32,)>(attr_query)
+                .bind(entity)
+                .bind(attribute)
+                .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| format!("Failed to create dependency: {}", e))?;
+            {
+                if let Some((attr_id,)) = attr_result {
+                    let dep_query = r#"
+                        INSERT INTO rule_dependencies (rule_id, attribute_id, dependency_type)
+                        VALUES ($1, $2, 'input')
+                        ON CONFLICT (rule_id, attribute_id) DO NOTHING
+                    "#;
+
+                    sqlx::query(dep_query)
+                        .bind(rule_id)
+                        .bind(attr_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| format!("Failed to create dependency: {}", e))?;
+                }
             }
         }
     }
@@ -234,35 +158,35 @@ pub async fn create_and_compile_rule(
     let rust_code = generate_rust_code(&dsl_code, &dependencies);
 
     // Update rule with compiled code
-    sqlx::query!(
-        r#"
+    let update_query = r#"
         UPDATE rules SET
             compiled_rust_code = $1,
             compilation_status = 'success',
             compilation_timestamp = NOW(),
             compiler_version = $2
         WHERE id = $3
-        "#,
-        rust_code.clone(),
-        "1.0.0",
-        rule.id
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to update compiled code: {}", e))?;
+    "#;
+
+    sqlx::query(update_query)
+        .bind(&rust_code)
+        .bind("1.0.0")
+        .bind(rule_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to update compiled code: {}", e))?;
 
     // Add to compilation queue for WASM
-    sqlx::query!(
-        r#"
+    let queue_query = r#"
         INSERT INTO rule_compilation_queue (rule_id, compilation_type, priority)
         VALUES ($1, 'wasm', 5)
         ON CONFLICT (rule_id, compilation_type, status) DO NOTHING
-        "#,
-        rule.id
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to queue for WASM compilation: {}", e))?;
+    "#;
+
+    sqlx::query(queue_query)
+        .bind(rule_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to queue for WASM compilation: {}", e))?;
 
     // Commit transaction
     tx.commit()
@@ -273,7 +197,7 @@ pub async fn create_and_compile_rule(
     refresh_data_dictionary(pool).await?;
 
     Ok(CompiledRule {
-        rule_id: rule.id,
+        rule_id,
         rust_code,
         wasm_bytes: None,
         compilation_status: "success".to_string(),
@@ -314,65 +238,4 @@ pub fn execute_rule(context: &HashMap<String, Value>) -> Result<Value, String> {
             .join("\n"),
         dsl_code
     )
-}
-
-// Get attribute dependencies for a rule (unused - keeping for potential future use)
-#[allow(dead_code)]
-pub async fn get_rule_dependencies(
-    pool: &PgPool,
-    rule_id: i32,
-) -> Result<Vec<AttributeDefinition>, String> {
-    let deps = sqlx::query_as::<_, AttributeDefinition>(
-        r#"
-        SELECT
-            'business' as attribute_type,
-            ba.entity_name,
-            ba.attribute_name,
-            ba.entity_name || '.' || ba.attribute_name as full_path,
-            ba.data_type,
-            ba.sql_type,
-            ba.rust_type,
-            ba.description,
-            ba.required,
-            ba.validation_pattern,
-            NULL::TEXT as rule_definition,
-            NULL::INTEGER as rule_id,
-            'active' as status
-        FROM rule_dependencies rd
-        JOIN business_attributes ba ON rd.attribute_id = ba.id
-        WHERE rd.rule_id = $1
-        ORDER BY ba.entity_name, ba.attribute_name
-        "#
-    )
-    .bind(rule_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch rule dependencies: {}", e))?;
-
-    Ok(deps)
-}
-
-// Search attributes by name or description
-pub async fn search_attributes(
-    pool: &PgPool,
-    search_term: String,
-) -> Result<Vec<AttributeDefinition>, String> {
-    let search_pattern = format!("%{}%", search_term.to_lowercase());
-
-    let attributes = sqlx::query_as::<_, AttributeDefinition>(
-        r#"
-        SELECT * FROM mv_data_dictionary
-        WHERE LOWER(attribute_name) LIKE $1
-           OR LOWER(full_path) LIKE $1
-           OR LOWER(COALESCE(description, '')) LIKE $1
-        ORDER BY entity_name, attribute_type, attribute_name
-        LIMIT 50
-        "#
-    )
-    .bind(search_pattern)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to search attributes: {}", e))?;
-
-    Ok(attributes)
 }

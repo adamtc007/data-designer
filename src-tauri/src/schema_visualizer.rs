@@ -1,39 +1,9 @@
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgPool;
-use sqlx::{Row, Column};
+use crate::db::{DbPool, DbOperations, SchemaOperations};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TableInfo {
-    pub name: String,
-    pub columns: Vec<ColumnInfo>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ColumnInfo {
-    pub name: String,
-    pub data_type: String,
-    pub is_nullable: bool,
-    pub is_primary_key: bool,
-    pub is_foreign_key: bool,
-    pub foreign_table: Option<String>,
-    pub foreign_column: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RelationshipInfo {
-    pub from_table: String,
-    pub from_column: String,
-    pub to_table: String,
-    pub to_column: String,
-    pub relationship_type: String, // "one-to-many", "many-to-one", etc.
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SchemaInfo {
-    pub tables: Vec<TableInfo>,
-    pub relationships: Vec<RelationshipInfo>,
-}
+// Re-export types from centralized db module
+pub use crate::db::{SchemaInfo, TableInfo, ColumnInfo, RelationshipInfo};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqlQueryResult {
@@ -42,213 +12,129 @@ pub struct SqlQueryResult {
     pub row_count: usize,
 }
 
-pub async fn get_schema_info(pool: &PgPool) -> Result<SchemaInfo, String> {
-    println!("Getting schema info from database...");
+// === WRAPPER FUNCTIONS THAT DELEGATE TO CENTRALIZED OPERATIONS ===
 
-    // Query for all tables and their columns
-    let tables_query = r#"
-        SELECT
-            t.table_name,
-            c.column_name,
-            c.data_type,
-            c.is_nullable,
-            CASE
-                WHEN pk.column_name IS NOT NULL THEN true
-                ELSE false
-            END as is_primary_key
-        FROM information_schema.tables t
-        JOIN information_schema.columns c ON t.table_name = c.table_name
-        LEFT JOIN (
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-        ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
-        WHERE t.table_schema = 'public'
-            AND t.table_type = 'BASE TABLE'
-        ORDER BY t.table_name, c.ordinal_position
-    "#;
-
-    let rows = sqlx::query(tables_query)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch schema info: {}", e))?;
-
-    let mut tables_map: HashMap<String, TableInfo> = HashMap::new();
-
-    for row in rows {
-        let table_name: String = row.get("table_name");
-        let column = ColumnInfo {
-            name: row.get("column_name"),
-            data_type: row.get("data_type"),
-            is_nullable: row.get::<String, _>("is_nullable") == "YES",
-            is_primary_key: row.get("is_primary_key"),
-            is_foreign_key: false, // Will be updated below
-            foreign_table: None,
-            foreign_column: None,
-        };
-
-        tables_map.entry(table_name.clone())
-            .or_insert_with(|| TableInfo {
-                name: table_name,
-                columns: Vec::new(),
-            })
-            .columns.push(column);
-    }
-
-    // Query for foreign key relationships
-    let fk_query = r#"
-        SELECT
-            kcu.table_name as from_table,
-            kcu.column_name as from_column,
-            ccu.table_name as to_table,
-            ccu.column_name as to_column
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-        JOIN information_schema.constraint_column_usage ccu
-            ON tc.constraint_name = ccu.constraint_name
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND tc.table_schema = 'public'
-    "#;
-
-    let fk_rows = sqlx::query(fk_query)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch foreign keys: {}", e))?;
-
-    let mut relationships = Vec::new();
-
-    for row in fk_rows {
-        let from_table: String = row.get("from_table");
-        let from_column: String = row.get("from_column");
-        let to_table: String = row.get("to_table");
-        let to_column: String = row.get("to_column");
-
-        // Update the foreign key info in the column
-        if let Some(table) = tables_map.get_mut(&from_table) {
-            if let Some(column) = table.columns.iter_mut().find(|c| c.name == from_column) {
-                column.is_foreign_key = true;
-                column.foreign_table = Some(to_table.clone());
-                column.foreign_column = Some(to_column.clone());
-            }
-        }
-
-        relationships.push(RelationshipInfo {
-            from_table: from_table.clone(),
-            from_column: from_column.clone(),
-            to_table: to_table.clone(),
-            to_column: to_column.clone(),
-            relationship_type: "many-to-one".to_string(), // Default, can be enhanced
-        });
-    }
-
-    let tables: Vec<TableInfo> = tables_map.into_values().collect();
-
-    Ok(SchemaInfo {
-        tables,
-        relationships,
-    })
+/// Get comprehensive schema information
+pub async fn get_schema_info(pool: &DbPool) -> Result<SchemaInfo, String> {
+    // Use centralized operations
+    SchemaOperations::get_schema_info(pool).await
 }
 
-pub async fn get_table_relationships(
-    pool: &PgPool,
-    table_name: &str,
-) -> Result<Vec<RelationshipInfo>, String> {
-    let query = r#"
-        SELECT
-            kcu.table_name as from_table,
-            kcu.column_name as from_column,
-            ccu.table_name as to_table,
-            ccu.column_name as to_column
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-        JOIN information_schema.constraint_column_usage ccu
-            ON tc.constraint_name = ccu.constraint_name
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND tc.table_schema = 'public'
-            AND (kcu.table_name = $1 OR ccu.table_name = $1)
-    "#;
-
-    let rows = sqlx::query(query)
-        .bind(table_name)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch relationships: {}", e))?;
-
-    let mut relationships = Vec::new();
-
-    for row in rows {
-        relationships.push(RelationshipInfo {
-            from_table: row.get("from_table"),
-            from_column: row.get("from_column"),
-            to_table: row.get("to_table"),
-            to_column: row.get("to_column"),
-            relationship_type: "many-to-one".to_string(),
-        });
-    }
-
-    Ok(relationships)
+/// Get table relationships (foreign keys)
+pub async fn get_table_relationships(pool: &DbPool) -> Result<Vec<RelationshipInfo>, String> {
+    // Use centralized operations
+    SchemaOperations::get_table_relationships(pool).await
 }
 
-pub async fn execute_sql_query(pool: &PgPool, query: &str) -> Result<SqlQueryResult, String> {
-    // Basic SQL injection prevention - only allow SELECT queries
-    let trimmed = query.trim().to_lowercase();
-    if !trimmed.starts_with("select") {
-        return Err("Only SELECT queries are allowed".to_string());
-    }
+/// Execute a safe SQL query (SELECT only)
+pub async fn execute_sql_query(pool: &DbPool, query: &str) -> Result<SqlQueryResult, String> {
+    // Use centralized operations for safe SQL execution
+    let results = SchemaOperations::execute_sql(pool, query).await?;
 
-    let rows = sqlx::query(query)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Query execution failed: {}", e))?;
+    // Convert to our response format
+    let mut columns = Vec::new();
+    let mut rows = Vec::new();
 
-    if rows.is_empty() {
-        return Ok(SqlQueryResult {
-            columns: vec![],
-            rows: vec![],
-            row_count: 0,
-        });
-    }
-
-    // Get column names from the first row
-    let first_row = &rows[0];
-    let columns: Vec<String> = first_row
-        .columns()
-        .iter()
-        .map(|col| col.name().to_string())
-        .collect();
-
-    // Convert rows to JSON values
-    let mut result_rows = Vec::new();
-    for row in rows.iter() {
-        let mut row_values = Vec::new();
-        for col in first_row.columns() {
-            let value: serde_json::Value = if let Ok(v) = row.try_get::<String, _>(col.name()) {
-                serde_json::Value::String(v)
-            } else if let Ok(v) = row.try_get::<i32, _>(col.name()) {
-                serde_json::Value::Number(v.into())
-            } else if let Ok(v) = row.try_get::<i64, _>(col.name()) {
-                serde_json::Value::Number(v.into())
-            } else if let Ok(v) = row.try_get::<f64, _>(col.name()) {
-                serde_json::Number::from_f64(v)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            } else if let Ok(v) = row.try_get::<bool, _>(col.name()) {
-                serde_json::Value::Bool(v)
-            } else {
-                serde_json::Value::Null
-            };
-            row_values.push(value);
+    if let Some(first_result) = results.first() {
+        if let serde_json::Value::Object(obj) = first_result {
+            columns = obj.keys().cloned().collect();
         }
-        result_rows.push(row_values);
+    }
+
+    for result in &results {
+        if let serde_json::Value::Object(obj) = result {
+            let row: Vec<serde_json::Value> = columns
+                .iter()
+                .map(|col| obj.get(col).unwrap_or(&serde_json::Value::Null).clone())
+                .collect();
+            rows.push(row);
+        }
     }
 
     Ok(SqlQueryResult {
         columns,
-        row_count: result_rows.len(),
-        rows: result_rows,
+        row_count: rows.len(),
+        rows,
+    })
+}
+
+/// Get table statistics
+pub async fn get_table_stats(pool: &DbPool) -> Result<Vec<serde_json::Value>, String> {
+    // Use centralized operations
+    SchemaOperations::get_table_stats(pool).await
+}
+
+/// Get detailed table information with column metadata
+pub async fn get_table_details(pool: &DbPool, table_name: &str) -> Result<TableInfo, String> {
+    let schema_info = get_schema_info(pool).await?;
+
+    schema_info
+        .tables
+        .into_iter()
+        .find(|table| table.table_name == table_name)
+        .ok_or_else(|| format!("Table '{}' not found", table_name))
+}
+
+/// Get schema summary with counts
+pub async fn get_schema_summary(pool: &DbPool) -> Result<HashMap<String, serde_json::Value>, String> {
+    let schema_info = get_schema_info(pool).await?;
+    let relationships = get_table_relationships(pool).await?;
+
+    let mut summary = HashMap::new();
+    summary.insert("table_count".to_string(), serde_json::Value::Number(schema_info.tables.len().into()));
+    summary.insert("relationship_count".to_string(), serde_json::Value::Number(relationships.len().into()));
+
+    let total_columns: usize = schema_info.tables.iter().map(|t| t.columns.len()).sum();
+    summary.insert("total_columns".to_string(), serde_json::Value::Number(total_columns.into()));
+
+    let table_names: Vec<String> = schema_info.tables.iter().map(|t| t.table_name.clone()).collect();
+    summary.insert("table_names".to_string(), serde_json::Value::Array(
+        table_names.into_iter().map(serde_json::Value::String).collect()
+    ));
+
+    Ok(summary)
+}
+
+/// Validate SQL query before execution
+pub fn validate_sql_query(query: &str) -> Result<(), String> {
+    let trimmed = query.trim().to_lowercase();
+
+    if !trimmed.starts_with("select") {
+        return Err("Only SELECT statements are allowed".to_string());
+    }
+
+    let dangerous_keywords = ["drop", "delete", "insert", "update", "alter", "create", "truncate"];
+    for keyword in dangerous_keywords {
+        if trimmed.contains(keyword) {
+            return Err(format!("Keyword '{}' is not allowed", keyword));
+        }
+    }
+
+    Ok(())
+}
+
+/// Get column information for a specific table
+pub async fn get_table_columns(pool: &DbPool, table_name: &str) -> Result<Vec<ColumnInfo>, String> {
+    let table_details = get_table_details(pool, table_name).await?;
+    Ok(table_details.columns)
+}
+
+/// Search tables and columns by name
+pub async fn search_schema(pool: &DbPool, search_term: &str) -> Result<SchemaInfo, String> {
+    let schema_info = get_schema_info(pool).await?;
+    let search_lower = search_term.to_lowercase();
+
+    let filtered_tables: Vec<TableInfo> = schema_info
+        .tables
+        .into_iter()
+        .filter(|table| {
+            table.table_name.to_lowercase().contains(&search_lower) ||
+            table.columns.iter().any(|col| col.column_name.to_lowercase().contains(&search_lower))
+        })
+        .collect();
+
+    Ok(SchemaInfo {
+        tables: filtered_tables,
+        relationships: schema_info.relationships,
     })
 }
