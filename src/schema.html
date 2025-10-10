@@ -190,7 +190,7 @@
                 const div = document.createElement('div');
                 div.className = 'table-item';
                 div.innerHTML = `
-                    <strong>${table.name}</strong>
+                    <strong>${table.table_name}</strong>
                     <div style="font-size: 12px; color: #888; margin-top: 5px;">
                         ${table.columns.length} columns
                     </div>
@@ -206,15 +206,15 @@
             // Update sidebar selection
             document.querySelectorAll('.table-item').forEach(item => {
                 item.classList.remove('selected');
-                if (item.querySelector('strong').textContent === table.name) {
+                if (item.querySelector('strong').textContent === table.table_name) {
                     item.classList.add('selected');
                 }
             });
 
             // Highlight in visualization
             d3.selectAll('.table-node')
-                .style('stroke', d => d.name === table.name ? '#ffa500' : '#007acc')
-                .style('stroke-width', d => d.name === table.name ? 3 : 1);
+                .style('stroke', d => d.table_name === table.table_name ? '#ffa500' : '#007acc')
+                .style('stroke-width', d => d.table_name === table.table_name ? 3 : 1);
         }
 
         function renderVisualization(data) {
@@ -256,7 +256,7 @@
 
             simulation = d3.forceSimulation(data.tables)
                 .force('link', d3.forceLink(links)
-                    .id(d => d.name)
+                    .id(d => d.table_name)
                     .distance(200))
                 .force('charge', d3.forceManyBody().strength(-800))
                 .force('center', d3.forceCenter(width / 2, height / 2))
@@ -299,7 +299,7 @@
 
             // Table background
             node.append('rect')
-                .attr('width', d => Math.max(180, d.name.length * 10))
+                .attr('width', d => Math.max(180, d.table_name.length * 10))
                 .attr('height', d => 40 + Math.min(10, d.columns.length) * 18)
                 .attr('fill', '#2d2d30')
                 .attr('stroke', '#007acc')
@@ -308,15 +308,15 @@
 
             // Table header
             node.append('rect')
-                .attr('width', d => Math.max(180, d.name.length * 10))
+                .attr('width', d => Math.max(180, d.table_name.length * 10))
                 .attr('height', 30)
                 .attr('fill', '#007acc')
                 .attr('rx', 4);
 
             // Table name
             node.append('text')
-                .text(d => d.name)
-                .attr('x', d => Math.max(180, d.name.length * 10) / 2)
+                .text(d => d.table_name)
+                .attr('x', d => Math.max(180, d.table_name.length * 10) / 2)
                 .attr('y', 20)
                 .attr('text-anchor', 'middle')
                 .attr('fill', 'white')
@@ -326,7 +326,7 @@
             // Add column count
             node.append('text')
                 .text(d => `${d.columns.length} columns`)
-                .attr('x', d => Math.max(180, d.name.length * 10) / 2)
+                .attr('x', d => Math.max(180, d.table_name.length * 10) / 2)
                 .attr('y', 50)
                 .attr('text-anchor', 'middle')
                 .attr('fill', '#888')
