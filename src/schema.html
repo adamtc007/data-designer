@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Database Schema Visualizer</title>
     <script type="module">
         import { invoke } from '@tauri-apps/api/core';
@@ -249,8 +252,8 @@
             // D3's forceLink expects links to have source/target properties
             // We need to map our relationship data to D3's expected format
             const links = (data.relationships || []).map(d => ({
-                source: d.from_table,
-                target: d.to_table,
+                source: d.source_table,
+                target: d.target_table,
                 ...d
             }));
 
