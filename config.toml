@@ -1,0 +1,37 @@
+# Data Designer Configuration File
+# This file contains configuration settings for the Data Designer IDE
+
+[database]
+# PostgreSQL connection settings
+# You can also use the DATABASE_URL environment variable
+host = "localhost"
+port = 5432
+database = "data_designer"
+username = "adamtc007"
+# Password can be set here or via PGPASSWORD environment variable
+# password = "your_password_here"
+
+# Connection pool settings
+max_connections = 5
+min_connections = 1
+acquire_timeout_seconds = 30
+idle_timeout_seconds = 600
+
+[application]
+# Application settings
+name = "Data Designer IDE"
+version = "1.0.0"
+debug_mode = true
+
+[lsp]
+# Language Server Protocol settings
+port = 3030
+auto_start = false
+reconnect_attempts = 3
+timeout_ms = 5000
+
+[grammar]
+# Grammar and DSL settings
+auto_refresh = false
+cache_enabled = true
+validation_enabled = true

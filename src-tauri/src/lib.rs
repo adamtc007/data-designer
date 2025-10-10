@@ -5,11 +5,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, Value as JsonValue};
 use tauri::State;
 
+// Configuration module
+mod config;
+use config::Config;
+
 // Unified database interface
 mod db;
 use db::{DbPool, RuleOperations};
 use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
 use db::CreateDerivedAttributeRequest;
+use db::grammar::{GrammarOperations, CompactGrammarInfo, FunctionInfo as GrammarFunctionInfo};
 
 // Legacy modules (to be cleaned up)
 mod database;
@@ -1077,6 +1082,105 @@ async fn get_rule_by_id(
     RuleOperations::get_rule_by_id(&*pool, &rule_id).await
 }
 
+#[derive(Serialize, Deserialize)]
+struct GrammarInfo {
+    keywords: Vec<String>,
+    functions: Vec<FunctionInfo>,
+    operators: Vec<String>,
+    kyc_attributes: Vec<String>,
+}
+
+#[tauri::command]
+async fn get_grammar_info(pool: State<'_, DbPool>) -> Result<GrammarInfo, String> {
+    println!("🔥 get_grammar_info command called!");
+
+    // Get compact grammar info from database
+    println!("🔥 About to call GrammarOperations::get_compact_grammar_info...");
+    let compact_info = match GrammarOperations::get_compact_grammar_info(&pool).await {
+        Ok(info) => {
+            println!("🔥 Grammar loading succeeded!");
+            info
+        },
+        Err(e) => {
+            println!("🔥 Grammar loading failed: {}", e);
+            return Err(e);
+        }
+    };
+
+    // Convert from CompactGrammarInfo to GrammarInfo
+    let functions = compact_info.functions.into_iter().map(|f| FunctionInfo {
+        name: f.name,
+        signature: f.signature,
+        description: f.description,
+    }).collect();
+
+    Ok(GrammarInfo {
+        keywords: compact_info.keywords,
+        functions,
+        operators: compact_info.operators,
+        kyc_attributes: compact_info.kyc_attributes,
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+struct DatabaseStatus {
+    connected: bool,
+    error: Option<String>,
+    version: Option<String>,
+}
+
+#[tauri::command]
+async fn check_database_connection(pool: State<'_, DbPool>) -> Result<DatabaseStatus, String> {
+    // Use a query that returns a simple value we can handle
+    match sqlx::query_scalar::<_, String>("SELECT 'connected'").fetch_one(pool.inner()).await {
+        Ok(_) => {
+            // If we can execute a query, we're connected
+            Ok(DatabaseStatus {
+                connected: true,
+                error: None,
+                version: Some("PostgreSQL Connected".to_string()),
+            })
+        }
+        Err(e) => {
+            Ok(DatabaseStatus {
+                connected: false,
+                error: Some(format!("Database connection failed: {}", e)),
+                version: None,
+            })
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConfigInfo {
+    database_host: String,
+    database_port: u16,
+    database_name: String,
+    database_username: String,
+    has_password: bool,
+    max_connections: u32,
+    config_source: String,
+}
+
+#[tauri::command]
+async fn get_config_info() -> Result<ConfigInfo, String> {
+    let config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
+
+    Ok(ConfigInfo {
+        database_host: config.database.host,
+        database_port: config.database.port,
+        database_name: config.database.database,
+        database_username: config.database.username,
+        has_password: config.database.password.is_some(),
+        max_connections: config.database.max_connections,
+        config_source: if std::path::Path::new("config.toml").exists() {
+            "config.toml + environment variables".to_string()
+        } else {
+            "environment variables + defaults".to_string()
+        },
+    })
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1143,7 +1247,13 @@ pub fn run() {
             get_business_attributes,
             create_rule_with_template,
             get_existing_rules,
-            get_rule_by_id
+            get_rule_by_id,
+            // Grammar management
+            get_grammar_info,
+            // Database connection check
+            check_database_connection,
+            // Configuration management
+            get_config_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

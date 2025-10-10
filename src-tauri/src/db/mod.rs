@@ -9,16 +9,37 @@ pub use sqlx::{PgPool, Transaction, Error as SqlxError};
 // Database connection pool
 pub type DbPool = Pool<Postgres>;
 
-// Initialize database connection
+// Initialize database connection using configuration
 pub async fn init_db() -> Result<DbPool> {
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://adamtc007@localhost/data_designer".to_string());
+    init_db_with_config(None).await
+}
+
+// Initialize database connection with optional configuration
+pub async fn init_db_with_config(config: Option<crate::config::Config>) -> Result<DbPool> {
+    let config = config.unwrap_or_else(|| {
+        crate::config::Config::load().unwrap_or_else(|e| {
+            eprintln!("Failed to load configuration: {}", e);
+            eprintln!("Using default configuration");
+            crate::config::Config::default()
+        })
+    });
+
+    let database_url = config.database_url();
+    println!("🔧 Connecting to database: {}@{}:{}/{}",
+             config.database.username,
+             config.database.host,
+             config.database.port,
+             config.database.database);
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(config.database.max_connections)
+        .min_connections(config.database.min_connections)
+        .acquire_timeout(std::time::Duration::from_secs(config.database.acquire_timeout_seconds))
+        .idle_timeout(std::time::Duration::from_secs(config.database.idle_timeout_seconds))
         .connect(&database_url)
         .await?;
 
+    println!("✅ Database connection established");
     Ok(pool)
 }
 
@@ -261,6 +282,7 @@ pub mod attributes;
 pub mod schema;
 pub mod embeddings;
 pub mod data_dictionary;
+pub mod grammar;
 
 // Re-export all database entities and operations
 pub use rules::*;
@@ -268,6 +290,7 @@ pub use attributes::{BusinessAttribute, DerivedAttribute, AttributeOperations};
 pub use schema::*;
 pub use embeddings::*;
 pub use data_dictionary::*;
+pub use grammar::*;
 
 // Legacy compatibility
 pub use crate::database::CreateRuleRequest;

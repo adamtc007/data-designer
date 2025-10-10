@@ -611,6 +611,9 @@
         <div class="connection-status">
             <span id="connection-text" style="white-space: nowrap;">LSP Offline</span>
             <div id="status-indicator" class="status-indicator"></div>
+            <span style="margin-left: 15px; white-space: nowrap;">|</span>
+            <span id="db-connection-text" style="white-space: nowrap; margin-left: 15px;">DB Checking...</span>
+            <div id="db-status-indicator" class="status-indicator"></div>
         </div>
     </div>
 
@@ -723,6 +726,9 @@
                 <button class="btn secondary" id="connect-lsp-btn" onclick="connectToLSP()" style="opacity: 0.7;" title="LSP auto-connects on page load">
                     🔌 LSP Status
                 </button>
+                <button class="btn secondary" id="refresh-grammar-btn" onclick="refreshGrammar()" title="Load dynamic grammar from grammar_rules.json">
+                    🔄 Load Grammar
+                </button>
             </div>
 
             <div id="monaco-editor"></div>
@@ -781,6 +787,20 @@
     <!-- Data Dictionary Integration -->
     <script src="data-dictionary.js"></script>
     <script>
+        // Global variable to store dynamic language functions
+        let dynamicLanguage = null;
+
+        // Load dynamic language module
+        async function loadDynamicLanguage() {
+            try {
+                dynamicLanguage = await import('./dynamic-language.js');
+                console.log('Dynamic language module loaded');
+                return true;
+            } catch (error) {
+                console.error('Failed to load dynamic language module:', error);
+                return false;
+            }
+        }
         let editor;
         let lspConnection = null;
         let diagnosticsMap = new Map();
@@ -788,71 +808,77 @@
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
 
-        require(['vs/editor/editor.main'], function() {
-            // Register DSL language
-            monaco.languages.register({ id: 'dsl' });
+        require(['vs/editor/editor.main'], async function() {
+            // Load dynamic language module for future use
+            await loadDynamicLanguage();
 
-            // Define DSL syntax highlighting
-            monaco.languages.setMonarchTokensProvider('dsl', {
-                keywords: ['IF', 'THEN', 'ELSE', 'AND', 'OR', 'NOT', 'true', 'false', 'null'],
-                operators: ['+', '-', '*', '/', '%', '&', '==', '!=', '<', '>', '<=', '>=', '=', 'MATCHES', '~'],
-                functions: ['CONCAT', 'SUBSTRING', 'LOOKUP', 'UPPER', 'LOWER', 'LENGTH', 'ROUND', 'ABS',
-                           'MAX', 'MIN', 'IS_EMAIL', 'IS_LEI', 'IS_SWIFT', 'IS_PHONE', 'VALIDATE', 'EXTRACT'],
+            // Always start with fallback language - user can refresh manually
+            initializeFallbackLanguage();
+            console.log('Monaco initialized with static grammar. Use "🔄 Refresh Grammar" to load dynamic grammar.');
 
-                tokenizer: {
-                    root: [
-                        [/[a-zA-Z_]\w*/, {
-                            cases: {
-                                '@keywords': 'keyword',
-                                '@functions': 'support.function',
-                                '@default': 'identifier'
-                            }
-                        }],
-                        [/"([^"\\]|\\.)*$/, 'string.invalid'],
-                        [/"/, { token: 'string.quote', bracket: '@open', next: '@string' }],
-                        [/'([^'\\]|\\.)*$/, 'string.invalid'],
-                        [/'/, { token: 'string.quote', bracket: '@open', next: '@stringSingle' }],
-                        [/\/[^\/]+\//, 'regexp'],
-                        [/r"[^"]+\"/, 'regexp'],
-                        [/\d+\.?\d*/, 'number'],
-                        [/#.*$/, 'comment'],
-                        [/[+\-*/%&]/, 'operators'],
-                        [/[=<>!]=?/, 'operators'],
-                        [/~/, 'operators'],
-                        [/MATCHES/, 'operators'],
+            function initializeFallbackLanguage() {
+                // Fallback static language definition
+                monaco.languages.register({ id: 'dsl-kyc' });
+                monaco.languages.setMonarchTokensProvider('dsl-kyc', {
+                    keywords: ['IF', 'THEN', 'ELSE', 'AND', 'OR', 'NOT', 'true', 'false', 'null'],
+                    operators: ['+', '-', '*', '/', '%', '&', '==', '!=', '<', '>', '<=', '>=', '=', 'MATCHES', '~'],
+                    functions: ['CONCAT', 'SUBSTRING', 'LOOKUP', 'UPPER', 'LOWER', 'LENGTH', 'ROUND', 'ABS',
+                               'MAX', 'MIN', 'IS_EMAIL', 'IS_LEI', 'IS_SWIFT', 'IS_PHONE', 'VALIDATE', 'EXTRACT'],
+
+                    tokenizer: {
+                        root: [
+                            [/[a-zA-Z_]\w*/, {
+                                cases: {
+                                    '@keywords': 'keyword',
+                                    '@functions': 'support.function',
+                                    '@default': 'identifier'
+                                }
+                            }],
+                            [/"([^"\\]|\\.)*$/, 'string.invalid'],
+                            [/"/, { token: 'string.quote', bracket: '@open', next: '@string' }],
+                            [/'([^'\\]|\\.)*$/, 'string.invalid'],
+                            [/'/, { token: 'string.quote', bracket: '@open', next: '@stringSingle' }],
+                            [/\/[^\/]+\//, 'regexp'],
+                            [/r"[^"]+\"/, 'regexp'],
+                            [/\d+\.?\d*/, 'number'],
+                            [/#.*$/, 'comment'],
+                            [/[+\-*/%&]/, 'operators'],
+                            [/[=<>!]=?/, 'operators'],
+                            [/~/, 'operators'],
+                            [/MATCHES/, 'operators'],
+                        ],
+
+                        string: [
+                            [/[^\\"]+/, 'string'],
+                            [/\\./, 'string.escape'],
+                            [/"/, { token: 'string.quote', bracket: '@close', next: '@pop' }]
+                        ],
+
+                        stringSingle: [
+                            [/[^\\']+/, 'string'],
+                            [/\\./, 'string.escape'],
+                            [/'/, { token: 'string.quote', bracket: '@close', next: '@pop' }]
+                        ],
+                    }
+                });
+
+                monaco.editor.defineTheme('dsl-theme', {
+                    base: 'vs-dark',
+                    inherit: true,
+                    rules: [
+                        { token: 'keyword', foreground: 'c586c0' },
+                        { token: 'support.function', foreground: 'dcdcaa' },
+                        { token: 'string', foreground: 'ce9178' },
+                        { token: 'number', foreground: 'b5cea8' },
+                        { token: 'comment', foreground: '6a9955' },
+                        { token: 'operators', foreground: 'd4d4d4' },
+                        { token: 'regexp', foreground: 'd16969' },
                     ],
-
-                    string: [
-                        [/[^\\"]+/, 'string'],
-                        [/\\./, 'string.escape'],
-                        [/"/, { token: 'string.quote', bracket: '@close', next: '@pop' }]
-                    ],
-
-                    stringSingle: [
-                        [/[^\\']+/, 'string'],
-                        [/\\./, 'string.escape'],
-                        [/'/, { token: 'string.quote', bracket: '@close', next: '@pop' }]
-                    ],
-                }
-            });
-
-            // Define DSL theme
-            monaco.editor.defineTheme('dsl-dark', {
-                base: 'vs-dark',
-                inherit: true,
-                rules: [
-                    { token: 'keyword', foreground: 'c586c0' },
-                    { token: 'support.function', foreground: 'dcdcaa' },
-                    { token: 'string', foreground: 'ce9178' },
-                    { token: 'number', foreground: 'b5cea8' },
-                    { token: 'comment', foreground: '6a9955' },
-                    { token: 'operators', foreground: 'd4d4d4' },
-                    { token: 'regexp', foreground: 'd16969' },
-                ],
-                colors: {
-                    'editor.background': '#1e1e1e',
-                }
-            });
+                    colors: {
+                        'editor.background': '#1e1e1e',
+                    }
+                });
+            }
 
             // Create editor instance and expose globally
             editor = monaco.editor.create(document.getElementById('monaco-editor'), {
@@ -883,8 +909,8 @@ swift_pattern = Client.swift_code ~ /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/
 
 # Final Result
 result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
-                language: 'dsl',
-                theme: 'dsl-dark',
+                language: 'dsl-kyc',
+                theme: 'dsl-theme',
                 automaticLayout: true,
                 minimap: { enabled: false },
                 fontSize: 14,
@@ -901,6 +927,9 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
 
             // Load sample attributes
             loadDataDictionary();
+
+            // Initialize database status check
+            checkDatabaseConnection();
 
             // Register hover provider after editor is ready
             setTimeout(() => {
@@ -947,6 +976,11 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             } else {
                 console.error('Could not find connection-text element!');
             }
+
+            // Show startup message about grammar loading
+            setTimeout(() => {
+                addToOutput('console', '💡 Tip: Click "🔄 Load Grammar" to enable dynamic grammar from grammar_rules.json');
+            }, 500);
 
             // Auto-connect to LSP on startup (give editor time to fully initialize)
             setTimeout(() => {
@@ -1278,7 +1312,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
             updateDiagnostics(diagnostics);
 
             // Set up code completion
-            monaco.languages.registerCompletionItemProvider('dsl', {
+            monaco.languages.registerCompletionItemProvider('dsl-kyc', {
                 provideCompletionItems: (model, position) => {
                     const suggestions = [
                         {
@@ -1310,7 +1344,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
         function registerHoverProvider() {
             console.log('Actually registering hover provider now...');
             // Set up hover provider with enhanced attribute detection
-            const disposable = monaco.languages.registerHoverProvider('dsl', {
+            const disposable = monaco.languages.registerHoverProvider('dsl-kyc', {
                 provideHover: (model, position) => {
                     console.log('Hover triggered at', position);
                     const line = model.getLineContent(position.lineNumber);
@@ -1414,7 +1448,7 @@ result = CONCAT("Risk Score: ", risk_score, " Category: ", risk_category)`,
                          monaco.MarkerSeverity.Info
             }));
 
-            monaco.editor.setModelMarkers(editor.getModel(), 'dsl', markers);
+            monaco.editor.setModelMarkers(editor.getModel(), 'dsl-kyc', markers);
         }
 
         async function runCode() {
@@ -2888,10 +2922,52 @@ Please be more specific about what you need help with, and I'll provide detailed
             editor.focus();
         };
 
+        // Grammar refresh function
+        window.refreshGrammar = async function() {
+            // Check database connection first
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            if (!dbStatusIndicator || !dbStatusIndicator.classList.contains('connected')) {
+                addToOutput('console', '⚠️ Database offline - please start PostgreSQL and try again');
+                addToOutput('console', '💡 Grammar refresh requires database connection for loading rules');
+                return;
+            }
+
+            if (dynamicLanguage) {
+                try {
+                    addToOutput('console', '🔄 Loading grammar from PostgreSQL database...');
+                    const success = await dynamicLanguage.updateMonacoLanguage(monaco, editor);
+                    if (success) {
+                        addToOutput('console', '✅ Dynamic grammar loaded successfully! Syntax highlighting updated.');
+                        // Force editor to re-highlight
+                        const model = editor.getModel();
+                        if (model) {
+                            const content = model.getValue();
+                            model.setValue('');
+                            model.setValue(content);
+                        }
+                        // Update button text to indicate grammar is loaded
+                        const btn = document.getElementById('refresh-grammar-btn');
+                        if (btn) {
+                            btn.innerHTML = '🔄 Reload Grammar';
+                            btn.title = 'Reload dynamic grammar from PostgreSQL database';
+                        }
+                    } else {
+                        addToOutput('console', '❌ Failed to load dynamic grammar - using fallback');
+                    }
+                } catch (error) {
+                    console.error('Grammar loading failed:', error);
+                    addToOutput('console', '❌ Grammar loading error: ' + error.message);
+                }
+            } else {
+                addToOutput('console', '⚠️ Dynamic language module not available - using static grammar');
+            }
+        };
+
         // Make functions available globally
         window.runCode = runCode;
         window.validateCode = validateCode;
         window.formatCode = formatCode;
+        window.refreshGrammar = window.refreshGrammar;
         window.explainCode = explainCode;
         window.connectToLSP = connectToLSP;
         window.clearOutput = clearOutput;
@@ -4048,6 +4124,54 @@ Please be more specific about what you need help with, and I'll provide detailed
                 // Could show in status bar or toast notification
             }
         }
+
+        // Database connection check functions
+        async function checkDatabaseConnection() {
+            console.log('🔍 checkDatabaseConnection called');
+            const dbStatusIndicator = document.getElementById('db-status-indicator');
+            const dbConnectionText = document.getElementById('db-connection-text');
+
+            console.log('🔍 Elements found:', {
+                dbStatusIndicator: !!dbStatusIndicator,
+                dbConnectionText: !!dbConnectionText
+            });
+
+            if (!dbStatusIndicator || !dbConnectionText) {
+                console.error('❌ Database status elements not found');
+                return;
+            }
+
+            try {
+                console.log('🔍 Setting status to checking...');
+                dbConnectionText.textContent = 'DB Checking...';
+                dbStatusIndicator.classList.remove('connected');
+
+                console.log('🔍 Calling check_database_connection...');
+                const status = await window.__TAURI_INVOKE__('check_database_connection');
+                console.log('🔍 Received status:', status);
+
+                if (status.connected) {
+                    dbStatusIndicator.classList.add('connected');
+                    const versionShort = status.version ? status.version.split(' ')[0] : 'Connected';
+                    dbConnectionText.textContent = `DB Online (${versionShort})`;
+                    console.log('✅ Database connected:', status.version);
+                } else {
+                    dbStatusIndicator.classList.remove('connected');
+                    dbConnectionText.textContent = 'DB Offline';
+                    console.warn('❌ Database disconnected:', status.error);
+                }
+            } catch (error) {
+                dbStatusIndicator.classList.remove('connected');
+                dbConnectionText.textContent = 'DB Error';
+                console.error('❌ Failed to check database connection:', error);
+            }
+        }
+
+        // Auto-refresh database status every 30 seconds
+        setInterval(checkDatabaseConnection, 30000);
+
+        // Global function to manually refresh database status
+        window.refreshDatabaseConnection = checkDatabaseConnection;
 
     </script>
 

@@ -1,5 +1,6 @@
 pub mod data_dictionary;
 pub mod ai_agent;
+pub mod grammar_loader;
 
 use dashmap::DashMap;
 use lazy_static::lazy_static;
@@ -12,7 +13,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use data_designer::parser::parse_rule;
 use crate::data_dictionary::DataDictionary;
-use crate::ai_agent::{AIAgentManager, AIAgent, CompletionRequest, CompletionContext, ValidationRequest, MockAgent};
+use crate::ai_agent::{AIAgentManager, CompletionRequest, CompletionContext, ValidationRequest};
+use crate::grammar_loader::GrammarLoader;
 use tokio::sync::RwLock;
 
 // DSL Keywords and functions based on EBNF
@@ -73,6 +75,7 @@ pub struct Backend {
     semantic_tokens: Arc<DashMap<Url, Vec<DslSemanticToken>>>,
     data_dictionary: Arc<RwLock<DataDictionary>>,
     ai_agent_manager: Arc<RwLock<AIAgentManager>>,
+    grammar_loader: Arc<GrammarLoader>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,12 +94,16 @@ impl Backend {
         // Initialize AI agent manager
         let ai_agent_manager = AIAgentManager::new();
 
+        // Initialize grammar loader
+        let grammar_loader = Arc::new(GrammarLoader::default());
+
         Backend {
             client,
             document_map: Arc::new(DashMap::new()),
             semantic_tokens: Arc::new(DashMap::new()),
             data_dictionary: Arc::new(RwLock::new(data_dictionary)),
             ai_agent_manager: Arc::new(RwLock::new(ai_agent_manager)),
+            grammar_loader,
         }
     }
 
@@ -403,9 +410,16 @@ impl Backend {
                 available_attributes: dict.get_all_attributes().iter()
                     .map(|(name, _)| name.clone())
                     .collect(),
-                available_functions: DSL_FUNCTIONS.iter()
-                    .map(|(name, _)| name.to_string())
-                    .collect(),
+                available_functions: {
+                    let grammar_loader = self.grammar_loader.clone();
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            grammar_loader.get_functions().await.iter()
+                                .map(|(name, _)| name.clone())
+                                .collect()
+                        })
+                    })
+                },
                 data_dictionary_context: None,
             };
 
@@ -713,6 +727,7 @@ impl LanguageServer for Backend {
                         "dsl.generateTests".to_string(),
                         "dsl.loadDataDictionary".to_string(),
                         "dsl.setAIAgent".to_string(),
+                        "dsl.reloadGrammar".to_string(),
                     ],
                     ..Default::default()
                 }),
@@ -723,8 +738,15 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        // Load grammar on startup
+        if let Err(e) = self.grammar_loader.load_grammar().await {
+            self.client
+                .log_message(MessageType::ERROR, format!("Failed to load grammar: {}", e))
+                .await;
+        }
+
         self.client
-            .log_message(MessageType::INFO, "DSL Language Server initialized with AI support!")
+            .log_message(MessageType::INFO, "DSL Language Server initialized with AI support and dynamic grammar!")
             .await;
     }
 
@@ -933,6 +955,17 @@ impl LanguageServer for Backend {
                             .show_message(MessageType::ERROR, format!("Failed to set AI agent: {}", e))
                             .await;
                     }
+                }
+            },
+            "dsl.reloadGrammar" => {
+                if let Err(e) = self.grammar_loader.reload_if_changed().await {
+                    self.client
+                        .show_message(MessageType::ERROR, format!("Failed to reload grammar: {}", e))
+                        .await;
+                } else {
+                    self.client
+                        .show_message(MessageType::INFO, "Grammar reloaded successfully!")
+                        .await;
                 }
             },
             _ => {}

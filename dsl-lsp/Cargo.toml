@@ -19,6 +19,7 @@ clap = { version = "4", features = ["derive"] }
 async-trait = "0.1"
 futures-util = "0.3"
 tokio-tungstenite = "0.21"
+notify = "6.1"
 
 # Use the parent data_designer library for parser
 data_designer = { path = ".." }
