@@ -1,10 +1,7 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row, FromRow};
-use std::env;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres, FromRow};
 
 // Re-export common types for convenience
-pub use sqlx::{PgPool, Transaction, Error as SqlxError};
 
 // Database connection pool
 pub type DbPool = Pool<Postgres>;
@@ -286,11 +283,9 @@ pub mod grammar;
 
 // Re-export all database entities and operations
 pub use rules::*;
-pub use attributes::{BusinessAttribute, DerivedAttribute, AttributeOperations};
 pub use schema::*;
 pub use embeddings::*;
 pub use data_dictionary::*;
-pub use grammar::*;
 
 // Legacy compatibility
 pub use crate::database::CreateRuleRequest;

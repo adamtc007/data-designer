@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::db::{DbPool, DbOperations, SchemaOperations};
+use crate::db::{DbPool, SchemaOperations};
 use std::collections::HashMap;
 
 // Re-export types from centralized db module

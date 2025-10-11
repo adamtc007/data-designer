@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use crate::db::{DbPool, DataDictionaryOperations, EmbeddingOperations, DbOperations};
+use crate::db::{DbPool, DataDictionaryOperations, DbOperations};
 use std::collections::HashMap;
 
 // State management - now uses centralized DbPool

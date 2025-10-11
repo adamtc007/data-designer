@@ -14,7 +14,7 @@ mod db;
 use db::{DbPool, RuleOperations};
 use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
 use db::CreateDerivedAttributeRequest;
-use db::grammar::{GrammarOperations, CompactGrammarInfo, FunctionInfo as GrammarFunctionInfo};
+use db::grammar::GrammarOperations;
 
 // Legacy modules (to be cleaned up)
 mod database;
