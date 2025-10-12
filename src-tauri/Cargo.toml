@@ -51,5 +51,6 @@ rand = "0.8"
 
 # Configuration dependencies
 toml = "0.8"
+ts-rs = { version = "10.1.0", features = ["serde-compat", "chrono-impl", "serde-json-impl"] }
 
 # Pure desktop application - no web dependencies needed

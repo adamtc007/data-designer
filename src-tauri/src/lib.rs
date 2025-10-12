@@ -4,6 +4,7 @@ use data_designer::{generate_test_context, BusinessRule, parser::{parse_rule, AS
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Value as JsonValue};
 use tauri::State;
+use ts_rs::TS;
 
 // Configuration module
 mod config;
@@ -15,6 +16,9 @@ use db::{DbPool, RuleOperations};
 use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
 use db::CreateDerivedAttributeRequest;
 use db::grammar::GrammarOperations;
+use db::{CreateCbuRequest, AddCbuMemberRequest, ClientBusinessUnit, CbuSummary, CbuRole, CbuMember, CbuMemberDetail};
+use db::{CreateProductRequest, CreateServiceRequest, CreateResourceRequest, CreateOnboardingRequest, SubscribeCbuToProductRequest};
+use db::{Product, Service, Resource, ProductHierarchyView, CbuSubscriptionView, OnboardingProgressView};
 
 // Legacy modules (to be cleaned up)
 mod database;
@@ -1162,6 +1166,69 @@ struct ConfigInfo {
     config_source: String,
 }
 
+// === CBU Management Commands ===
+
+#[tauri::command]
+async fn create_cbu(request: CreateCbuRequest) -> Result<ClientBusinessUnit, String> {
+    db::DbOperations::create_cbu(request).await
+}
+
+#[tauri::command]
+async fn get_cbu_by_id(cbu_id: String) -> Result<Option<ClientBusinessUnit>, String> {
+    db::DbOperations::get_cbu_by_id(&cbu_id).await
+}
+
+#[tauri::command]
+async fn list_cbus() -> Result<Vec<CbuSummary>, String> {
+    db::DbOperations::list_cbus().await
+}
+
+#[tauri::command]
+async fn get_cbu_roles() -> Result<Vec<CbuRole>, String> {
+    db::DbOperations::get_cbu_roles().await
+}
+
+#[tauri::command]
+async fn add_cbu_member(request: AddCbuMemberRequest) -> Result<CbuMember, String> {
+    db::DbOperations::add_cbu_member(request).await
+}
+
+#[tauri::command]
+async fn get_cbu_members(cbu_id: String) -> Result<Vec<CbuMemberDetail>, String> {
+    db::DbOperations::get_cbu_members(&cbu_id).await
+}
+
+#[tauri::command]
+async fn remove_cbu_member(
+    cbu_id: String,
+    entity_id: String,
+    role_code: String,
+    updated_by: Option<String>
+) -> Result<(), String> {
+    db::DbOperations::remove_cbu_member(&cbu_id, &entity_id, &role_code, updated_by).await
+}
+
+#[tauri::command]
+async fn search_cbus(search_term: String) -> Result<Vec<CbuSummary>, String> {
+    db::DbOperations::search_cbus(&search_term).await
+}
+
+#[tauri::command]
+async fn get_cbu_roles_by_category() -> Result<std::collections::HashMap<String, Vec<CbuRole>>, String> {
+    db::DbOperations::get_cbu_roles_by_category().await
+}
+
+#[tauri::command]
+async fn update_cbu(
+    cbu_id: String,
+    cbu_name: Option<String>,
+    description: Option<String>,
+    business_type: Option<String>,
+    updated_by: Option<String>
+) -> Result<ClientBusinessUnit, String> {
+    db::DbOperations::update_cbu(&cbu_id, cbu_name, description, business_type, updated_by).await
+}
+
 #[tauri::command]
 async fn get_config_info() -> Result<ConfigInfo, String> {
     let config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
@@ -1179,6 +1246,113 @@ async fn get_config_info() -> Result<ConfigInfo, String> {
             "environment variables + defaults".to_string()
         },
     })
+}
+
+// ===== PRODUCT MANAGEMENT COMMANDS =====
+
+#[tauri::command]
+async fn create_product(request: CreateProductRequest) -> Result<Product, String> {
+    db::DbOperations::create_product(request).await
+}
+
+#[tauri::command]
+async fn list_products(line_of_business: Option<String>) -> Result<Vec<Product>, String> {
+    db::DbOperations::list_products(line_of_business).await
+}
+
+#[tauri::command]
+async fn get_product_hierarchy(product_id: Option<String>) -> Result<Vec<ProductHierarchyView>, String> {
+    db::DbOperations::get_product_hierarchy(product_id).await
+}
+
+#[tauri::command]
+async fn create_service(request: CreateServiceRequest) -> Result<Service, String> {
+    db::DbOperations::create_service(request).await
+}
+
+#[tauri::command]
+async fn list_services(category: Option<String>) -> Result<Vec<Service>, String> {
+    db::DbOperations::list_services(category).await
+}
+
+#[tauri::command]
+async fn create_resource(request: CreateResourceRequest) -> Result<Resource, String> {
+    db::DbOperations::create_resource(request).await
+}
+
+#[tauri::command]
+async fn list_resources(resource_type: Option<String>) -> Result<Vec<Resource>, String> {
+    db::DbOperations::list_resources(resource_type).await
+}
+
+#[tauri::command]
+async fn subscribe_cbu_to_product(request: SubscribeCbuToProductRequest) -> Result<db::CbuProductSubscription, String> {
+    db::DbOperations::subscribe_cbu_to_product(request).await
+}
+
+#[tauri::command]
+async fn get_cbu_subscriptions(cbu_id: Option<String>) -> Result<Vec<CbuSubscriptionView>, String> {
+    db::DbOperations::get_cbu_subscriptions(cbu_id).await
+}
+
+#[tauri::command]
+async fn create_onboarding_request(request: CreateOnboardingRequest) -> Result<db::OnboardingRequest, String> {
+    db::DbOperations::create_onboarding_request(request).await
+}
+
+#[tauri::command]
+async fn get_onboarding_progress(
+    cbu_id: Option<String>,
+    product_id: Option<String>
+) -> Result<Vec<OnboardingProgressView>, String> {
+    db::DbOperations::get_onboarding_progress(cbu_id, product_id).await
+}
+
+#[tauri::command]
+async fn get_lines_of_business() -> Result<Vec<String>, String> {
+    db::DbOperations::get_lines_of_business().await
+}
+
+#[tauri::command]
+async fn get_service_categories() -> Result<Vec<String>, String> {
+    db::DbOperations::get_service_categories().await
+}
+
+#[tauri::command]
+async fn get_resource_types() -> Result<Vec<String>, String> {
+    db::DbOperations::get_resource_types().await
+}
+
+// TypeScript generation command
+#[tauri::command]
+async fn generate_typescript_types() -> Result<String, String> {
+    use std::fs;
+
+    // Generate TypeScript types from Rust structs
+    let mut ts_content = String::new();
+
+    // Add header
+    ts_content.push_str("// Auto-generated TypeScript types from Rust structs\n");
+    ts_content.push_str("// Generated on: ");
+    ts_content.push_str(&std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string());
+    ts_content.push_str("\n\n");
+
+    // Generate types for Product, Service, Resource structs
+    ts_content.push_str(&db::Product::export_to_string().map_err(|e| e.to_string())?);
+    ts_content.push_str(&db::Service::export_to_string().map_err(|e| e.to_string())?);
+    ts_content.push_str(&db::Resource::export_to_string().map_err(|e| e.to_string())?);
+    ts_content.push_str(&db::CreateProductRequest::export_to_string().map_err(|e| e.to_string())?);
+    ts_content.push_str(&db::CreateServiceRequest::export_to_string().map_err(|e| e.to_string())?);
+    ts_content.push_str(&db::CreateResourceRequest::export_to_string().map_err(|e| e.to_string())?);
+
+    // Write to TypeScript definitions file
+    let types_dir = "../src/types";
+    fs::create_dir_all(types_dir).map_err(|e| format!("Failed to create types directory: {}", e))?;
+
+    let types_path = format!("{}/generated.ts", types_dir);
+    fs::write(&types_path, &ts_content).map_err(|e| format!("Failed to write TypeScript types: {}", e))?;
+
+    Ok(format!("TypeScript types generated at {}", types_path))
 }
 
 // Learn to accept the things we cannot change...
@@ -1253,7 +1427,35 @@ pub fn run() {
             // Database connection check
             check_database_connection,
             // Configuration management
-            get_config_info
+            get_config_info,
+            // CBU Management
+            create_cbu,
+            get_cbu_by_id,
+            list_cbus,
+            get_cbu_roles,
+            add_cbu_member,
+            get_cbu_members,
+            remove_cbu_member,
+            search_cbus,
+            get_cbu_roles_by_category,
+            update_cbu,
+            // Product Management
+            create_product,
+            list_products,
+            get_product_hierarchy,
+            create_service,
+            list_services,
+            create_resource,
+            list_resources,
+            subscribe_cbu_to_product,
+            get_cbu_subscriptions,
+            create_onboarding_request,
+            get_onboarding_progress,
+            get_lines_of_business,
+            get_service_categories,
+            get_resource_types,
+            // TypeScript generation
+            generate_typescript_types
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

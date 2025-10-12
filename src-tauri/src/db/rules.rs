@@ -207,7 +207,7 @@ impl RuleOperations {
                 "rule_name": row.get::<&str, _>("rule_name"),
                 "description": row.get::<Option<&str>, _>("description"),
                 "status": row.get::<&str, _>("status"),
-                "created_at": row.get::<chrono::NaiveDateTime, _>("created_at").to_string()
+                "created_at": row.get::<DateTime<Utc>, _>("created_at").to_rfc3339()
             });
             rules.push(rule);
         }

@@ -280,12 +280,16 @@ pub mod schema;
 pub mod embeddings;
 pub mod data_dictionary;
 pub mod grammar;
+pub mod cbu;
+pub mod products;
 
 // Re-export all database entities and operations
 pub use rules::*;
 pub use schema::*;
 pub use embeddings::*;
 pub use data_dictionary::*;
+pub use cbu::*;
+pub use products::*;
 
 // Legacy compatibility
 pub use crate::database::CreateRuleRequest;
