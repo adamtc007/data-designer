@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "npm run build:types && vite build",
+    "build:types": "rustc generate_types.rs && ./generate_types",
+    "build:ts": "tsc",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "monaco-editor": "^0.43.0"
   },
   "devDependencies": {
+    "@types/node": "^24.7.2",
+    "typescript": "^5.9.3",
     "vite": "^7.1.9"
   }
 }
