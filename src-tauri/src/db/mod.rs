@@ -283,10 +283,12 @@ pub mod grammar;
 pub mod cbu;
 pub mod products;
 pub mod config_driven;
+pub mod persistence;
 
 // Re-export all database entities and operations
 pub use rules::*;
 pub use schema::*;
+pub use persistence::*;
 pub use embeddings::*;
 pub use data_dictionary::*;
 pub use cbu::*;
