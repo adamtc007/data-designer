@@ -9,7 +9,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "src/index.html"),
+        main: resolve(__dirname, "src/index-new.html"),
         schema: resolve(__dirname, "src/schema.html")
       }
     }
