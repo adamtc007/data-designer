@@ -2639,43 +2639,96 @@ fn perform_hybrid_search(
     retrieved_examples
 }
 
-// Simple semantic similarity calculation (word overlap + keyword matching)
+// Enhanced semantic similarity using embeddings and fallback to word overlap
 fn calculate_semantic_similarity(user_prompt: &str, example_prompt: &str) -> f32 {
+    // TODO: Implement true vector similarity when embeddings are available
+    // For now, use enhanced word-based similarity with domain-specific improvements
+
     let user_lower = user_prompt.to_lowercase();
     let example_lower = example_prompt.to_lowercase();
     let user_words: Vec<&str> = user_lower.split_whitespace().collect();
     let example_words: Vec<&str> = example_lower.split_whitespace().collect();
 
-    // Calculate word overlap
-    let mut common_words = 0;
-    for user_word in &user_words {
-        if example_words.contains(user_word) {
-            common_words += 1;
-        }
-    }
+    // Calculate Jaccard similarity (intersection / union)
+    let user_set: std::collections::HashSet<&str> = user_words.iter().cloned().collect();
+    let example_set: std::collections::HashSet<&str> = example_words.iter().cloned().collect();
 
-    // Base similarity from word overlap
-    let base_similarity = if user_words.is_empty() {
+    let intersection = user_set.intersection(&example_set).count();
+    let union = user_set.union(&example_set).count();
+
+    let jaccard_similarity = if union == 0 {
         0.0
     } else {
-        common_words as f32 / user_words.len() as f32
+        intersection as f32 / union as f32
     };
 
-    // Boost score for key domain terms
-    let mut boost = 0.0;
-    let domain_keywords = [
-        "validation", "screening", "kyc", "compliance", "risk", "sanctions",
-        "verify", "check", "calculate", "derive", "lookup", "match",
-        "entity", "ubo", "beneficial", "owner", "legal", "name"
+    // Enhanced domain-specific keyword matching with weights
+    let mut domain_score = 0.0;
+    let high_value_keywords = [
+        ("kyc", 1.0), ("compliance", 1.0), ("sanctions", 1.0), ("risk", 0.8),
+        ("validation", 0.8), ("screening", 0.9), ("verify", 0.7), ("check", 0.6),
+        ("calculate", 0.7), ("derive", 0.7), ("lookup", 0.6), ("match", 0.7),
+        ("entity", 0.6), ("ubo", 0.9), ("beneficial", 0.8), ("owner", 0.7),
+        ("legal", 0.6), ("name", 0.5), ("aml", 1.0), ("cdd", 0.9)
     ];
 
-    for keyword in &domain_keywords {
-        if user_prompt.to_lowercase().contains(keyword) && example_prompt.to_lowercase().contains(keyword) {
-            boost += 0.2;
+    let mut matched_keywords = 0;
+    let mut total_weight: f32 = 0.0;
+
+    for (keyword, weight) in &high_value_keywords {
+        if user_lower.contains(keyword) && example_lower.contains(keyword) {
+            domain_score += weight;
+            matched_keywords += 1;
+            total_weight += weight;
         }
     }
 
-    (base_similarity + boost).min(1.0)
+    // Normalize domain score
+    let normalized_domain_score = if matched_keywords > 0 {
+        domain_score / total_weight.max(1.0)
+    } else {
+        0.0
+    };
+
+    // Semantic phrase matching
+    let phrase_boost = calculate_phrase_similarity(&user_lower, &example_lower);
+
+    // Combine scores with weights
+    let final_score = (jaccard_similarity * 0.4) + (normalized_domain_score * 0.4) + (phrase_boost * 0.2);
+
+    final_score.min(1.0)
+}
+
+// Calculate semantic phrase similarity
+fn calculate_phrase_similarity(user_text: &str, example_text: &str) -> f32 {
+    let semantic_phrases = [
+        ("email validation", "email verify", 0.9),
+        ("sanctions screening", "sanctions check", 0.95),
+        ("beneficial owner", "ultimate beneficial owner", 0.9),
+        ("risk assessment", "risk calculation", 0.85),
+        ("kyc check", "customer due diligence", 0.9),
+        ("compliance screening", "regulatory check", 0.8),
+    ];
+
+    let mut max_similarity: f32 = 0.0;
+
+    for (phrase1, phrase2, similarity) in &semantic_phrases {
+        if (user_text.contains(phrase1) && example_text.contains(phrase2)) ||
+           (user_text.contains(phrase2) && example_text.contains(phrase1)) ||
+           (user_text.contains(phrase1) && example_text.contains(phrase1)) ||
+           (user_text.contains(phrase2) && example_text.contains(phrase2)) {
+            max_similarity = max_similarity.max(*similarity);
+        }
+    }
+
+    max_similarity
+}
+
+// Vector-based similarity function (for future integration with embeddings)
+async fn calculate_vector_similarity(user_prompt: &str, example_prompt: &str) -> Result<f32, String> {
+    // This would integrate with the embeddings module for true vector similarity
+    // For now, return error to fall back to word-based similarity
+    Err("Vector embeddings not yet available".to_string())
 }
 
 // Build augmented prompt with retrieved examples
@@ -2731,17 +2784,34 @@ fn build_augmented_prompt(
     prompt
 }
 
-// Call OpenAI API (or fallback to Claude)
+// Call LLM API with multiple provider support
 async fn call_llm_api(prompt: &str) -> Result<(String, String), String> {
     // Try OpenAI first (if API key is available)
     if let Ok(openai_key) = std::env::var("OPENAI_API_KEY") {
         match call_openai_api(prompt, &openai_key).await {
             Ok(result) => return Ok(result),
-            Err(e) => println!("OpenAI API failed, will try fallback: {}", e),
+            Err(e) => println!("OpenAI API failed: {}", e),
         }
     }
 
-    // Fallback to simple rule-based generation
+    // Try Anthropic Claude (if API key is available)
+    if let Ok(claude_key) = std::env::var("ANTHROPIC_API_KEY") {
+        match call_claude_api(prompt, &claude_key).await {
+            Ok(result) => return Ok(result),
+            Err(e) => println!("Claude API failed: {}", e),
+        }
+    }
+
+    // Try Google Gemini (if API key is available)
+    if let Ok(gemini_key) = std::env::var("GOOGLE_API_KEY") {
+        match call_gemini_api(prompt, &gemini_key).await {
+            Ok(result) => return Ok(result),
+            Err(e) => println!("Gemini API failed: {}", e),
+        }
+    }
+
+    // Fallback to rule-based generation
+    println!("All LLM APIs unavailable, using fallback generation");
     Ok(generate_fallback_dsl(prompt))
 }
 
@@ -2786,6 +2856,112 @@ async fn call_openai_api(prompt: &str, api_key: &str) -> Result<(String, String)
     let parts: Vec<&str> = content.splitn(2, "\n\n").collect();
     let dsl_code = parts[0].trim().to_string();
     let explanation = parts.get(1).unwrap_or(&"Generated using OpenAI GPT-4").trim().to_string();
+
+    Ok((dsl_code, explanation))
+}
+
+// Anthropic Claude API implementation using reqwest
+async fn call_claude_api(prompt: &str, api_key: &str) -> Result<(String, String), String> {
+    let client = reqwest::Client::new();
+
+    let request_body = serde_json::json!({
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 1000,
+        "temperature": 0.3,
+        "messages": [
+            {
+                "role": "user",
+                "content": format!("You are an expert DSL generator for financial services. Generate precise, executable DSL code based on this request:\n\n{}", prompt)
+            }
+        ]
+    });
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("Claude API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Claude API returned status: {}", response.status()));
+    }
+
+    let response_body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Claude response: {}", e))?;
+
+    let content = response_body
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|text| text.as_str())
+        .ok_or("No content in Claude response")?;
+
+    // Split response into DSL code and explanation
+    let parts: Vec<&str> = content.splitn(2, "\n\n").collect();
+    let dsl_code = parts[0].trim().to_string();
+    let explanation = parts.get(1).unwrap_or(&"Generated using Anthropic Claude").trim().to_string();
+
+    Ok((dsl_code, explanation))
+}
+
+// Google Gemini API implementation using reqwest
+async fn call_gemini_api(prompt: &str, api_key: &str) -> Result<(String, String), String> {
+    let client = reqwest::Client::new();
+
+    let request_body = serde_json::json!({
+        "contents": [{
+            "parts": [{
+                "text": format!("You are an expert DSL generator for financial services. Generate precise, executable DSL code based on this request:\n\n{}", prompt)
+            }]
+        }],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 1000
+        }
+    });
+
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={}", api_key);
+
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Gemini API returned status: {}", response.status()));
+    }
+
+    let response_body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Gemini response: {}", e))?;
+
+    let content = response_body
+        .get("candidates")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("content"))
+        .and_then(|content| content.get("parts"))
+        .and_then(|parts| parts.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|part| part.get("text"))
+        .and_then(|text| text.as_str())
+        .ok_or("No content in Gemini response")?;
+
+    // Split response into DSL code and explanation
+    let parts: Vec<&str> = content.splitn(2, "\n\n").collect();
+    let dsl_code = parts[0].trim().to_string();
+    let explanation = parts.get(1).unwrap_or(&"Generated using Google Gemini").trim().to_string();
 
     Ok((dsl_code, explanation))
 }
