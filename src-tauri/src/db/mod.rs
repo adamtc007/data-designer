@@ -282,6 +282,7 @@ pub mod data_dictionary;
 pub mod grammar;
 pub mod cbu;
 pub mod products;
+pub mod config_driven;
 
 // Re-export all database entities and operations
 pub use rules::*;
@@ -290,6 +291,7 @@ pub use embeddings::*;
 pub use data_dictionary::*;
 pub use cbu::*;
 pub use products::*;
+pub use config_driven::*;
 
 // Legacy compatibility
 pub use crate::database::CreateRuleRequest;

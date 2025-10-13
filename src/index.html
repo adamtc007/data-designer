@@ -221,6 +221,145 @@
             flex: 1;
             background: #1e1e1e;
             position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #monaco-editor {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+        }
+
+        /* Enhanced scroll bars for Monaco Editor */
+        .editor-container .monaco-editor {
+            overflow: auto !important;
+        }
+
+        .editor-container .monaco-editor .monaco-scrollable-element {
+            overflow: auto !important;
+        }
+
+        /* Custom scroll bars */
+        .editor-container::-webkit-scrollbar,
+        .monaco-editor::-webkit-scrollbar {
+            width: 14px;
+            height: 14px;
+        }
+
+        .editor-container::-webkit-scrollbar-track,
+        .monaco-editor::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .editor-container::-webkit-scrollbar-thumb,
+        .monaco-editor::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 6px;
+            border: 2px solid #1e1e1e;
+        }
+
+        .editor-container::-webkit-scrollbar-thumb:hover,
+        .monaco-editor::-webkit-scrollbar-thumb:hover {
+            background: #666666;
+        }
+
+        /* Editor panel header with undocking controls */
+        .editor-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            color: #cccccc;
+            font-size: 12px;
+        }
+
+        .editor-panel-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .editor-control-btn {
+            padding: 4px 8px;
+            background: transparent;
+            border: 1px solid #464647;
+            color: #cccccc;
+            border-radius: 3px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .editor-control-btn:hover {
+            background: #094771;
+            border-color: #007ACC;
+        }
+
+        /* Undocked editor window styles */
+        .undocked-editor {
+            position: fixed;
+            top: 50px;
+            left: 50px;
+            width: 800px;
+            height: 600px;
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .undocked-editor .editor-panel-header {
+            cursor: move;
+            background: #0e639c;
+        }
+
+        .undocked-editor .editor-container {
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Undocked placeholder */
+        .undocked-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 40px;
+            background: #252526;
+        }
+
+        .undocked-placeholder h3 {
+            color: #cccccc;
+            margin-bottom: 16px;
+        }
+
+        .undocked-placeholder p {
+            color: #969696;
+            margin-bottom: 24px;
+        }
+
+        /* Maximized editor */
+        .editor-container.maximized {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 9999 !important;
+            background: #1e1e1e;
+        }
+
+        .editor-container.maximized #monaco-editor {
+            height: calc(100vh - 50px) !important;
         }
 
         /* Bottom Panel */
@@ -800,7 +939,19 @@
             </div>
 
             <div class="editor-container" id="editor-container">
-                <div class="welcome-panel" id="welcome-editor">
+                <div class="editor-panel-header">
+                    <span class="editor-panel-title">Code Editor</span>
+                    <div class="editor-panel-controls">
+                        <button class="editor-control-btn" onclick="undockEditor()" title="Undock Editor">
+                            📤
+                        </button>
+                        <button class="editor-control-btn" onclick="toggleEditorMaximize()" title="Maximize/Restore">
+                            🔲
+                        </button>
+                    </div>
+                </div>
+                <div id="monaco-editor"></div>
+                <div class="welcome-panel" id="welcome-editor" style="display: none;">
                     <h2>Data Designer IDE</h2>
                     <p>Professional multi-domain IDE for data transformation rules</p>
                     <div class="welcome-actions">
@@ -1375,6 +1526,9 @@
                 case 'cbu-manager':
                     switchActivityPanel('cbu');
                     break;
+                case 'create-cbu':
+                    createNewCBU();
+                    break;
                 case 'data-dictionary':
                     switchActivityPanel('database');
                     break;
@@ -1471,7 +1625,7 @@
 
         function createMonacoEditor(initialContent = '') {
             require(['vs/editor/editor.main'], function() {
-                editor = monaco.editor.create(document.getElementById('editor-container'), {
+                editor = monaco.editor.create(document.getElementById('monaco-editor'), {
                     value: initialContent,
                     language: 'plaintext',
                     theme: 'vs-dark',
@@ -1481,16 +1635,22 @@
                     roundedSelection: false,
                     scrollBeyondLastLine: false,
                     readOnly: false,
-                    minimap: { enabled: true }
+                    minimap: { enabled: true },
+                    scrollbar: {
+                        vertical: 'visible',
+                        horizontal: 'visible',
+                        useShadows: true,
+                        verticalHasArrows: false,
+                        horizontalHasArrows: false,
+                        verticalScrollbarSize: 14,
+                        horizontalScrollbarSize: 14
+                    }
                 });
 
                 // Position editor properly
                 const container = editor.getDomNode();
-                container.style.position = 'absolute';
-                container.style.top = '0';
-                container.style.left = '0';
-                container.style.width = '100%';
                 container.style.height = '100%';
+                container.style.width = '100%';
             });
         }
 
@@ -1837,10 +1997,17 @@
             }
         }
 
-        function closeModal() {
-            const modal = document.querySelector('.modal-overlay');
-            if (modal) {
-                modal.remove();
+        function closeModal(modalId) {
+            if (modalId) {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.remove();
+                }
+            } else {
+                const modal = document.querySelector('.modal-overlay');
+                if (modal) {
+                    modal.remove();
+                }
             }
         }
 
@@ -1862,6 +2029,341 @@
         function openCBU(cbuId) {
             addToOutput('info', `Opening CBU: ${cbuId}`);
             // TODO: Load CBU details
+        }
+
+        function createNewCBU() {
+            const modalHtml = `
+                <div class="modal" id="create-cbu-modal" style="display: block;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>🏢 Create New Client Business Unit</h3>
+                            <span class="close" onclick="closeModal('create-cbu-modal')">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <form id="create-cbu-form">
+                                <div class="form-group">
+                                    <label for="cbu-name">CBU Name *</label>
+                                    <input type="text" id="cbu-name" name="cbu_name" required
+                                           placeholder="Enter CBU name (e.g., Alpha Asset Management)">
+                                </div>
+                                <div class="form-group">
+                                    <label for="cbu-description">Description</label>
+                                    <textarea id="cbu-description" name="description" rows="3"
+                                              placeholder="Brief description of the CBU"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="primary-entity-id">Primary Entity ID</label>
+                                    <input type="text" id="primary-entity-id" name="primary_entity_id"
+                                           placeholder="Primary entity identifier">
+                                </div>
+                                <div class="form-group">
+                                    <label for="primary-lei">Primary LEI</label>
+                                    <input type="text" id="primary-lei" name="primary_lei"
+                                           placeholder="Legal Entity Identifier">
+                                </div>
+                                <div class="form-group">
+                                    <label for="domicile-country">Domicile Country</label>
+                                    <select id="domicile-country" name="domicile_country">
+                                        <option value="">Select country</option>
+                                        <option value="US">United States</option>
+                                        <option value="GB">United Kingdom</option>
+                                        <option value="DE">Germany</option>
+                                        <option value="FR">France</option>
+                                        <option value="CH">Switzerland</option>
+                                        <option value="SG">Singapore</option>
+                                        <option value="HK">Hong Kong</option>
+                                        <option value="CA">Canada</option>
+                                        <option value="AU">Australia</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="regulatory-jurisdiction">Regulatory Jurisdiction</label>
+                                    <input type="text" id="regulatory-jurisdiction" name="regulatory_jurisdiction"
+                                           placeholder="Primary regulatory jurisdiction">
+                                </div>
+                                <div class="form-group">
+                                    <label for="business-type">Business Type</label>
+                                    <select id="business-type" name="business_type">
+                                        <option value="">Select business type</option>
+                                        <option value="Asset Manager">Asset Manager</option>
+                                        <option value="Hedge Fund">Hedge Fund</option>
+                                        <option value="Private Equity">Private Equity</option>
+                                        <option value="Investment Bank">Investment Bank</option>
+                                        <option value="Pension Fund">Pension Fund</option>
+                                        <option value="Insurance Company">Insurance Company</option>
+                                        <option value="Sovereign Wealth Fund">Sovereign Wealth Fund</option>
+                                        <option value="Family Office">Family Office</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="created-by">Created By</label>
+                                    <input type="text" id="created-by" name="created_by"
+                                           placeholder="Your name or user ID">
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn secondary" onclick="closeModal('create-cbu-modal')">Cancel</button>
+                            <button type="button" class="btn primary" onclick="submitNewCBU()">Create CBU</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            addToOutput('info', 'Opening Create CBU form...');
+        }
+
+        async function submitNewCBU() {
+            const form = document.getElementById('create-cbu-form');
+            const formData = new FormData(form);
+
+            // Validation
+            const cbuName = formData.get('cbu_name');
+            if (!cbuName || cbuName.trim() === '') {
+                addToOutput('error', 'CBU Name is required');
+                return;
+            }
+
+            // Prepare request data
+            const request = {
+                cbu_name: cbuName.trim(),
+                description: formData.get('description') || null,
+                primary_entity_id: formData.get('primary_entity_id') || null,
+                primary_lei: formData.get('primary_lei') || null,
+                domicile_country: formData.get('domicile_country') || null,
+                regulatory_jurisdiction: formData.get('regulatory_jurisdiction') || null,
+                business_type: formData.get('business_type') || null,
+                created_by: formData.get('created_by') || null
+            };
+
+            try {
+                addToOutput('info', `Creating CBU: ${request.cbu_name}...`);
+
+                if (window.__TAURI_INVOKE__) {
+                    const result = await window.__TAURI_INVOKE__('create_cbu', { request });
+                    addToOutput('success', `CBU created successfully: ${result.cbu_id}`);
+                    closeModal('create-cbu-modal');
+
+                    // Refresh the CBU list
+                    await loadCBUData();
+
+                    // Switch to CBU panel to show the new CBU
+                    switchActivityPanel('cbu');
+                } else {
+                    addToOutput('error', 'Tauri API not available');
+                }
+            } catch (error) {
+                addToOutput('error', `Failed to create CBU: ${error}`);
+                console.error('Create CBU error:', error);
+            }
+        }
+
+        // Editor Control Functions
+        let editorUndocked = false;
+        let undockedWindow = null;
+
+        function undockEditor() {
+            if (editorUndocked) {
+                dockEditor();
+                return;
+            }
+
+            try {
+                const editorContainer = document.getElementById('editor-container');
+                const currentContent = editorContainer.innerHTML;
+
+                // Create new window
+                undockedWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+                undockedWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Data Designer - Undocked Editor</title>
+                        <style>
+                            body { margin: 0; padding: 0; background: #1e1e1e; color: #cccccc; font-family: 'Monaco', monospace; }
+                            .editor-container { height: 100vh; overflow: auto; }
+                            .editor-panel-header {
+                                background: #2d2d2d;
+                                padding: 8px 12px;
+                                border-bottom: 1px solid #404040;
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                            }
+                            .editor-control-btn {
+                                background: #404040;
+                                border: none;
+                                color: #cccccc;
+                                padding: 4px 8px;
+                                cursor: pointer;
+                                border-radius: 3px;
+                                margin-left: 4px;
+                            }
+                            .editor-control-btn:hover { background: #505050; }
+                            #monaco-editor { height: calc(100vh - 50px); width: 100%; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="editor-container undocked-editor">
+                            <div class="editor-panel-header">
+                                <span class="editor-panel-title">Code Editor (Undocked)</span>
+                                <div class="editor-panel-controls">
+                                    <button class="editor-control-btn" onclick="window.opener.dockEditor()" title="Dock Editor">📥</button>
+                                    <button class="editor-control-btn" onclick="window.close()" title="Close">❌</button>
+                                </div>
+                            </div>
+                            <div id="monaco-editor"></div>
+                        </div>
+                    </body>
+                    </html>
+                `);
+
+                // Move Monaco editor to new window
+                if (window.editor) {
+                    const model = window.editor.getModel();
+                    const value = window.editor.getValue();
+
+                    // Initialize Monaco in new window
+                    undockedWindow.onload = () => {
+                        require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+                        require(['vs/editor/editor.main'], function () {
+                            const undockedEditor = monaco.editor.create(undockedWindow.document.getElementById('monaco-editor'), {
+                                value: value,
+                                language: 'javascript',
+                                theme: 'vs-dark',
+                                automaticLayout: true,
+                                scrollBeyondLastLine: false,
+                                minimap: { enabled: true },
+                                fontSize: 14,
+                                wordWrap: 'on'
+                            });
+
+                            // Sync changes back to main window
+                            undockedEditor.onDidChangeModelContent(() => {
+                                if (window.opener && window.opener.editor) {
+                                    window.opener.editor.setValue(undockedEditor.getValue());
+                                }
+                            });
+                        });
+                    };
+                }
+
+                // Update main window editor container
+                editorContainer.innerHTML = `
+                    <div class="editor-panel-header">
+                        <span class="editor-panel-title">Code Editor (Undocked)</span>
+                        <div class="editor-panel-controls">
+                            <button class="editor-control-btn" onclick="dockEditor()" title="Dock Editor">📥</button>
+                        </div>
+                    </div>
+                    <div class="undocked-placeholder">
+                        <h3>📤 Editor Undocked</h3>
+                        <p>The code editor has been moved to a separate window.</p>
+                        <button class="btn" onclick="dockEditor()">📥 Dock Editor</button>
+                    </div>
+                `;
+
+                editorUndocked = true;
+
+                // Handle window close
+                undockedWindow.addEventListener('beforeunload', () => {
+                    dockEditor();
+                });
+
+            } catch (error) {
+                console.error('Failed to undock editor:', error);
+                addToOutput('error', 'Failed to undock editor');
+            }
+        }
+
+        function dockEditor() {
+            if (!editorUndocked) return;
+
+            try {
+                let editorValue = '';
+
+                // Get value from undocked editor if available
+                if (undockedWindow && !undockedWindow.closed && undockedWindow.monaco && undockedWindow.monaco.editor) {
+                    const editors = undockedWindow.monaco.editor.getEditors();
+                    if (editors.length > 0) {
+                        editorValue = editors[0].getValue();
+                    }
+                }
+
+                // Close undocked window
+                if (undockedWindow && !undockedWindow.closed) {
+                    undockedWindow.close();
+                }
+
+                // Restore editor container
+                const editorContainer = document.getElementById('editor-container');
+                editorContainer.innerHTML = `
+                    <div class="editor-panel-header">
+                        <span class="editor-panel-title">Code Editor</span>
+                        <div class="editor-panel-controls">
+                            <button class="editor-control-btn" onclick="undockEditor()" title="Undock Editor">📤</button>
+                            <button class="editor-control-btn" onclick="toggleEditorMaximize()" title="Maximize/Restore">🔲</button>
+                        </div>
+                    </div>
+                    <div id="monaco-editor"></div>
+                `;
+
+                // Reinitialize Monaco editor
+                setTimeout(() => {
+                    if (typeof monaco !== 'undefined') {
+                        window.editor = monaco.editor.create(document.getElementById('monaco-editor'), {
+                            value: editorValue,
+                            language: 'javascript',
+                            theme: 'vs-dark',
+                            automaticLayout: true,
+                            scrollBeyondLastLine: false,
+                            minimap: { enabled: true },
+                            fontSize: 14,
+                            wordWrap: 'on',
+                            scrollbar: {
+                                vertical: 'visible',
+                                horizontal: 'visible',
+                                useShadows: true,
+                                verticalHasArrows: false,
+                                horizontalHasArrows: false,
+                                verticalScrollbarSize: 14,
+                                horizontalScrollbarSize: 14
+                            }
+                        });
+                    }
+                }, 100);
+
+                editorUndocked = false;
+                undockedWindow = null;
+
+            } catch (error) {
+                console.error('Failed to dock editor:', error);
+                addToOutput('error', 'Failed to dock editor');
+            }
+        }
+
+        function toggleEditorMaximize() {
+            const mainContainer = document.querySelector('.main-container');
+            const editorContainer = document.getElementById('editor-container');
+
+            if (editorContainer.classList.contains('maximized')) {
+                editorContainer.classList.remove('maximized');
+                mainContainer.style.display = 'flex';
+                addToOutput('info', 'Editor restored to normal view');
+            } else {
+                editorContainer.classList.add('maximized');
+                mainContainer.style.display = 'block';
+                addToOutput('info', 'Editor maximized');
+            }
+
+            // Trigger layout update for Monaco
+            if (window.editor) {
+                setTimeout(() => {
+                    window.editor.layout();
+                }, 100);
+            }
         }
 
         function openSchemaViewer() {

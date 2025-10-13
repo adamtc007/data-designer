@@ -1582,6 +1582,33 @@ async fn generate_typescript_types() -> Result<String, String> {
     Ok(format!("TypeScript types generated at {}", types_path))
 }
 
+// Configuration-driven UI commands
+#[tauri::command]
+async fn cd_get_resource_dictionaries(pool: State<'_, DbPool>) -> Result<Vec<db::ResourceDictionary>, String> {
+    db::ConfigDrivenOperations::get_dictionaries(&pool).await
+}
+
+#[tauri::command]
+async fn cd_get_resources(pool: State<'_, DbPool>, dictionary_id: i32) -> Result<Vec<db::ResourceObject>, String> {
+    db::ConfigDrivenOperations::get_resources_by_dictionary(&pool, dictionary_id).await
+}
+
+#[tauri::command]
+async fn cd_get_resource_config(pool: State<'_, DbPool>, resource_name: String) -> Result<Option<serde_json::Value>, String> {
+    let config = db::ConfigDrivenOperations::get_full_resource_config(&pool, &resource_name).await?;
+    Ok(config.map(|c| db::ConfigDrivenOperations::convert_to_frontend_format(&c)))
+}
+
+#[tauri::command]
+async fn cd_get_resource_perspectives(pool: State<'_, DbPool>, resource_name: String) -> Result<Vec<String>, String> {
+    db::ConfigDrivenOperations::get_resource_perspectives(&pool, &resource_name).await
+}
+
+#[tauri::command]
+async fn cd_search_resources(pool: State<'_, DbPool>, search_term: String) -> Result<Vec<db::ResourceObject>, String> {
+    db::ConfigDrivenOperations::search_resources(&pool, &search_term).await
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1686,7 +1713,13 @@ pub fn run() {
             // DSL Transpilation
             transpile_dsl_to_rules,
             // TypeScript generation
-            generate_typescript_types
+            generate_typescript_types,
+            // Configuration-driven UI
+            cd_get_resource_dictionaries,
+            cd_get_resources,
+            cd_get_resource_config,
+            cd_get_resource_perspectives,
+            cd_search_resources
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

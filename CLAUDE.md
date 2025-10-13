@@ -224,7 +224,12 @@ src/
 ├── index.html          # Main IDE interface with DSL editor and tools
 ├── schema.html         # Database schema visualizer (separate window)
 ├── index-enhanced.html # Experimental multi-mode version (archived)
-├── main.js             # Advanced frontend with grammar management
+├── main.ts             # Main application TypeScript module with Monaco Editor integration
+├── ui-components.ts    # UI components module with panel management and modals
+├── data-dictionary-types.ts  # TypeScript interfaces for configuration-driven schema
+├── config-driven-renderer.ts # Complete UI rendering engine with layout taxonomy support
+├── config-driven-ui.css      # Styling system for all layout types with animations
+├── sample-resource-dictionary.json # Real-world examples of multi-layered JSON structure
 ├── dsl-language.js     # Monaco Editor DSL language definition
 ├── main-simple.js      # Simplified version for debugging/testing
 ├── test.html           # Basic test page for Tauri connectivity
@@ -236,7 +241,8 @@ src-tauri/
 ├── src/db/
 │   ├── mod.rs          # Centralized database operations and connection management
 │   ├── data_dictionary.rs # Attribute and metadata management operations
-│   └── embeddings.rs   # Vector embedding generation and similarity search
+│   ├── embeddings.rs   # Vector embedding generation and similarity search
+│   └── config_driven.rs    # Database integration for configuration-driven UI system
 ├── src/schema_visualizer.rs # Database schema introspection and visualization
 └── tauri.conf.json     # Tauri config with withGlobalTauri enabled
 
@@ -411,15 +417,58 @@ When clicking "Run Code", the system:
 
 ## Recent Updates (October 2025)
 
-### Complete TypeScript Architecture Migration (NEW - October 13, 2025)
+### Configuration-Driven UI System (NEW - October 13, 2025)
+- **Complete Metadata-Driven Architecture**: Revolutionary shift from hardcoded UI components to fully configuration-driven forms and layouts
+- **Multi-Layered Resource Schema**: Sophisticated JSON structure serving as single source of truth:
+  - **Resource Dictionary Level**: Top-level resource containers with UI layout specifications
+  - **Resource Object Level**: Individual business entities (KYC, Trade Settlement) with perspective-aware configurations
+  - **Attribute Object Level**: Granular field definitions with constraints, validation, and context-specific rendering
+- **Dynamic Layout Engine**: Supports multiple UI layout types via JSON configuration:
+  - **Wizard Layout**: Step-by-step guided forms with progress indicators and navigation
+  - **Tabs Layout**: Tabbed interface for grouped attribute collections
+  - **Vertical Stack**: Linear form layout for simple data entry
+  - **Horizontal Grid**: Grid-based layout for complex multi-column forms
+  - **Accordion**: Collapsible sections for hierarchical data organization
+- **Perspective-Based Context Switching**: Single attribute definitions adapt to different business contexts:
+  - **KYC Perspective**: Compliance-focused labels, validation rules, and AI generation examples
+  - **Fund Accounting Perspective**: Financial reporting context with accounting-specific terminology
+  - **Trading Operations Perspective**: Trading-specific field configurations and business rules
+- **AI-Integrated Design System**: Built-in AI agent integration for dynamic rule generation:
+  - **Generation Examples**: Context-specific prompts and expected responses for RAG systems
+  - **Business Context Awareness**: Perspective-driven AI interactions based on current view
+  - **Rule Template Generation**: Automatic code generation based on attribute selections and business context
+- **Key Implementation Files**:
+  - `src/data-dictionary-types.ts`: Comprehensive TypeScript interfaces for the multi-layered schema
+  - `src/config-driven-renderer.ts`: Complete UI rendering engine with layout taxonomy support
+  - `src/sample-resource-dictionary.json`: Real-world examples demonstrating the new JSON structure
+  - `src/config-driven-ui.css`: Styling system supporting all layout types with animations
+  - `src-tauri/src/db/config_driven.rs`: Database integration for configuration-driven system
+- **Dynamic UI Features**:
+  - **Real-time Perspective Switching**: Change business context without page reload
+  - **Layout Morphing**: Switch between wizard, tabs, and other layouts dynamically
+  - **Conditional Field Rendering**: Show/hide fields based on business rules and context
+  - **Progressive Form Enhancement**: Wizard steps with validation and dynamic next/previous buttons
+  - **Event-Driven Architecture**: Field change handlers trigger rule generation and validation
+- **Business Domain Integration**:
+  - **ClientOnboardingKYC Resource**: Complete KYC workflow with wizard layout and compliance focus
+  - **TradeSettlementSystem Resource**: Trading operations with tabs layout and settlement processes
+  - **Menu Integration**: New buttons (🧙‍♂️ KYC Wizard, 📈 Trade Settlement, 🎨 Demo All Layouts)
+- **Architecture Benefits**:
+  - **Zero Hardcoded Forms**: All UI generated from JSON configuration
+  - **Rapid Prototyping**: New business workflows created by editing JSON, not code
+  - **Consistency**: Unified styling and behavior across all generated forms
+  - **Maintainability**: Business logic changes require only JSON updates
+  - **AI-Ready**: Built-in structure for RAG systems and automated rule generation
+
+### Complete TypeScript Architecture Migration (October 13, 2025)
 - **Zero Inline JavaScript**: Completely eliminated all inline JavaScript from HTML files
 - **Professional Module Organization**: Extracted all JavaScript to proper TypeScript modules:
   - `src/main.ts`: Core application logic, Monaco editor, CBU creation, menu actions
   - `src/ui-components.ts`: UI components, panel management, modals, undocking system
 - **Clean HTML Structure**: HTML files now contain only structure and CSS, no embedded JavaScript
 - **Vite Build Integration**: Professional build system with TypeScript compilation and bundling
-  - Compiled bundle: `main-Bj6GBQRY.js` (3.1MB) with full Monaco Editor integration
-  - CSS extraction: `main-C2iG-FMb.css` (112KB) optimized styles
+  - Compiled bundle: `main-B2wKeJKF.js` (3.1MB) with full Monaco Editor integration
+  - CSS extraction: `main-Cgipjqff.css` (118KB) optimized styles
   - Automatic script injection via Vite build process
 - **Type Safety**: Full TypeScript compilation with proper imports/exports and type checking
 - **Maintainable Codebase**: Centralized logic allows refactoring in one place without hunting code islands

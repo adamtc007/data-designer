@@ -12,7 +12,9 @@ export default defineConfig({
         main: resolve(__dirname, "src/index-new.html"),
         schema: resolve(__dirname, "src/schema.html")
       }
-    }
+    },
+    // Copy additional assets
+    assetsInclude: ['**/*.json', '**/*.css']
   },
 
   // prevent vite from clearing screen
