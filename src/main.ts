@@ -422,22 +422,34 @@ async function renderResource(resourceName: string, perspective: string = curren
 
         // Find the container where we want to show the rendered form
         const container = document.getElementById('resource-form-container');
+        const editorContainer = document.getElementById('editor-panel');
+
         if (container) {
             container.innerHTML = '';
             container.appendChild(renderedElement);
+            container.classList.remove('hidden');
+
+            // Hide the Monaco editor when showing a form
+            if (editorContainer) {
+                editorContainer.style.display = 'none';
+            }
+
+            // Add close button to return to editor
+            const closeButton = document.createElement('button');
+            closeButton.textContent = '← Back to Rule Editor';
+            closeButton.className = 'btn btn-secondary';
+            closeButton.style.cssText = 'margin: 12px; position: absolute; top: 0; right: 0; z-index: 10;';
+            closeButton.onclick = () => {
+                container.classList.add('hidden');
+                if (editorContainer) {
+                    editorContainer.style.display = 'flex';
+                }
+            };
+            container.appendChild(closeButton);
+
             console.log(`📋 Rendered resource: ${resourceName} (${perspective} perspective)`);
         } else {
-            // Create container if it doesn't exist
-            const newContainer = document.createElement('div');
-            newContainer.id = 'resource-form-container';
-            newContainer.className = 'resource-form-container';
-            newContainer.appendChild(renderedElement);
-
-            // Insert into sidebar or main content area
-            const sidebar = document.querySelector('.sidebar-content');
-            if (sidebar) {
-                sidebar.appendChild(newContainer);
-            }
+            console.error('Resource form container not found in DOM');
         }
     } catch (error) {
         console.error(`Failed to render resource ${resourceName}:`, error);

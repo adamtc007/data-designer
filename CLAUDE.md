@@ -47,14 +47,28 @@ This is a Tauri-based desktop application with **no web/SSR dependencies**. The 
    - Live rule testing and validation
    - AST visualization and export capabilities
 
+6. **Configuration-Driven UI System** (NEW - October 2025):
+   - Multi-layered Resource Dictionary architecture
+   - JSON-driven form generation and UI rendering
+   - Perspective-based context switching (KYC, FundAccounting, etc.)
+   - Dynamic layout taxonomy (wizard, tabs, vertical-stack, horizontal-grid, accordion)
+   - Type-safe TypeScript interfaces with comprehensive validation
+   - AI-integrated design with RAG system integration
+   - Resource Objects with Attribute Objects containing business context
+   - Runtime field validation and dependency management
+
 ### Key Files
 
 - `src-tauri/src/lib.rs`: Tauri commands for rule testing and grammar management
 - `src-tauri/src/db/mod.rs`: Centralized database operations with PostgreSQL
 - `src-tauri/src/db/data_dictionary.rs`: Attribute and metadata management
 - `src-tauri/src/db/embeddings.rs`: Vector similarity operations
+- `src-tauri/src/db/config_driven.rs`: Configuration-driven UI database operations
 - `src/index.html`: Single-tab UI with Rules editor and data dictionary
 - `src/main.js`: Advanced frontend with PostgreSQL integration
+- `src/data-dictionary-types.ts`: TypeScript interfaces for multi-layered resource schema
+- `src/config-driven-renderer.ts`: Dynamic UI renderer for configuration-driven forms
+- `src/sample-resource-dictionary.json`: Example JSON configuration with KYC and Trade Settlement
 - `grammar_rules.json`: Dynamic grammar storage with metadata
 - `data-designer-core/`: Enhanced Rust library with expression engine and nom parser
 
@@ -415,6 +429,107 @@ When clicking "Run Code", the system:
 - If tests fail with parameter error: Ensure frontend sends `dslText` not `rule` to test_rule command
 - If editor content doesn't refresh: Ensure Monaco editor is exposed to window.editor and use setValue() with layout() and focus()
 
+## Configuration-Driven UI System (NEW - October 2025)
+
+### Overview
+The application now features a sophisticated configuration-driven UI system that transforms static attribute definitions into dynamic, perspective-aware forms. This system provides a single source of truth for UI rendering, AI agent RAG systems, and core business logic.
+
+### Multi-Layered Architecture
+The system implements a three-tier architecture:
+
+#### 1. Resource Dictionary Level
+- **ResourceObject**: Top-level container for business domains (e.g., ClientOnboardingKYC, TradeSettlementSystem)
+- **Layout Configuration**: Defines how forms should be rendered (wizard, tabs, accordion, etc.)
+- **Perspective Support**: Multiple business context views (KYC, FundAccounting, RiskManagement)
+- **Group Ordering**: Controls field organization and workflow
+
+#### 2. Attribute Object Level
+- **Core Definition**: Name, data type, description, constraints
+- **Persistence Mapping**: Database table/column location
+- **UI Configuration**: Render hints, validation rules, field types
+- **Business Context**: Perspective-specific labels, descriptions, AI examples
+
+#### 3. Perspective Context Level
+- **Context Switching**: Dynamic field adaptation based on business domain
+- **AI Integration**: Context-aware examples for RAG system training
+- **Validation Rules**: Perspective-specific validation logic
+- **Dependency Management**: Field interdependencies and cascading updates
+
+### Key Features
+
+#### Dynamic Form Generation
+```typescript
+// Example: Render KYC wizard form
+const renderer = new ConfigDrivenRenderer(resourceDictionary);
+const kycForm = renderer.renderResource('ClientOnboardingKYC', 'KYC');
+```
+
+#### Layout Types Supported
+- **Wizard**: Step-by-step guided forms with progression
+- **Tabs**: Tabbed interface for grouped attributes
+- **Vertical Stack**: Simple linear form layout
+- **Horizontal Grid**: Multi-column responsive layout
+- **Accordion**: Collapsible sections for complex forms
+
+#### Perspective-Based Context
+```json
+{
+  "perspectives": {
+    "KYC": {
+      "label": "Customer Due Diligence",
+      "description": "Anti-money laundering compliance fields",
+      "aiExample": "For beneficial ownership verification..."
+    },
+    "FundAccounting": {
+      "label": "Investment Account Setup",
+      "description": "Portfolio management configuration",
+      "aiExample": "Configure investment parameters..."
+    }
+  }
+}
+```
+
+### TypeScript Integration
+- **Type Safety**: Comprehensive interfaces for all schema components
+- **Validation**: Runtime type checking and constraint validation
+- **IDE Support**: Full IntelliSense and type hints
+- **Error Handling**: Detailed error messages with field-level specificity
+
+### Database Integration
+- **Rust Backend**: Full CRUD operations via `config_driven.rs`
+- **SQLx Integration**: Type-safe database queries with rust_decimal support
+- **Resource Management**: Create, read, update, delete resource configurations
+- **Perspective Queries**: Filter and load context-specific data
+
+### Sample Configurations
+The system includes working examples:
+
+#### ClientOnboardingKYC Resource
+- **Layout**: Wizard with 4 steps
+- **Groups**: Client Entity, Beneficial Owner, Sanctions Screening, Risk Assessment
+- **Attributes**: 15+ fields including legal_entity_name, beneficial_owners, sanctions_score
+- **Perspectives**: KYC and FundAccounting contexts
+
+#### TradeSettlementSystem Resource
+- **Layout**: Horizontal grid for efficiency
+- **Groups**: Trade Details, Settlement Instructions, Regulatory Reporting
+- **Attributes**: Trade execution, settlement dates, counterparty information
+- **Validation**: Real-time field validation and dependency checking
+
+### Implementation Files
+- `src/data-dictionary-types.ts`: Complete TypeScript type definitions
+- `src/config-driven-renderer.ts`: Dynamic UI rendering engine
+- `src/sample-resource-dictionary.json`: Working configuration examples
+- `src-tauri/src/db/config_driven.rs`: Database operations and CRUD
+- `src/main.ts`: Frontend integration and event handling
+
+### Testing and Validation
+- **Menu Integration**: 🧙‍♂️ KYC Wizard and 📈 Trade Settlement buttons
+- **Live Rendering**: Click to instantly generate forms from JSON
+- **Perspective Switching**: Real-time context adaptation
+- **Field Validation**: Immediate feedback on data entry
+- **Back Navigation**: Seamless return to rule editor
+
 ## Recent Updates (October 2025)
 
 ### Configuration-Driven UI System (NEW - October 13, 2025)
@@ -459,6 +574,12 @@ When clicking "Run Code", the system:
   - **Consistency**: Unified styling and behavior across all generated forms
   - **Maintainability**: Business logic changes require only JSON updates
   - **AI-Ready**: Built-in structure for RAG systems and automated rule generation
+- **Implementation Status**: ✅ **COMPLETED** - Full integration between backend Rust structs and frontend TypeScript system
+  - Frontend built successfully with all TypeScript modules compiled
+  - Tauri application launching with proper index.html entry point
+  - Resource form container added with proper CSS styling
+  - Database connectivity established with configuration-driven operations
+  - System ready for testing configuration-driven UI features
 
 ### Complete TypeScript Architecture Migration (October 13, 2025)
 - **Zero Inline JavaScript**: Completely eliminated all inline JavaScript from HTML files
