@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { createEditorPanelHeader, panelManager } from './ui-components';
 import { ResourceDictionary, ResourceObject, AttributeObject } from './data-dictionary-types';
 import { ConfigDrivenRenderer, createRenderer } from './config-driven-renderer';
+import { MetadataDrivenEngine } from './metadata-driven-engine';
 
 // Types
 interface TestResult {
@@ -27,14 +28,16 @@ let editor: monaco.editor.IStandaloneCodeEditor;
 let currentContext: any = {};
 let resourceDictionary: ResourceDictionary | null = null;
 let configRenderer: ConfigDrivenRenderer | null = null;
+let metadataEngine: MetadataDrivenEngine | null = null;
 let currentPerspective: string = 'default';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', async () => {
     await initializeMonacoEditor();
+    await initializeMetadataEngine();
     await loadDataDictionary();
     setupEventListeners();
-    console.log('🚀 Data Designer IDE initialized');
+    console.log('🚀 Data Designer IDE initialized with Metadata-Driven Engine');
 });
 
 // Monaco Editor setup
@@ -256,6 +259,18 @@ function showErrorMessage(message: string): void {
     console.error('❌', message);
 }
 
+// ===== CRITICAL MISSING COMPONENT: Initialize Metadata Engine =====
+async function initializeMetadataEngine(): Promise<void> {
+    try {
+        metadataEngine = new MetadataDrivenEngine();
+        await metadataEngine.loadResourceDictionary();
+        console.log('🚀 Metadata-Driven Engine initialized');
+    } catch (error) {
+        console.error('❌ Failed to initialize Metadata Engine:', error);
+        // Continue without the engine for now
+    }
+}
+
 // Data Dictionary v2.0 - Configuration-driven approach
 async function loadDataDictionary(): Promise<void> {
     try {
@@ -412,13 +427,11 @@ async function generateRuleFromContext(triggeredField: string, value: any): Prom
 // ===== RESOURCE RENDERING AND NAVIGATION =====
 
 async function renderResource(resourceName: string, perspective: string = currentPerspective): Promise<void> {
-    if (!configRenderer) {
-        console.error('Config renderer not initialized');
-        return;
-    }
-
-    try {
-        const renderedElement = configRenderer.renderResource(resourceName, perspective);
+    // THE CRITICAL CHANGE: Use MetadataDrivenEngine if available, fallback to configRenderer
+    if (metadataEngine) {
+        console.log(`🚀 Using MetadataDrivenEngine for ${resourceName}`);
+        try {
+            const renderedElement = await metadataEngine.renderResource(resourceName, perspective);
 
         // Find the container where we want to show the rendered form
         const container = document.getElementById('resource-form-container');
@@ -447,12 +460,59 @@ async function renderResource(resourceName: string, perspective: string = curren
             };
             container.appendChild(closeButton);
 
-            console.log(`📋 Rendered resource: ${resourceName} (${perspective} perspective)`);
+            console.log(`📋 Rendered resource: ${resourceName} (${perspective} perspective) via MetadataDrivenEngine`);
+        } else {
+            console.error('Resource form container not found in DOM');
+        }
+        } catch (error) {
+            console.error(`❌ MetadataDrivenEngine failed for ${resourceName}:`, error);
+        }
+        return;
+    }
+
+    // FALLBACK: Use the old configRenderer if MetadataDrivenEngine not available
+    if (!configRenderer) {
+        console.error('❌ No renderer available (neither MetadataDrivenEngine nor configRenderer)');
+        return;
+    }
+
+    console.log(`🔄 Falling back to configRenderer for ${resourceName}`);
+    try {
+        const renderedElement = configRenderer.renderResource(resourceName, perspective);
+
+        // Find the container where we want to show the rendered form
+        const container = document.getElementById('resource-form-container');
+        const editorContainer = document.getElementById('editor-panel');
+
+        if (container) {
+            container.innerHTML = '';
+            container.appendChild(renderedElement);
+            container.classList.remove('hidden');
+
+            // Hide the Monaco editor when showing a form
+            if (editorContainer) {
+                editorContainer.style.display = 'none';
+            }
+
+            // Add close button to return to editor
+            const closeButton = document.createElement('button');
+            closeButton.textContent = '← Back to Rule Editor';
+            closeButton.className = 'btn btn-secondary';
+            closeButton.style.cssText = 'margin: 12px; position: absolute; top: 0; right: 0; z-index: 10;';
+            closeButton.onclick = () => {
+                container.classList.add('hidden');
+                if (editorContainer) {
+                    editorContainer.style.display = '';
+                }
+            };
+            container.appendChild(closeButton);
+
+            console.log(`📋 Rendered resource: ${resourceName} (${perspective} perspective) via configRenderer fallback`);
         } else {
             console.error('Resource form container not found in DOM');
         }
     } catch (error) {
-        console.error(`Failed to render resource ${resourceName}:`, error);
+        console.error(`❌ Both renderers failed for ${resourceName}:`, error);
     }
 }
 

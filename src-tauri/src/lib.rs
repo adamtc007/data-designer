@@ -1609,6 +1609,195 @@ async fn cd_search_resources(pool: State<'_, DbPool>, search_term: String) -> Re
     db::ConfigDrivenOperations::search_resources(&pool, &search_term).await
 }
 
+// ====================
+// ENHANCED METADATA PROCESSING COMMANDS
+// ====================
+
+// Global user context state
+use std::sync::Mutex;
+static USER_CONTEXT: Mutex<Option<String>> = Mutex::new(None);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResourceDictionaryFile {
+    pub metadata: ResourceDictionaryMetadata,
+    pub resources: Vec<ResourceObjectFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResourceDictionaryMetadata {
+    pub version: String,
+    pub description: String,
+    pub author: String,
+    pub creation_date: String,
+    pub last_modified: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResourceObjectFile {
+    #[serde(rename = "resourceName")]
+    pub resource_name: String,
+    pub description: String,
+    pub version: String,
+    pub category: String,
+    #[serde(rename = "ownerTeam")]
+    pub owner_team: String,
+    pub status: String,
+    pub ui: ResourceUIConfig,
+    pub attributes: Vec<AttributeObjectFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResourceUIConfig {
+    pub layout: String,
+    #[serde(rename = "groupOrder")]
+    pub group_order: Vec<String>,
+    pub navigation: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AttributeObjectFile {
+    pub name: String,
+    #[serde(rename = "dataType")]
+    pub data_type: String,
+    pub description: String,
+    pub constraints: Option<serde_json::Value>,
+    #[serde(rename = "persistence_locator")]
+    pub persistence_locator: PersistenceLocator,
+    pub ui: AttributeUIConfig,
+    pub perspectives: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PersistenceLocator {
+    pub system: String,
+    pub entity: String,
+    pub column: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AttributeUIConfig {
+    pub group: String,
+    #[serde(rename = "displayOrder")]
+    pub display_order: i32,
+    #[serde(rename = "renderHint")]
+    pub render_hint: String,
+    pub label: String,
+    pub placeholder: Option<String>,
+    #[serde(rename = "isRequired")]
+    pub is_required: bool,
+    pub validation: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolvedAttributeUI {
+    pub group: String,
+    pub display_order: i32,
+    pub render_hint: String,
+    pub label: String,
+    pub placeholder: Option<String>,
+    pub is_required: bool,
+    pub validation: Option<serde_json::Value>,
+    pub description: String,
+    pub ai_example: Option<String>,
+}
+
+#[tauri::command]
+async fn load_resource_dictionary_from_file(file_path: String) -> Result<ResourceDictionaryFile, String> {
+    let contents = std::fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+
+    let dictionary: ResourceDictionaryFile = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    Ok(dictionary)
+}
+
+#[tauri::command]
+async fn save_resource_dictionary_to_file(
+    file_path: String,
+    dictionary: ResourceDictionaryFile
+) -> Result<(), String> {
+    let json_content = serde_json::to_string_pretty(&dictionary)
+        .map_err(|e| format!("Failed to serialize dictionary: {}", e))?;
+
+    std::fs::write(&file_path, json_content)
+        .map_err(|e| format!("Failed to write file {}: {}", file_path, e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn resolve_attribute_with_perspective(
+    attribute: AttributeObjectFile,
+    perspective: String
+) -> Result<ResolvedAttributeUI, String> {
+    let mut resolved = ResolvedAttributeUI {
+        group: attribute.ui.group,
+        display_order: attribute.ui.display_order,
+        render_hint: attribute.ui.render_hint,
+        label: attribute.ui.label,
+        placeholder: attribute.ui.placeholder,
+        is_required: attribute.ui.is_required,
+        validation: attribute.ui.validation,
+        description: attribute.description,
+        ai_example: None,
+    };
+
+    // Apply perspective overrides if they exist
+    if let Some(perspectives) = attribute.perspectives {
+        if let Some(perspective_config) = perspectives.get(&perspective) {
+            if let Some(label) = perspective_config.get("label").and_then(|v| v.as_str()) {
+                resolved.label = label.to_string();
+            }
+            if let Some(desc) = perspective_config.get("description").and_then(|v| v.as_str()) {
+                resolved.description = desc.to_string();
+            }
+            if let Some(ai_ex) = perspective_config.get("aiExample").and_then(|v| v.as_str()) {
+                resolved.ai_example = Some(ai_ex.to_string());
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
+#[tauri::command]
+async fn get_attribute_ui_config(
+    resource_name: String,
+    attribute_name: String,
+    perspective: Option<String>
+) -> Result<ResolvedAttributeUI, String> {
+    // This would normally load from database or file
+    // For now, return a mock response
+    let current_perspective = perspective.unwrap_or_else(|| {
+        USER_CONTEXT.lock().unwrap().clone().unwrap_or_else(|| "default".to_string())
+    });
+
+    // Mock response - in real implementation, this would load the actual attribute
+    Ok(ResolvedAttributeUI {
+        group: "Default Group".to_string(),
+        display_order: 1,
+        render_hint: "text".to_string(),
+        label: format!("{} ({})", attribute_name, current_perspective),
+        placeholder: Some(format!("Enter {}", attribute_name)),
+        is_required: false,
+        validation: None,
+        description: format!("Description for {} in {} context", attribute_name, current_perspective),
+        ai_example: Some(format!("AI example for {} in {} perspective", attribute_name, current_perspective)),
+    })
+}
+
+#[tauri::command]
+async fn set_user_context(context: String) -> Result<(), String> {
+    *USER_CONTEXT.lock().unwrap() = Some(context);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_user_context() -> Result<Option<String>, String> {
+    Ok(USER_CONTEXT.lock().unwrap().clone())
+}
+
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1719,7 +1908,14 @@ pub fn run() {
             cd_get_resources,
             cd_get_resource_config,
             cd_get_resource_perspectives,
-            cd_search_resources
+            cd_search_resources,
+            // New enhanced metadata commands
+            load_resource_dictionary_from_file,
+            save_resource_dictionary_to_file,
+            resolve_attribute_with_perspective,
+            get_attribute_ui_config,
+            set_user_context,
+            get_user_context
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
