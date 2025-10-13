@@ -1680,24 +1680,65 @@
         }
 
         async function createService() {
-            const name = document.getElementById('service-name').value;
-            const serviceType = document.getElementById('service-type').value;
+            const serviceName = document.getElementById('service-name').value;
+            const serviceCategory = document.getElementById('service-type').value;
             const description = document.getElementById('service-description').value;
 
             try {
-                await window.__TAURI_INVOKE__('create_service', {
-                    request: { name, service_type: serviceType, description }
+                const result = await window.__TAURI_INVOKE__('create_service', {
+                    service_name: serviceName,
+                    service_category: serviceCategory,
+                    description: description,
+                    is_core_service: false
                 });
                 closeModal();
                 refreshServices();
-                addToOutput('success', `Service "${name}" created successfully`);
+                addToOutput('success', `Service "${result.service_name}" created successfully`);
             } catch (error) {
                 addToOutput('error', `Failed to create service: ${error}`);
             }
         }
 
+        async function updateService(serviceId) {
+            const serviceName = document.getElementById('service-name').value;
+            const serviceCategory = document.getElementById('service-type').value;
+            const description = document.getElementById('service-description').value;
+
+            try {
+                const result = await window.__TAURI_INVOKE__('update_service', {
+                    service_id: parseInt(serviceId),
+                    request: {
+                        service_name: serviceName,
+                        service_category: serviceCategory,
+                        description: description
+                    }
+                });
+                closeModal();
+                refreshServices();
+                addToOutput('success', `Service "${result.service_name}" updated successfully`);
+            } catch (error) {
+                addToOutput('error', `Failed to update service: ${error}`);
+            }
+        }
+
         async function editService(serviceId) {
-            showServiceForm('edit', serviceId);
+            // First get the existing service data
+            try {
+                const service = await window.__TAURI_INVOKE__('get_service_by_id', { service_id: parseInt(serviceId) });
+                if (service) {
+                    showServiceForm('edit', serviceId);
+                    // Pre-populate the form with existing data
+                    setTimeout(() => {
+                        document.getElementById('service-name').value = service.service_name || '';
+                        document.getElementById('service-type').value = service.service_category || '';
+                        document.getElementById('service-description').value = service.description || '';
+                    }, 100); // Small delay to ensure form is rendered
+                } else {
+                    addToOutput('error', 'Service not found');
+                }
+            } catch (error) {
+                addToOutput('error', `Failed to load service data: ${error}`);
+            }
         }
 
         async function deleteService(serviceId) {

@@ -17,7 +17,7 @@ use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
 use db::CreateDerivedAttributeRequest;
 use db::grammar::GrammarOperations;
 use db::{CreateCbuRequest, AddCbuMemberRequest, ClientBusinessUnit, CbuSummary, CbuRole, CbuMember, CbuMemberDetail};
-use db::{CreateProductRequest, CreateServiceRequest, CreateResourceRequest, CreateOnboardingRequest, SubscribeCbuToProductRequest};
+use db::{CreateProductRequest, CreateServiceRequest, UpdateServiceRequest, CreateResourceRequest, CreateOnboardingRequest, SubscribeCbuToProductRequest};
 use db::{Product, Service, Resource, ProductHierarchyView, CbuSubscriptionView, OnboardingProgressView};
 
 // Legacy modules (to be cleaned up)
@@ -1276,6 +1276,16 @@ async fn list_services(category: Option<String>) -> Result<Vec<Service>, String>
 }
 
 #[tauri::command]
+async fn get_service_by_id(service_id: i32) -> Result<Option<Service>, String> {
+    db::DbOperations::get_service_by_id(service_id).await
+}
+
+#[tauri::command]
+async fn update_service(service_id: i32, request: UpdateServiceRequest) -> Result<Service, String> {
+    db::DbOperations::update_service(service_id, request).await
+}
+
+#[tauri::command]
 async fn create_resource(request: CreateResourceRequest) -> Result<Resource, String> {
     db::DbOperations::create_resource(request).await
 }
@@ -1662,6 +1672,8 @@ pub fn run() {
             get_product_hierarchy,
             create_service,
             list_services,
+            get_service_by_id,
+            update_service,
             create_resource,
             list_resources,
             subscribe_cbu_to_product,

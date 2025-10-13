@@ -159,6 +159,18 @@ pub struct CreateServiceRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct UpdateServiceRequest {
+    pub service_name: Option<String>,
+    pub service_category: Option<String>,
+    pub description: Option<String>,
+    pub is_core_service: Option<bool>,
+    pub configuration_schema: Option<serde_json::Value>,
+    pub dependencies: Option<Vec<String>>,
+    pub updated_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct CreateResourceRequest {
     pub resource_name: String,
     pub resource_type: String,
@@ -378,6 +390,101 @@ impl DbOperations {
                 .await
         }
         .map_err(|e| format!("Failed to list services: {}", e))
+    }
+
+    /// Get a service by ID
+    pub async fn get_service_by_id(service_id: i32) -> Result<Option<Service>, String> {
+        let pool = Self::get_pool().await.map_err(|e| e.to_string())?;
+
+        let query = "SELECT * FROM services WHERE id = $1";
+
+        sqlx::query_as::<_, Service>(query)
+            .bind(service_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| format!("Failed to get service: {}", e))
+    }
+
+    /// Update an existing service
+    pub async fn update_service(service_id: i32, request: UpdateServiceRequest) -> Result<Service, String> {
+        let pool = Self::get_pool().await.map_err(|e| e.to_string())?;
+
+        // Build dynamic update query based on provided fields
+        let mut update_fields = Vec::new();
+        let mut param_count = 1;
+
+        if request.service_name.is_some() {
+            update_fields.push(format!("service_name = ${}", param_count));
+            param_count += 1;
+        }
+        if request.service_category.is_some() {
+            update_fields.push(format!("service_category = ${}", param_count));
+            param_count += 1;
+        }
+        if request.description.is_some() {
+            update_fields.push(format!("description = ${}", param_count));
+            param_count += 1;
+        }
+        if request.is_core_service.is_some() {
+            update_fields.push(format!("is_core_service = ${}", param_count));
+            param_count += 1;
+        }
+        if request.configuration_schema.is_some() {
+            update_fields.push(format!("configuration_schema = ${}", param_count));
+            param_count += 1;
+        }
+        if request.dependencies.is_some() {
+            update_fields.push(format!("dependencies = ${}", param_count));
+            param_count += 1;
+        }
+        if request.updated_by.is_some() {
+            update_fields.push(format!("updated_by = ${}", param_count));
+            param_count += 1;
+        }
+
+        if update_fields.is_empty() {
+            return Err("No fields to update".to_string());
+        }
+
+        // Always update the updated_at timestamp
+        update_fields.push("updated_at = CURRENT_TIMESTAMP".to_string());
+
+        let query = format!(
+            "UPDATE services SET {} WHERE id = ${} RETURNING *",
+            update_fields.join(", "),
+            param_count
+        );
+
+        let mut query_builder = sqlx::query_as::<_, Service>(&query);
+
+        // Bind parameters in the same order as the conditions
+        if let Some(name) = request.service_name {
+            query_builder = query_builder.bind(name);
+        }
+        if let Some(category) = request.service_category {
+            query_builder = query_builder.bind(category);
+        }
+        if let Some(desc) = request.description {
+            query_builder = query_builder.bind(desc);
+        }
+        if let Some(is_core) = request.is_core_service {
+            query_builder = query_builder.bind(is_core);
+        }
+        if let Some(config) = request.configuration_schema {
+            query_builder = query_builder.bind(config);
+        }
+        if let Some(deps) = request.dependencies {
+            query_builder = query_builder.bind(deps);
+        }
+        if let Some(updated_by) = request.updated_by {
+            query_builder = query_builder.bind(updated_by);
+        }
+
+        query_builder
+            .bind(service_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| format!("Failed to update service: {}", e))
     }
 
     // ===== RESOURCE MANAGEMENT =====

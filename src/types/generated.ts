@@ -61,6 +61,14 @@ export interface CreateServiceRequest {
   created_by?: string;
 }
 
+export interface UpdateServiceRequest {
+  service_name?: string;
+  service_category?: string;
+  description?: string;
+  is_core_service?: boolean;
+  updated_by?: string;
+}
+
 export interface CreateResourceRequest {
   resource_name: string;
   resource_type: string;

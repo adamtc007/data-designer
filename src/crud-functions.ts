@@ -1,5 +1,5 @@
 // TypeScript CRUD functions with proper type safety
-import { Product, Service, Resource, CreateProductRequest, CreateServiceRequest, CreateResourceRequest } from './types/generated.js';
+import { Product, Service, Resource, CreateProductRequest, CreateServiceRequest, UpdateServiceRequest, CreateResourceRequest } from './types/generated.js';
 
 // Tauri API interface
 declare global {
@@ -156,6 +156,42 @@ export async function createService(): Promise<void> {
     } catch (error) {
         console.error('Error creating service:', error);
         addToOutput('error', `❌ Failed to create service: ${error}`);
+    }
+}
+
+export async function updateService(serviceId: number): Promise<void> {
+    const form = document.getElementById('service-form') as HTMLFormElement;
+    if (!form) return;
+
+    const formData = new FormData(form);
+
+    const request: UpdateServiceRequest = {
+        service_name: formData.get('service_name') as string || undefined,
+        service_category: formData.get('service_category') as string || undefined,
+        description: formData.get('description') as string || undefined,
+        is_core_service: formData.get('is_core_service') === 'true' || undefined,
+        updated_by: formData.get('updated_by') as string || undefined,
+    };
+
+    // Remove undefined fields to only update what's provided
+    Object.keys(request).forEach(key => {
+        if (request[key as keyof UpdateServiceRequest] === undefined) {
+            delete request[key as keyof UpdateServiceRequest];
+        }
+    });
+
+    try {
+        const result: Service = await window.__TAURI_INVOKE__('update_service', { service_id: serviceId, request });
+        console.log('Service updated:', result);
+
+        // Close modal and refresh list
+        closeModal();
+        await loadServicesData();
+
+        addToOutput('success', `✅ Service "${result.service_name}" updated successfully`);
+    } catch (error) {
+        console.error('Error updating service:', error);
+        addToOutput('error', `❌ Failed to update service: ${error}`);
     }
 }
 
