@@ -56,5 +56,6 @@ async-trait = "0.1"
 # Configuration dependencies
 toml = "0.8"
 ts-rs = { version = "10.1.0", features = ["serde-compat", "chrono-impl", "serde-json-impl"] }
+dotenvy = "0.15"
 
 # Pure desktop application - no web dependencies needed

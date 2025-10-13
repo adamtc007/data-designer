@@ -30,6 +30,8 @@ src-tauri/WixTools/
 .env
 .env.local
 .env.*.local
+src-tauri/.env
+src-tauri/.env.local
 
 # Logs
 logs/

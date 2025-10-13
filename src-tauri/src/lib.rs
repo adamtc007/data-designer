@@ -32,6 +32,71 @@ mod schema_visualizer;
 mod data_dictionary;
 use data_dictionary::DataDictionaryState;
 
+// Secure application state for managing configuration and API keys
+#[derive(Debug, Clone)]
+pub struct AppState {
+    // LLM Configuration
+    pub openai_api_key: Option<String>,
+    pub openai_model: String,
+    pub anthropic_api_key: Option<String>,
+    pub anthropic_model: String,
+    pub google_api_key: Option<String>,
+    pub google_model: String,
+    pub llm_temperature: f32,
+    pub llm_max_tokens: u32,
+
+    // Application Configuration
+    pub log_level: String,
+    pub environment: String,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            openai_api_key: None,
+            openai_model: "gpt-4".to_string(),
+            anthropic_api_key: None,
+            anthropic_model: "claude-3-5-sonnet-20241022".to_string(),
+            google_api_key: None,
+            google_model: "gemini-1.5-pro".to_string(),
+            llm_temperature: 0.3,
+            llm_max_tokens: 1000,
+            log_level: "info".to_string(),
+            environment: "development".to_string(),
+        }
+    }
+}
+
+impl AppState {
+    pub fn load_from_env() -> Self {
+        // Try to load .env file (ignore errors if it doesn't exist)
+        let _ = dotenvy::dotenv();
+
+        Self {
+            openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+            openai_model: std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4".to_string()),
+            anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+            anthropic_model: std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-3-5-sonnet-20241022".to_string()),
+            google_api_key: std::env::var("GOOGLE_API_KEY").ok(),
+            google_model: std::env::var("GOOGLE_MODEL").unwrap_or_else(|_| "gemini-1.5-pro".to_string()),
+            llm_temperature: std::env::var("LLM_TEMPERATURE")
+                .unwrap_or_else(|_| "0.3".to_string())
+                .parse()
+                .unwrap_or(0.3),
+            llm_max_tokens: std::env::var("LLM_MAX_TOKENS")
+                .unwrap_or_else(|_| "1000".to_string())
+                .parse()
+                .unwrap_or(1000),
+            log_level: std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string()),
+            environment: std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+        }
+    }
+
+    pub fn has_any_llm_key(&self) -> bool {
+        self.openai_api_key.is_some() || self.anthropic_api_key.is_some() || self.google_api_key.is_some()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct TestRule {
     id: u32,
@@ -1946,8 +2011,9 @@ async fn fetch_live_data(
 #[tauri::command]
 async fn get_ai_suggestion(
     request: AISuggestionRequest,
+    app_state: tauri::State<'_, AppState>,
     db_pool: tauri::State<'_, db::DbPool>,
-    persistence_service: tauri::State<'_, std::sync::Arc<db::CompositePersistenceService>>,
+    _persistence_service: tauri::State<'_, std::sync::Arc<db::CompositePersistenceService>>,
 ) -> Result<AISuggestionResponse, String> {
     println!("AI Context Engine: Processing request for perspective: {} (database-only)", request.perspective);
 
@@ -1980,8 +2046,8 @@ async fn get_ai_suggestion(
         &request.selected_attributes,
     );
 
-    // Step 4: Call LLM API
-    match call_llm_api(&augmented_prompt).await {
+    // Step 4: Call LLM API with secure configuration
+    match call_llm_api(&augmented_prompt, &app_state).await {
         Ok((generated_dsl, explanation)) => Ok(AISuggestionResponse {
             success: true,
             generated_dsl: Some(generated_dsl),
@@ -2784,27 +2850,27 @@ fn build_augmented_prompt(
     prompt
 }
 
-// Call LLM API with multiple provider support
-async fn call_llm_api(prompt: &str) -> Result<(String, String), String> {
+// Call LLM API with multiple provider support using secure configuration
+async fn call_llm_api(prompt: &str, app_state: &AppState) -> Result<(String, String), String> {
     // Try OpenAI first (if API key is available)
-    if let Ok(openai_key) = std::env::var("OPENAI_API_KEY") {
-        match call_openai_api(prompt, &openai_key).await {
+    if let Some(ref openai_key) = app_state.openai_api_key {
+        match call_openai_api(prompt, openai_key, &app_state.openai_model, app_state.llm_temperature, app_state.llm_max_tokens).await {
             Ok(result) => return Ok(result),
             Err(e) => println!("OpenAI API failed: {}", e),
         }
     }
 
     // Try Anthropic Claude (if API key is available)
-    if let Ok(claude_key) = std::env::var("ANTHROPIC_API_KEY") {
-        match call_claude_api(prompt, &claude_key).await {
+    if let Some(ref claude_key) = app_state.anthropic_api_key {
+        match call_claude_api(prompt, claude_key, &app_state.anthropic_model, app_state.llm_temperature, app_state.llm_max_tokens).await {
             Ok(result) => return Ok(result),
             Err(e) => println!("Claude API failed: {}", e),
         }
     }
 
     // Try Google Gemini (if API key is available)
-    if let Ok(gemini_key) = std::env::var("GOOGLE_API_KEY") {
-        match call_gemini_api(prompt, &gemini_key).await {
+    if let Some(ref gemini_key) = app_state.google_api_key {
+        match call_gemini_api(prompt, gemini_key, &app_state.google_model, app_state.llm_temperature, app_state.llm_max_tokens).await {
             Ok(result) => return Ok(result),
             Err(e) => println!("Gemini API failed: {}", e),
         }
@@ -2816,13 +2882,13 @@ async fn call_llm_api(prompt: &str) -> Result<(String, String), String> {
 }
 
 // OpenAI API implementation
-async fn call_openai_api(prompt: &str, api_key: &str) -> Result<(String, String), String> {
+async fn call_openai_api(prompt: &str, api_key: &str, model: &str, temperature: f32, max_tokens: u32) -> Result<(String, String), String> {
     let client = OpenAIClient::with_config(
         async_openai::config::OpenAIConfig::new().with_api_key(api_key)
     );
 
     let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4")
+        .model(model)
         .messages([
             ChatCompletionRequestSystemMessageArgs::default()
                 .content("You are an expert DSL generator. Generate precise, executable DSL code.")
@@ -2835,8 +2901,8 @@ async fn call_openai_api(prompt: &str, api_key: &str) -> Result<(String, String)
                 .map_err(|e| format!("Failed to build user message: {}", e))?
                 .into(),
         ])
-        .max_tokens(500u16)
-        .temperature(0.3)
+        .max_tokens(max_tokens.min(4096) as u16)
+        .temperature(temperature)
         .build()
         .map_err(|e| format!("Failed to build request: {}", e))?;
 
@@ -2861,13 +2927,13 @@ async fn call_openai_api(prompt: &str, api_key: &str) -> Result<(String, String)
 }
 
 // Anthropic Claude API implementation using reqwest
-async fn call_claude_api(prompt: &str, api_key: &str) -> Result<(String, String), String> {
+async fn call_claude_api(prompt: &str, api_key: &str, model: &str, temperature: f32, max_tokens: u32) -> Result<(String, String), String> {
     let client = reqwest::Client::new();
 
     let request_body = serde_json::json!({
-        "model": "claude-3-5-sonnet-20241022",
-        "max_tokens": 1000,
-        "temperature": 0.3,
+        "model": model,
+        "max_tokens": max_tokens.min(4096),
+        "temperature": temperature,
         "messages": [
             {
                 "role": "user",
@@ -2912,7 +2978,7 @@ async fn call_claude_api(prompt: &str, api_key: &str) -> Result<(String, String)
 }
 
 // Google Gemini API implementation using reqwest
-async fn call_gemini_api(prompt: &str, api_key: &str) -> Result<(String, String), String> {
+async fn call_gemini_api(prompt: &str, api_key: &str, model: &str, temperature: f32, max_tokens: u32) -> Result<(String, String), String> {
     let client = reqwest::Client::new();
 
     let request_body = serde_json::json!({
@@ -2922,12 +2988,12 @@ async fn call_gemini_api(prompt: &str, api_key: &str) -> Result<(String, String)
             }]
         }],
         "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 1000
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens.min(4096)
         }
     });
 
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={}", api_key);
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", model, api_key);
 
     let response = client
         .post(&url)
@@ -3012,6 +3078,25 @@ fn generate_fallback_dsl(prompt: &str) -> (String, String) {
 // Learn to accept the things we cannot change...
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load secure configuration from .env file and environment variables
+    let app_state = AppState::load_from_env();
+
+    // Log configuration status (without exposing secrets)
+    println!("🔧 Configuration loaded:");
+    println!("  📊 LLM Providers: OpenAI={}, Claude={}, Gemini={}",
+             app_state.openai_api_key.is_some(),
+             app_state.anthropic_api_key.is_some(),
+             app_state.google_api_key.is_some());
+    println!("  🎛️  Temperature: {}, Max Tokens: {}",
+             app_state.llm_temperature,
+             app_state.llm_max_tokens);
+    println!("  🌍 Environment: {}", app_state.environment);
+
+    if !app_state.has_any_llm_key() {
+        println!("⚠️  No LLM API keys configured. AI suggestions will use fallback generation.");
+        println!("   Create .env file from .env.example and add your API keys for full AI functionality.");
+    }
+
     // Create async runtime for database and web server
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
@@ -3038,6 +3123,7 @@ pub fn run() {
     println!("📦 Using bundled frontend from src/dist/");
 
     tauri::Builder::default()
+        .manage(app_state)
         .manage(db_pool)
         .manage(persistence_service)
         .invoke_handler(tauri::generate_handler![
