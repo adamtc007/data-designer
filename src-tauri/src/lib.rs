@@ -1323,6 +1323,223 @@ async fn get_resource_types() -> Result<Vec<String>, String> {
     db::DbOperations::get_resource_types().await
 }
 
+// DSL to Rules Transpilation
+#[tauri::command]
+async fn transpile_dsl_to_rules(
+    pool: State<'_, DbPool>,
+    rule_id: String
+) -> Result<TranspiledRule, String> {
+    // Fetch the rule from the database
+    let rule = database::get_rule_by_id(&pool, &rule_id)
+        .await
+        .map_err(|e| format!("Failed to fetch rule: {}", e))?;
+
+    if rule.is_none() {
+        return Err(format!("Rule with id '{}' not found", rule_id));
+    }
+
+    let rule = rule.unwrap();
+
+    // Parse the DSL using nom parser
+    let ast = match parse_rule(&rule.rule_definition) {
+        Ok((_, parsed_ast)) => parsed_ast,
+        Err(e) => return Err(format!("Failed to parse DSL: {:?}", e)),
+    };
+
+    // Convert AST to transpiled rule format
+    let transpiled = TranspiledRule {
+        rule_id: rule.rule_id.clone(),
+        rule_name: rule.rule_name.clone(),
+        description: rule.description.clone(),
+        original_dsl: rule.rule_definition.clone(),
+        parsed_ast: serde_json::to_value(&ast).map_err(|e| format!("AST serialization error: {}", e))?,
+        compiled_code: generate_rust_code_from_ast(&ast)?,
+        target_attribute: rule.target_attribute_id.map(|id| id.to_string()),
+        dependencies: extract_dependencies_from_ast(&ast),
+        compilation_timestamp: chrono::Utc::now(),
+    };
+
+    // Update the database with the parsed AST
+    if let Err(e) = update_rule_ast(&pool, &rule_id, &transpiled.parsed_ast).await {
+        eprintln!("Warning: Failed to update rule AST in database: {}", e);
+    }
+
+    Ok(transpiled)
+}
+
+#[derive(Serialize, Deserialize)]
+struct TranspiledRule {
+    rule_id: String,
+    rule_name: String,
+    description: Option<String>,
+    original_dsl: String,
+    parsed_ast: serde_json::Value,
+    compiled_code: String,
+    target_attribute: Option<String>,
+    dependencies: Vec<String>,
+    compilation_timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+// Helper function to generate Rust code from AST
+fn generate_rust_code_from_ast(ast: &data_designer::parser::ASTNode) -> Result<String, String> {
+    use data_designer::parser::ASTNode::*;
+
+    match ast {
+        Assignment { target, value } => {
+            let value_code = generate_rust_code_from_ast(value)?;
+            Ok(format!("let {} = {};", target, value_code))
+        },
+        BinaryOp { left, op, right } => {
+            let left_code = generate_rust_code_from_ast(left)?;
+            let right_code = generate_rust_code_from_ast(right)?;
+            let op_str = match op {
+                data_designer::parser::BinaryOperator::Add => "+",
+                data_designer::parser::BinaryOperator::Subtract => "-",
+                data_designer::parser::BinaryOperator::Multiply => "*",
+                data_designer::parser::BinaryOperator::Divide => "/",
+                data_designer::parser::BinaryOperator::Modulo => "%",
+                data_designer::parser::BinaryOperator::Power => ".powf",
+                data_designer::parser::BinaryOperator::Concat => "concat",
+                data_designer::parser::BinaryOperator::Equal => "==",
+                data_designer::parser::BinaryOperator::NotEqual => "!=",
+                data_designer::parser::BinaryOperator::LessThan => "<",
+                data_designer::parser::BinaryOperator::GreaterThan => ">",
+                data_designer::parser::BinaryOperator::LessThanOrEqual => "<=",
+                data_designer::parser::BinaryOperator::GreaterThanOrEqual => ">=",
+                data_designer::parser::BinaryOperator::And => "&&",
+                data_designer::parser::BinaryOperator::Or => "||",
+                data_designer::parser::BinaryOperator::Matches => "matches_regex",
+            };
+
+            match op {
+                data_designer::parser::BinaryOperator::Power => {
+                    Ok(format!("({}).powf({})", left_code, right_code))
+                },
+                data_designer::parser::BinaryOperator::Concat => {
+                    Ok(format!("format!(\"{{}}{{}}\", {}, {})", left_code, right_code))
+                },
+                data_designer::parser::BinaryOperator::Matches => {
+                    Ok(format!("matches_regex(&{}, &{})", left_code, right_code))
+                },
+                _ => {
+                    Ok(format!("({} {} {})", left_code, op_str, right_code))
+                }
+            }
+        },
+        UnaryOp { op, operand } => {
+            let operand_code = generate_rust_code_from_ast(operand)?;
+            let op_str = match op {
+                data_designer::parser::UnaryOperator::Not => "!",
+                data_designer::parser::UnaryOperator::Negate => "-",
+            };
+            Ok(format!("({}{})", op_str, operand_code))
+        },
+        FunctionCall { name, args } => {
+            let arg_codes: Result<Vec<std::string::String>, std::string::String> = args.iter()
+                .map(generate_rust_code_from_ast)
+                .collect();
+            let arg_codes = arg_codes?;
+
+            match name.as_str() {
+                "CONCAT" => {
+                    Ok(format!("format!(\"{}\", {})",
+                        "{}".repeat(args.len()),
+                        arg_codes.join(", ")))
+                },
+                "SUBSTRING" => {
+                    if args.len() == 3 {
+                        Ok(format!("substring(&{}, {}, {})", arg_codes[0], arg_codes[1], arg_codes[2]))
+                    } else {
+                        Err("SUBSTRING requires exactly 3 arguments".to_string())
+                    }
+                },
+                "LOOKUP" => {
+                    if args.len() == 2 {
+                        Ok(format!("lookup(&{}, &{})", arg_codes[0], arg_codes[1]))
+                    } else {
+                        Err("LOOKUP requires exactly 2 arguments".to_string())
+                    }
+                },
+                "UPPER" => Ok(format!("({}).to_uppercase()", arg_codes[0])),
+                "LOWER" => Ok(format!("({}).to_lowercase()", arg_codes[0])),
+                "LEN" => Ok(format!("({}).len()", arg_codes[0])),
+                _ => Ok(format!("{}({})", name.to_lowercase(), arg_codes.join(", "))),
+            }
+        },
+        Identifier(name) => {
+            Ok(format!("context.get(\"{}\")", name))
+        },
+        Number(n) => Ok(n.to_string()),
+        String(s) => Ok(format!("\"{}\"", s.replace("\"", "\\\""))),
+        Boolean(b) => Ok(b.to_string()),
+        List(items) => {
+            let item_codes: Result<Vec<std::string::String>, std::string::String> = items.iter()
+                .map(generate_rust_code_from_ast)
+                .collect();
+            let item_codes = item_codes?;
+            Ok(format!("vec![{}]", item_codes.join(", ")))
+        },
+        Regex(pattern) => {
+            Ok(format!("Regex::new(r\"{}\")", pattern.replace("\"", "\\\"")))
+        },
+    }
+}
+
+// Helper function to extract dependencies from AST
+fn extract_dependencies_from_ast(ast: &data_designer::parser::ASTNode) -> Vec<String> {
+    use data_designer::parser::ASTNode::*;
+    let mut deps = Vec::new();
+
+    match ast {
+        Assignment { value, .. } => {
+            deps.extend(extract_dependencies_from_ast(value));
+        },
+        BinaryOp { left, right, .. } => {
+            deps.extend(extract_dependencies_from_ast(left));
+            deps.extend(extract_dependencies_from_ast(right));
+        },
+        UnaryOp { operand, .. } => {
+            deps.extend(extract_dependencies_from_ast(operand));
+        },
+        FunctionCall { args, .. } => {
+            for arg in args {
+                deps.extend(extract_dependencies_from_ast(arg));
+            }
+        },
+        Identifier(name) => {
+            deps.push(name.clone());
+        },
+        List(items) => {
+            for item in items {
+                deps.extend(extract_dependencies_from_ast(item));
+            }
+        },
+        _ => {} // Literals don't have dependencies
+    }
+
+    // Remove duplicates and sort
+    deps.sort();
+    deps.dedup();
+    deps
+}
+
+// Helper function to update rule AST in database
+async fn update_rule_ast(
+    pool: &DbPool,
+    rule_id: &str,
+    ast: &serde_json::Value
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE rules SET parsed_ast = $1, updated_at = NOW() WHERE rule_id = $2"
+    )
+    .bind(ast)
+    .bind(rule_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 // TypeScript generation command
 #[tauri::command]
 async fn generate_typescript_types() -> Result<String, String> {
@@ -1454,6 +1671,8 @@ pub fn run() {
             get_lines_of_business,
             get_service_categories,
             get_resource_types,
+            // DSL Transpilation
+            transpile_dsl_to_rules,
             // TypeScript generation
             generate_typescript_types
         ])
