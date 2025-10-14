@@ -2,8 +2,10 @@ use eframe::egui;
 use data_designer_core::db::{
     init_db, DbPool,
     ClientBusinessUnit, CreateCbuRequest,
-    DbOperations
+    DbOperations, DataDictionaryResponse
 };
+use data_designer_core::{parser, evaluator, models::Value};
+use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use std::sync::Arc;
 
@@ -55,6 +57,20 @@ struct DataDesignerApp {
     cbus: Vec<ClientBusinessUnit>,
     selected_cbu: Option<usize>,
 
+    // Attribute Dictionary Data
+    data_dictionary: Option<DataDictionaryResponse>,
+    attribute_search: String,
+
+    // Rule Engine Data
+    rules: Vec<serde_json::Value>,
+    selected_rule: Option<usize>,
+
+    // Rule Testing
+    rule_input: String,
+    test_context: String,
+    rule_result: Option<String>,
+    rule_error: Option<String>,
+
     // UI State
     show_cbu_form: bool,
     cbu_form: CbuForm,
@@ -67,6 +83,8 @@ enum Tab {
     #[default]
     Dashboard,
     CBUs,
+    AttributeDictionary,
+    RuleEngine,
     Database,
 }
 
@@ -88,6 +106,14 @@ impl DataDesignerApp {
             runtime,
             cbus: Vec::new(),
             selected_cbu: None,
+            data_dictionary: None,
+            attribute_search: String::new(),
+            rules: Vec::new(),
+            selected_rule: None,
+            rule_input: String::from("age > 18 AND country = \"USA\""),
+            test_context: String::from("{\n  \"age\": 25,\n  \"country\": \"USA\",\n  \"balance\": 50000\n}"),
+            rule_result: None,
+            rule_error: None,
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -96,6 +122,7 @@ impl DataDesignerApp {
 
         // Load initial data
         app.load_cbus();
+        app.load_data_dictionary();
         app
     }
 
@@ -206,6 +233,25 @@ impl DataDesignerApp {
             self.status_message = "❌ No database connection".to_string();
         }
     }
+
+    fn load_data_dictionary(&mut self) {
+        if let Some(ref _pool) = self.db_pool {
+            let rt = self.runtime.clone();
+
+            match rt.block_on(async {
+                let pool = DbOperations::get_pool().await.map_err(|e| e.to_string())?;
+                use data_designer_core::db::DataDictionaryOperations;
+                DataDictionaryOperations::get_data_dictionary(&pool, None).await
+            }) {
+                Ok(dictionary) => {
+                    self.data_dictionary = Some(dictionary);
+                }
+                Err(e) => {
+                    eprintln!("Failed to load data dictionary: {}", e);
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for DataDesignerApp {
@@ -257,6 +303,8 @@ impl eframe::App for DataDesignerApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.current_tab, Tab::Dashboard, "🏠 Dashboard");
                 ui.selectable_value(&mut self.current_tab, Tab::CBUs, "🏢 CBUs");
+                ui.selectable_value(&mut self.current_tab, Tab::AttributeDictionary, "📚 Attributes");
+                ui.selectable_value(&mut self.current_tab, Tab::RuleEngine, "⚡ Rules");
                 ui.selectable_value(&mut self.current_tab, Tab::Database, "🗄️ Database");
             });
         });
@@ -266,6 +314,8 @@ impl eframe::App for DataDesignerApp {
             match self.current_tab {
                 Tab::Dashboard => self.show_dashboard(ui),
                 Tab::CBUs => self.show_cbu_tab(ui),
+                Tab::AttributeDictionary => self.show_attribute_dictionary_tab(ui),
+                Tab::RuleEngine => self.show_rule_engine_tab(ui),
                 Tab::Database => self.show_database_tab(ui),
             }
         });
@@ -407,5 +457,312 @@ impl DataDesignerApp {
                 self.cbu_form = CbuForm::default();
             }
         });
+    }
+
+    fn show_attribute_dictionary_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("📚 Attribute Dictionary");
+
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            if ui.text_edit_singleline(&mut self.attribute_search).changed() {
+                // Trigger search when text changes
+                self.search_attributes();
+            }
+            if ui.button("🔄 Refresh").clicked() {
+                self.load_data_dictionary();
+            }
+        });
+
+        ui.separator();
+
+        if let Some(ref dictionary) = self.data_dictionary {
+            ui.horizontal(|ui| {
+                ui.label(format!("📊 Total: {}", dictionary.total_count));
+                ui.separator();
+                ui.colored_label(egui::Color32::from_rgb(52, 152, 219), format!("🏢 Business: {}", dictionary.business_count));
+                ui.separator();
+                ui.colored_label(egui::Color32::from_rgb(155, 89, 182), format!("⚙️ Derived: {}", dictionary.derived_count));
+                ui.separator();
+                ui.colored_label(egui::Color32::from_rgb(231, 76, 60), format!("🔧 System: {}", dictionary.system_count));
+            });
+
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new("attribute_grid").striped(true).show(ui, |ui| {
+                    ui.label("Name");
+                    ui.label("Type");
+                    ui.label("Entity");
+                    ui.label("Data Type");
+                    ui.label("Description");
+                    ui.label("Key");
+                    ui.label("Nullable");
+                    ui.end_row();
+
+                    for attr in &dictionary.attributes {
+                        let attr_type = attr.get("attribute_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let color = match attr_type {
+                            "business" => egui::Color32::from_rgb(52, 152, 219),
+                            "derived" => egui::Color32::from_rgb(155, 89, 182),
+                            "system" => egui::Color32::from_rgb(231, 76, 60),
+                            _ => egui::Color32::GRAY,
+                        };
+
+                        ui.colored_label(color, attr.get("attribute_name").and_then(|v| v.as_str()).unwrap_or(""));
+                        ui.label(attr_type);
+                        ui.label(attr.get("entity_name").and_then(|v| v.as_str()).unwrap_or(""));
+                        ui.label(attr.get("data_type").and_then(|v| v.as_str()).unwrap_or(""));
+                        ui.label(attr.get("description").and_then(|v| v.as_str()).unwrap_or("N/A"));
+                        ui.label(if attr.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false) { "🔑" } else { "" });
+                        ui.label(if attr.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false) { "✓" } else { "✗" });
+                        ui.end_row();
+                    }
+                });
+            });
+        } else {
+            ui.label("Loading attribute dictionary...");
+            ui.spinner();
+        }
+    }
+
+    fn show_rule_engine_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("⚡ Rule Engine & DSL Live Testing");
+
+        // Live Rule Testing Section
+        ui.group(|ui| {
+            ui.heading("🧪 Live Rule Testing");
+
+            ui.horizontal(|ui| {
+                ui.label("Rule DSL:");
+                if ui.button("📋 Paste Sample").clicked() {
+                    self.rule_input = "IF age >= 18 THEN \"adult\" ELSE \"minor\"".to_string();
+                }
+                if ui.button("🔄 Clear").clicked() {
+                    self.rule_input.clear();
+                    self.rule_result = None;
+                    self.rule_error = None;
+                }
+            });
+
+            // Rule input with syntax highlighting placeholder
+            ui.add_sized([ui.available_width(), 80.0],
+                egui::TextEdit::multiline(&mut self.rule_input)
+                    .hint_text("Enter your rule DSL here... e.g., age > 18 AND country = \"USA\"")
+                    .font(egui::TextStyle::Monospace));
+
+            ui.horizontal(|ui| {
+                ui.label("Test Context (JSON):");
+                if ui.button("📋 Sample Data").clicked() {
+                    self.test_context = "{\n  \"age\": 25,\n  \"country\": \"USA\",\n  \"balance\": 50000,\n  \"email\": \"test@example.com\"\n}".to_string();
+                }
+            });
+
+            // Context input
+            ui.add_sized([ui.available_width(), 100.0],
+                egui::TextEdit::multiline(&mut self.test_context)
+                    .hint_text("Enter test data as JSON...")
+                    .font(egui::TextStyle::Monospace));
+
+            ui.horizontal(|ui| {
+                if ui.button("🚀 Test Rule").clicked() {
+                    self.test_rule();
+                }
+                if ui.button("📊 Parse AST").clicked() {
+                    self.parse_ast_only();
+                }
+                if ui.button("💾 Save Rule").clicked() {
+                    self.status_message = "Feature coming soon: Save to Database".to_string();
+                }
+            });
+
+            ui.separator();
+
+            // Results display
+            if let Some(ref result) = self.rule_result {
+                ui.group(|ui| {
+                    ui.heading("✅ Result");
+                    ui.label(egui::RichText::new(result).color(egui::Color32::GREEN).monospace());
+                });
+            }
+
+            if let Some(ref error) = self.rule_error {
+                ui.group(|ui| {
+                    ui.heading("❌ Error");
+                    ui.label(egui::RichText::new(error).color(egui::Color32::RED).monospace());
+                });
+            }
+        });
+
+        ui.separator();
+
+        // DSL Reference
+        ui.collapsing("📖 DSL Quick Reference", |ui| {
+            ui.label("🔢 Arithmetic: +, -, *, /, %, **");
+            ui.label("🔤 String: &, CONCAT(), UPPER(), LOWER(), LENGTH()");
+            ui.label("🔍 Comparison: =, !=, <, <=, >, >=");
+            ui.label("🎯 Pattern: MATCHES, CONTAINS, STARTS_WITH, ENDS_WITH");
+            ui.label("🔗 Logical: AND, OR, NOT");
+            ui.label("📋 Lists: IN, NOT_IN, [item1, item2]");
+            ui.label("🎛️ Conditionals: IF...THEN...ELSE, WHEN...THEN...ELSE");
+            ui.label("⚙️ Functions: ABS(), ROUND(), MIN(), MAX(), SUM(), AVG()");
+            ui.label("🔧 Type Cast: TO_STRING(), TO_NUMBER(), TO_BOOLEAN()");
+        });
+
+        // Sample Rules Gallery
+        ui.collapsing("🎨 Sample Rules Gallery", |ui| {
+            if ui.button("Age Classification").clicked() {
+                self.rule_input = "IF age < 18 THEN \"minor\" ELSE IF age < 65 THEN \"adult\" ELSE \"senior\"".to_string();
+            }
+            if ui.button("KYC Risk Score").clicked() {
+                self.rule_input = "IF balance > 100000 AND age > 25 THEN \"low_risk\" ELSE \"high_risk\"".to_string();
+            }
+            if ui.button("Email Validation").clicked() {
+                self.rule_input = "email MATCHES /^[\\w\\._%+-]+@[\\w\\.-]+\\.[A-Za-z]{2,}$/".to_string();
+            }
+            if ui.button("Complex Business Rule").clicked() {
+                self.rule_input = "WHEN country IN [\"USA\", \"UK\", \"CA\"] AND balance > 50000 THEN CONCAT(\"VIP_\", UPPER(country)) ELSE \"STANDARD\"".to_string();
+            }
+        });
+
+        if !self.rules.is_empty() {
+            ui.separator();
+            ui.heading("📝 Saved Rules");
+
+            for (i, _rule) in self.rules.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(self.selected_rule == Some(i), format!("Rule {}", i + 1)).clicked() {
+                        self.selected_rule = Some(i);
+                    }
+                });
+            }
+        }
+    }
+
+    fn test_rule(&mut self) {
+        self.rule_result = None;
+        self.rule_error = None;
+
+        // Parse the rule
+        let ast = match parser::parse_rule(&self.rule_input) {
+            Ok((_, ast)) => ast,
+            Err(e) => {
+                self.rule_error = Some(format!("Parse Error: {:?}", e));
+                return;
+            }
+        };
+
+        // Parse the test context
+        let context: HashMap<String, Value> = match serde_json::from_str(&self.test_context) {
+            Ok(json_value) => {
+                let mut facts = HashMap::new();
+                if let serde_json::Value::Object(map) = json_value {
+                    for (key, value) in map {
+                        let val = match value {
+                            serde_json::Value::String(s) => Value::String(s),
+                            serde_json::Value::Number(n) => {
+                                if let Some(i) = n.as_i64() {
+                                    Value::Integer(i)
+                                } else if let Some(f) = n.as_f64() {
+                                    Value::Float(f)
+                                } else {
+                                    Value::Null
+                                }
+                            },
+                            serde_json::Value::Bool(b) => Value::Boolean(b),
+                            serde_json::Value::Array(arr) => {
+                                let list: Vec<Value> = arr.into_iter().map(|v| match v {
+                                    serde_json::Value::String(s) => Value::String(s),
+                                    serde_json::Value::Number(n) => {
+                                        if let Some(i) = n.as_i64() {
+                                            Value::Integer(i)
+                                        } else {
+                                            Value::Float(n.as_f64().unwrap_or(0.0))
+                                        }
+                                    },
+                                    serde_json::Value::Bool(b) => Value::Boolean(b),
+                                    _ => Value::Null,
+                                }).collect();
+                                Value::List(list)
+                            },
+                            serde_json::Value::Null => Value::Null,
+                            _ => Value::Null,
+                        };
+                        facts.insert(key, val);
+                    }
+                }
+                facts
+            },
+            Err(e) => {
+                self.rule_error = Some(format!("JSON Parse Error: {}", e));
+                return;
+            }
+        };
+
+        // Evaluate the rule
+        match evaluator::evaluate(&ast, &context) {
+            Ok(result) => {
+                let result_str = match result {
+                    Value::String(s) => format!("\"{}\"", s),
+                    Value::Integer(i) => i.to_string(),
+                    Value::Float(f) => f.to_string(),
+                    Value::Boolean(b) => b.to_string(),
+                    Value::Null => "null".to_string(),
+                    Value::List(list) => {
+                        let items: Vec<String> = list.iter().map(|v| match v {
+                            Value::String(s) => format!("\"{}\"", s),
+                            Value::Integer(i) => i.to_string(),
+                            Value::Float(f) => f.to_string(),
+                            Value::Boolean(b) => b.to_string(),
+                            Value::Null => "null".to_string(),
+                            _ => "complex".to_string(),
+                        }).collect();
+                        format!("[{}]", items.join(", "))
+                    },
+                    Value::Regex(pattern) => format!("/{}/", pattern),
+                };
+                self.rule_result = Some(format!("Result: {}", result_str));
+            },
+            Err(e) => {
+                self.rule_error = Some(format!("Evaluation Error: {}", e));
+            }
+        }
+    }
+
+    fn parse_ast_only(&mut self) {
+        self.rule_result = None;
+        self.rule_error = None;
+
+        match parser::parse_rule(&self.rule_input) {
+            Ok((_, ast)) => {
+                self.rule_result = Some(format!("AST: {:#?}", ast));
+            },
+            Err(e) => {
+                self.rule_error = Some(format!("Parse Error: {:?}", e));
+            }
+        }
+    }
+
+    fn search_attributes(&mut self) {
+        if self.attribute_search.len() >= 2 {
+            if let Some(ref _pool) = self.db_pool {
+                let rt = self.runtime.clone();
+                let search_term = self.attribute_search.clone();
+
+                match rt.block_on(async {
+                    let pool = DbOperations::get_pool().await.map_err(|e| e.to_string())?;
+                    use data_designer_core::db::DataDictionaryOperations;
+                    DataDictionaryOperations::get_data_dictionary(&pool, Some(&search_term)).await
+                }) {
+                    Ok(dictionary) => {
+                        self.data_dictionary = Some(dictionary);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to search attributes: {}", e);
+                    }
+                }
+            }
+        } else if self.attribute_search.is_empty() {
+            self.load_data_dictionary();
+        }
     }
 }
