@@ -157,11 +157,30 @@ struct DataDesignerApp {
     cbu_member_roles: Vec<CbuMemberInvestmentRole>,
     taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
 
+    // Onboarding Requests - CBU + Product Bundle combinations
+    onboarding_requests: Vec<OnboardingRequest>,
+    onboarding_product_items: Vec<OnboardingProductItem>,
+    onboarding_product_options: Vec<OnboardingProductOption>,
+
     // Editable Attributes State
     editable_attributes: Vec<EditableAttribute>,
     modified_attributes: std::collections::HashSet<i32>, // Track changed attribute IDs
     edit_mode: bool,
     show_save_button: bool,
+
+    // CBU Tree State
+    cbu_tree: Option<CbuTreeNode>,
+    selected_cbu_node: Option<String>, // Selected CBU ID
+    show_cbu_editor: bool,
+}
+
+// CBU Tree Node for hierarchical representation
+#[derive(Debug, Clone)]
+struct CbuTreeNode {
+    cbu: ClientBusinessUnit,
+    children: Vec<CbuTreeNode>,
+    is_expanded: bool,
+    depth: usize,
 }
 
 // Editable attribute structure for change tracking
@@ -213,6 +232,7 @@ enum Tab {
     #[default]
     Dashboard,
     CBUs,
+    CbuTaxonomyEditor, // New CBU Tree Editor
     AttributeDictionary,
     DictionaryViewer,  // New tab for the JSON viewer
     RuleEngine,
@@ -337,6 +357,51 @@ struct InvestmentMandate {
     gross_exposure_pct: Option<f64>,
     net_exposure_pct: Option<f64>,
     leverage_max: Option<f64>,
+}
+
+// Onboarding Request - Basket of foreign keys representing CBU + Product Bundle combination
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OnboardingRequest {
+    id: i32,
+    onboarding_request_id: String,              // Primary key: "ORQ-2024-001"
+    cbu_id: String,                             // FK to CBU
+    cbu_name: String,                           // Denormalized for display
+    product_bundle: Vec<OnboardingProductItem>, // Basket of products with options
+    request_date: String,                       // ISO date
+    requested_by: String,                       // Entity making the request
+    status: String,                             // "pending", "approved", "rejected", "in_progress", "completed"
+    priority: String,                           // "urgent", "high", "normal", "low"
+    expected_go_live_date: Option<String>,      // Target launch date
+    estimated_setup_time_days: Option<i32>,    // Business estimate
+    approval_workflow_stage: String,            // "intake", "review", "approval", "implementation"
+    assigned_relationship_manager: Option<String>,
+    estimated_annual_revenue: Option<f64>,     // Business value estimate
+    complexity_score: Option<i32>,             // 1-10 complexity rating
+    notes: Option<String>,
+}
+
+// Individual product item in an onboarding request basket
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OnboardingProductItem {
+    id: i32,
+    onboarding_request_id: String,             // FK to OnboardingRequest
+    product_id: i32,                           // FK to Product
+    product_name: String,                      // Denormalized for display
+    selected_options: Vec<OnboardingProductOption>, // Selected product options
+    estimated_volume: Option<String>,          // Expected transaction volume
+    go_live_priority: String,                  // "phase1", "phase2", "phase3"
+    special_requirements: Option<String>,      // Custom needs
+}
+
+// Selected product option within an onboarding product item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OnboardingProductOption {
+    id: i32,
+    onboarding_product_item_id: i32,          // FK to OnboardingProductItem
+    option_id: String,                         // FK to ProductOption
+    option_name: String,                       // Denormalized for display
+    option_value: serde_json::Value,           // Selected configuration
+    custom_configuration: Option<String>,      // Any custom settings
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -805,16 +870,28 @@ impl DataDesignerApp {
             cbu_member_roles: Vec::new(),
             taxonomy_hierarchy: Vec::new(),
 
+            // Onboarding Requests
+            onboarding_requests: Vec::new(),
+            onboarding_product_items: Vec::new(),
+            onboarding_product_options: Vec::new(),
+
             // Editable Attributes State
             editable_attributes: Vec::new(),
             modified_attributes: std::collections::HashSet::new(),
             edit_mode: false,
             show_save_button: false,
+
+            // CBU Tree State
+            cbu_tree: None,
+            selected_cbu_node: None,
+            show_cbu_editor: false,
         };
 
         // Load initial data
         app.load_cbus();
         app.load_data_dictionary();
+        app.load_product_taxonomy();
+        app.load_investment_mandates();
         app
     }
 
@@ -1066,6 +1143,7 @@ impl eframe::App for DataDesignerApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.current_tab, Tab::Dashboard, "🏠 Dashboard");
                 ui.selectable_value(&mut self.current_tab, Tab::CBUs, "🏢 CBUs");
+                ui.selectable_value(&mut self.current_tab, Tab::CbuTaxonomyEditor, "🌳 CBU Tree");
                 ui.selectable_value(&mut self.current_tab, Tab::AttributeDictionary, "📚 Attributes");
                 ui.selectable_value(&mut self.current_tab, Tab::DictionaryViewer, "📋 Dictionary Viewer");
                 ui.selectable_value(&mut self.current_tab, Tab::RuleEngine, "⚡ Rules");
@@ -1083,6 +1161,7 @@ impl eframe::App for DataDesignerApp {
             match self.current_tab {
                 Tab::Dashboard => self.show_dashboard(ui),
                 Tab::CBUs => self.show_cbu_tab(ui),
+                Tab::CbuTaxonomyEditor => self.show_cbu_tree_tab(ui),
                 Tab::AttributeDictionary => self.show_attribute_dictionary_tab(ui),
                 Tab::DictionaryViewer => self.show_dictionary_viewer_tab(ui),
                 Tab::RuleEngine => self.show_rule_engine_tab(ui),
@@ -1270,9 +1349,20 @@ impl DataDesignerApp {
 
             ui.separator();
 
-            if ui.button("🧪 Test Query").clicked() {
-                self.load_cbus();
-            }
+            ui.horizontal(|ui| {
+                if ui.button("🧪 Test Query").clicked() {
+                    self.load_cbus();
+                }
+
+                if ui.button("🌱 Populate Taxonomy").clicked() {
+                    self.populate_database_with_taxonomy();
+                }
+            });
+
+            ui.separator();
+            ui.label("📊 Database Operations:");
+            ui.label("• Test Query: Loads CBUs from database");
+            ui.label("• Populate Taxonomy: Inserts complete product→service→resource hierarchy with investment mandates");
         } else {
             ui.colored_label(egui::Color32::YELLOW, "⚠️ No Database Connection");
             ui.label("The application is running in offline mode");
@@ -3465,6 +3555,8 @@ impl DataDesignerApp {
         } else {
             // No database connection, load mock data
             self.load_mock_product_taxonomy();
+            self.load_mock_investment_mandates();
+            self.load_mock_onboarding_requests();
         }
     }
 
@@ -3537,8 +3629,9 @@ impl DataDesignerApp {
     fn load_mock_investment_mandates(&mut self) {
         use std::str::FromStr;
 
-        // Mock Investment Mandates
+        // Mock Investment Mandates - Comprehensive Global Examples
         self.investment_mandates = vec![
+            // Conservative Government Bond Strategy
             InvestmentMandate {
                 mandate_id: "MND-2024-001".to_string(),
                 cbu_id: "CBU-203914".to_string(),
@@ -3553,6 +3646,7 @@ impl DataDesignerApp {
                 net_exposure_pct: Some(85.0),
                 leverage_max: Some(1.5),
             },
+            // European Growth Equity Strategy
             InvestmentMandate {
                 mandate_id: "MND-2024-002".to_string(),
                 cbu_id: "CBU-205816".to_string(),
@@ -3567,6 +3661,7 @@ impl DataDesignerApp {
                 net_exposure_pct: Some(80.0),
                 leverage_max: Some(1.2),
             },
+            // Infrastructure Investment Strategy
             InvestmentMandate {
                 mandate_id: "MND-2024-003".to_string(),
                 cbu_id: "CBU-207925".to_string(),
@@ -3581,10 +3676,116 @@ impl DataDesignerApp {
                 net_exposure_pct: Some(90.0),
                 leverage_max: Some(2.0),
             },
+            // US Technology Hedge Fund Strategy
+            InvestmentMandate {
+                mandate_id: "MND-2024-004".to_string(),
+                cbu_id: "CBU-209847".to_string(),
+                asset_owner_name: "Silicon Valley Family Office".to_string(),
+                asset_owner_lei: "SVFO-LEI-004".to_string(),
+                investment_manager_name: "TechVenture Capital Partners".to_string(),
+                investment_manager_lei: "TVCP-LEI-004".to_string(),
+                base_currency: "USD".to_string(),
+                effective_date: "2024-02-01".to_string(),
+                expiry_date: Some("2025-12-31".to_string()),
+                gross_exposure_pct: Some(200.0),
+                net_exposure_pct: Some(150.0),
+                leverage_max: Some(3.0),
+            },
+            // Emerging Markets Fixed Income
+            InvestmentMandate {
+                mandate_id: "MND-2024-005".to_string(),
+                cbu_id: "CBU-211563".to_string(),
+                asset_owner_name: "Brazilian Development Bank".to_string(),
+                asset_owner_lei: "BDB-LEI-005".to_string(),
+                investment_manager_name: "Latam Bond Specialists".to_string(),
+                investment_manager_lei: "LBS-LEI-005".to_string(),
+                base_currency: "BRL".to_string(),
+                effective_date: "2024-04-01".to_string(),
+                expiry_date: Some("2029-03-31".to_string()),
+                gross_exposure_pct: Some(85.0),
+                net_exposure_pct: Some(75.0),
+                leverage_max: Some(1.3),
+            },
+            // Swiss Private Bank Conservative Mandate
+            InvestmentMandate {
+                mandate_id: "MND-2024-006".to_string(),
+                cbu_id: "CBU-213794".to_string(),
+                asset_owner_name: "Zurich Family Trust".to_string(),
+                asset_owner_lei: "ZFT-LEI-006".to_string(),
+                investment_manager_name: "Alpine Wealth Management".to_string(),
+                investment_manager_lei: "AWM-LEI-006".to_string(),
+                base_currency: "CHF".to_string(),
+                effective_date: "2024-01-15".to_string(),
+                expiry_date: None,
+                gross_exposure_pct: Some(80.0),
+                net_exposure_pct: Some(70.0),
+                leverage_max: Some(1.1),
+            },
+            // Japanese Pension Fund ESG Strategy
+            InvestmentMandate {
+                mandate_id: "MND-2024-007".to_string(),
+                cbu_id: "CBU-215928".to_string(),
+                asset_owner_name: "Tokyo Metropolitan Pension Fund".to_string(),
+                asset_owner_lei: "TMPF-LEI-007".to_string(),
+                investment_manager_name: "Nippon ESG Asset Management".to_string(),
+                investment_manager_lei: "NEAM-LEI-007".to_string(),
+                base_currency: "JPY".to_string(),
+                effective_date: "2024-04-01".to_string(),
+                expiry_date: Some("2030-03-31".to_string()),
+                gross_exposure_pct: Some(95.0),
+                net_exposure_pct: Some(85.0),
+                leverage_max: Some(1.2),
+            },
+            // Middle East Sovereign Wealth Diversified
+            InvestmentMandate {
+                mandate_id: "MND-2024-008".to_string(),
+                cbu_id: "CBU-217456".to_string(),
+                asset_owner_name: "Qatar Investment Authority".to_string(),
+                asset_owner_lei: "QIA-LEI-008".to_string(),
+                investment_manager_name: "Gulf Capital Management".to_string(),
+                investment_manager_lei: "GCM-LEI-008".to_string(),
+                base_currency: "QAR".to_string(),
+                effective_date: "2024-05-01".to_string(),
+                expiry_date: Some("2027-04-30".to_string()),
+                gross_exposure_pct: Some(120.0),
+                net_exposure_pct: Some(100.0),
+                leverage_max: Some(2.5),
+            },
+            // Canadian Real Estate Investment Trust
+            InvestmentMandate {
+                mandate_id: "MND-2024-009".to_string(),
+                cbu_id: "CBU-219673".to_string(),
+                asset_owner_name: "Canada Pension Plan Investment Board".to_string(),
+                asset_owner_lei: "CPPIB-LEI-009".to_string(),
+                investment_manager_name: "Maple Leaf Real Estate Partners".to_string(),
+                investment_manager_lei: "MLREP-LEI-009".to_string(),
+                base_currency: "CAD".to_string(),
+                effective_date: "2024-03-01".to_string(),
+                expiry_date: Some("2034-02-28".to_string()),
+                gross_exposure_pct: Some(110.0),
+                net_exposure_pct: Some(95.0),
+                leverage_max: Some(1.8),
+            },
+            // UK Insurance Company Multi-Asset
+            InvestmentMandate {
+                mandate_id: "MND-2024-010".to_string(),
+                cbu_id: "CBU-221847".to_string(),
+                asset_owner_name: "London Life Insurance Company".to_string(),
+                asset_owner_lei: "LLIC-LEI-010".to_string(),
+                investment_manager_name: "Thames Asset Management".to_string(),
+                investment_manager_lei: "TAM-LEI-010".to_string(),
+                base_currency: "GBP".to_string(),
+                effective_date: "2024-01-01".to_string(),
+                expiry_date: Some("2026-12-31".to_string()),
+                gross_exposure_pct: Some(85.0),
+                net_exposure_pct: Some(75.0),
+                leverage_max: Some(1.15),
+            },
         ];
 
-        // Mock Mandate Instruments with allocation constraints
+        // Mock Mandate Instruments with allocation constraints - Comprehensive Coverage
         self.mandate_instruments = vec![
+            // MND-2024-001: Singapore SWF Conservative Government Bond Strategy
             MandateInstrument {
                 id: 1,
                 mandate_id: "MND-2024-001".to_string(),
@@ -3618,6 +3819,8 @@ impl DataDesignerApp {
                 issuer_max_pct: Some(10.0),
                 rating_floor: Some("A".to_string()),
             },
+
+            // MND-2024-002: Nordic Pension European Growth Equity Strategy
             MandateInstrument {
                 id: 4,
                 mandate_id: "MND-2024-002".to_string(),
@@ -3651,6 +3854,8 @@ impl DataDesignerApp {
                 issuer_max_pct: Some(20.0),
                 rating_floor: None,
             },
+
+            // MND-2024-003: Australian Infrastructure Investment Strategy
             MandateInstrument {
                 id: 7,
                 mandate_id: "MND-2024-003".to_string(),
@@ -3672,6 +3877,229 @@ impl DataDesignerApp {
                 short_allowed: Some(false),
                 issuer_max_pct: Some(15.0),
                 rating_floor: None,
+            },
+
+            // MND-2024-004: Silicon Valley Tech Hedge Fund Strategy
+            MandateInstrument {
+                id: 9,
+                mandate_id: "MND-2024-004".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("Technology Stocks".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(80.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(10.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 10,
+                mandate_id: "MND-2024-004".to_string(),
+                instrument_family: "Derivatives".to_string(),
+                subtype: Some("Equity Options".to_string()),
+                cfi_code: Some("OPASPS".to_string()),
+                exposure_pct: Some(50.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(25.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 11,
+                mandate_id: "MND-2024-004".to_string(),
+                instrument_family: "Derivatives".to_string(),
+                subtype: Some("Index Futures".to_string()),
+                cfi_code: Some("FFIXXX".to_string()),
+                exposure_pct: Some(70.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(30.0),
+                rating_floor: None,
+            },
+
+            // MND-2024-005: Brazilian EM Fixed Income Strategy
+            MandateInstrument {
+                id: 12,
+                mandate_id: "MND-2024-005".to_string(),
+                instrument_family: "Government Bonds".to_string(),
+                subtype: Some("Emerging Market Sovereigns".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(60.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(20.0),
+                rating_floor: Some("B".to_string()),
+            },
+            MandateInstrument {
+                id: 13,
+                mandate_id: "MND-2024-005".to_string(),
+                instrument_family: "Corporate Bonds".to_string(),
+                subtype: Some("EM Corporate".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(25.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(8.0),
+                rating_floor: Some("BB".to_string()),
+            },
+
+            // MND-2024-006: Swiss Conservative Private Bank Mandate
+            MandateInstrument {
+                id: 14,
+                mandate_id: "MND-2024-006".to_string(),
+                instrument_family: "Government Bonds".to_string(),
+                subtype: Some("Swiss Government Bonds".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(40.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(25.0),
+                rating_floor: Some("AAA".to_string()),
+            },
+            MandateInstrument {
+                id: 15,
+                mandate_id: "MND-2024-006".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("Blue Chip Stocks".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(5.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 16,
+                mandate_id: "MND-2024-006".to_string(),
+                instrument_family: "Money Market".to_string(),
+                subtype: Some("Bank Deposits".to_string()),
+                cfi_code: Some("MMISSS".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(15.0),
+                rating_floor: Some("AA".to_string()),
+            },
+
+            // MND-2024-007: Japanese ESG Pension Strategy
+            MandateInstrument {
+                id: 17,
+                mandate_id: "MND-2024-007".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("ESG Compliant Stocks".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(50.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(3.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 18,
+                mandate_id: "MND-2024-007".to_string(),
+                instrument_family: "Corporate Bonds".to_string(),
+                subtype: Some("Green Bonds".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(35.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(5.0),
+                rating_floor: Some("BBB".to_string()),
+            },
+            MandateInstrument {
+                id: 19,
+                mandate_id: "MND-2024-007".to_string(),
+                instrument_family: "Real Estate".to_string(),
+                subtype: Some("Sustainable REITs".to_string()),
+                cfi_code: Some("ESXXXX".to_string()),
+                exposure_pct: Some(15.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(8.0),
+                rating_floor: None,
+            },
+
+            // MND-2024-008: Qatar Sovereign Wealth Diversified Strategy
+            MandateInstrument {
+                id: 20,
+                mandate_id: "MND-2024-008".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("Global Large Cap".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(40.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(5.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 21,
+                mandate_id: "MND-2024-008".to_string(),
+                instrument_family: "Alternative Investments".to_string(),
+                subtype: Some("Private Equity".to_string()),
+                cfi_code: Some("MFXXXX".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(15.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 22,
+                mandate_id: "MND-2024-008".to_string(),
+                instrument_family: "Commodities".to_string(),
+                subtype: Some("Energy Futures".to_string()),
+                cfi_code: Some("FCXXXX".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(20.0),
+                rating_floor: None,
+            },
+
+            // MND-2024-009: Canadian REIT Strategy
+            MandateInstrument {
+                id: 23,
+                mandate_id: "MND-2024-009".to_string(),
+                instrument_family: "Real Estate".to_string(),
+                subtype: Some("Canadian REITs".to_string()),
+                cfi_code: Some("ESXXXX".to_string()),
+                exposure_pct: Some(70.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(12.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 24,
+                mandate_id: "MND-2024-009".to_string(),
+                instrument_family: "Infrastructure Debt".to_string(),
+                subtype: Some("Real Estate Mortgages".to_string()),
+                cfi_code: Some("DLTTFR".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(8.0),
+                rating_floor: Some("BBB".to_string()),
+            },
+
+            // MND-2024-010: UK Insurance Multi-Asset Strategy
+            MandateInstrument {
+                id: 25,
+                mandate_id: "MND-2024-010".to_string(),
+                instrument_family: "Government Bonds".to_string(),
+                subtype: Some("UK Gilts".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(45.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(30.0),
+                rating_floor: Some("AA".to_string()),
+            },
+            MandateInstrument {
+                id: 26,
+                mandate_id: "MND-2024-010".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("UK Large Cap".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(5.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 27,
+                mandate_id: "MND-2024-010".to_string(),
+                instrument_family: "Corporate Bonds".to_string(),
+                subtype: Some("Insurance Linked Securities".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(25.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(8.0),
+                rating_floor: Some("BBB".to_string()),
             },
         ];
 
@@ -3726,6 +4154,7 @@ impl DataDesignerApp {
 
         // Enhanced CBU mandate structure with mock data
         self.cbu_mandate_structure = vec![
+            // Original 3 CBUs plus expanded global coverage
             CbuInvestmentMandateStructure {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
@@ -3758,6 +4187,84 @@ impl DataDesignerApp {
                 total_instruments: Some(2),
                 families: Some("Infrastructure Debt, Real Estate".to_string()),
                 total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+            },
+            // New CBU structures for expanded mandates
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-209847".to_string(),
+                cbu_name: "Silicon Valley Innovation Fund".to_string(),
+                mandate_id: Some("MND-2024-004".to_string()),
+                asset_owner_name: Some("Silicon Valley Family Office".to_string()),
+                investment_manager_name: Some("TechVenture Capital Partners".to_string()),
+                base_currency: Some("USD".to_string()),
+                total_instruments: Some(3),
+                families: Some("Technology Equities, Equity Options, Index Futures".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("200.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-211563".to_string(),
+                cbu_name: "Latin America Fixed Income".to_string(),
+                mandate_id: Some("MND-2024-005".to_string()),
+                asset_owner_name: Some("Brazilian Development Bank".to_string()),
+                investment_manager_name: Some("Latam Bond Specialists".to_string()),
+                base_currency: Some("BRL".to_string()),
+                total_instruments: Some(2),
+                families: Some("EM Government Bonds, EM Corporate Bonds".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-213794".to_string(),
+                cbu_name: "Swiss Private Banking".to_string(),
+                mandate_id: Some("MND-2024-006".to_string()),
+                asset_owner_name: Some("Zurich Family Trust".to_string()),
+                investment_manager_name: Some("Alpine Wealth Management".to_string()),
+                base_currency: Some("CHF".to_string()),
+                total_instruments: Some(3),
+                families: Some("Swiss Government Bonds, Blue Chip Equities, Bank Deposits".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("80.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-215928".to_string(),
+                cbu_name: "Japan ESG Investment Platform".to_string(),
+                mandate_id: Some("MND-2024-007".to_string()),
+                asset_owner_name: Some("Tokyo Metropolitan Pension Fund".to_string()),
+                investment_manager_name: Some("Nippon ESG Asset Management".to_string()),
+                base_currency: Some("JPY".to_string()),
+                total_instruments: Some(3),
+                families: Some("ESG Equities, Green Bonds, Sustainable REITs".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("95.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-217456".to_string(),
+                cbu_name: "Middle East Sovereign Diversified".to_string(),
+                mandate_id: Some("MND-2024-008".to_string()),
+                asset_owner_name: Some("Qatar Investment Authority".to_string()),
+                investment_manager_name: Some("Gulf Capital Management".to_string()),
+                base_currency: Some("QAR".to_string()),
+                total_instruments: Some(3),
+                families: Some("Global Equities, Private Equity, Energy Commodities".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("120.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-219673".to_string(),
+                cbu_name: "Canadian Real Estate Platform".to_string(),
+                mandate_id: Some("MND-2024-009".to_string()),
+                asset_owner_name: Some("Canada Pension Plan Investment Board".to_string()),
+                investment_manager_name: Some("Maple Leaf Real Estate Partners".to_string()),
+                base_currency: Some("CAD".to_string()),
+                total_instruments: Some(2),
+                families: Some("Canadian REITs, Real Estate Mortgages".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("110.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-221847".to_string(),
+                cbu_name: "UK Insurance Multi-Asset".to_string(),
+                mandate_id: Some("MND-2024-010".to_string()),
+                asset_owner_name: Some("London Life Insurance Company".to_string()),
+                investment_manager_name: Some("Thames Asset Management".to_string()),
+                base_currency: Some("GBP".to_string()),
+                total_instruments: Some(3),
+                families: Some("UK Gilts, UK Large Cap Equities, Insurance Linked Securities".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
             },
         ];
 
@@ -3844,6 +4351,591 @@ impl DataDesignerApp {
         );
     }
 
+    // Load comprehensive mock onboarding requests using existing CBU IDs and Product IDs
+    fn load_mock_onboarding_requests(&mut self) {
+        // Create comprehensive onboarding requests with CBU + Product bundle combinations
+        self.onboarding_requests = vec![
+            // CBU-203914 (Singapore SWF) requests Institutional Custody Plus + Trade Settlement
+            OnboardingRequest {
+                id: 1,
+                onboarding_request_id: "ORQ-2024-001".to_string(),
+                cbu_id: "CBU-203914".to_string(),
+                cbu_name: "Global Trade Finance Consortium".to_string(),
+                product_bundle: vec![], // Will be populated in onboarding_product_items
+                request_date: "2024-01-15".to_string(),
+                requested_by: "Singapore Sovereign Wealth Fund".to_string(),
+                status: "approved".to_string(),
+                priority: "high".to_string(),
+                expected_go_live_date: Some("2024-03-01".to_string()),
+                estimated_setup_time_days: Some(45),
+                approval_workflow_stage: "implementation".to_string(),
+                assigned_relationship_manager: Some("Sarah Chen - APAC Director".to_string()),
+                estimated_annual_revenue: Some(2500000.0),
+                complexity_score: Some(7),
+                notes: Some("Government client with strict regulatory requirements. Priority implementation for Q1 2024.".to_string()),
+            },
+
+            // CBU-205816 (Nordic Pension) requests Fund Administration Complete
+            OnboardingRequest {
+                id: 2,
+                onboarding_request_id: "ORQ-2024-002".to_string(),
+                cbu_id: "CBU-205816".to_string(),
+                cbu_name: "European Growth Capital".to_string(),
+                product_bundle: vec![],
+                request_date: "2024-02-01".to_string(),
+                requested_by: "Nordic Pension Consortium".to_string(),
+                status: "in_progress".to_string(),
+                priority: "normal".to_string(),
+                expected_go_live_date: Some("2024-04-15".to_string()),
+                estimated_setup_time_days: Some(60),
+                approval_workflow_stage: "review".to_string(),
+                assigned_relationship_manager: Some("Lars Andersen - EMEA Head".to_string()),
+                estimated_annual_revenue: Some(1800000.0),
+                complexity_score: Some(6),
+                notes: Some("Multi-jurisdiction pension fund requiring enhanced reporting capabilities.".to_string()),
+            },
+
+            // CBU-209847 (Silicon Valley) requests Trade Settlement Professional + Custom Options
+            OnboardingRequest {
+                id: 3,
+                onboarding_request_id: "ORQ-2024-003".to_string(),
+                cbu_id: "CBU-209847".to_string(),
+                cbu_name: "Silicon Valley Innovation Fund".to_string(),
+                product_bundle: vec![],
+                request_date: "2024-02-10".to_string(),
+                requested_by: "TechVenture Capital Partners".to_string(),
+                status: "pending".to_string(),
+                priority: "urgent".to_string(),
+                expected_go_live_date: Some("2024-03-15".to_string()),
+                estimated_setup_time_days: Some(35),
+                approval_workflow_stage: "approval".to_string(),
+                assigned_relationship_manager: Some("Michael Rodriguez - Americas Tech".to_string()),
+                estimated_annual_revenue: Some(3200000.0),
+                complexity_score: Some(9),
+                notes: Some("High-frequency trading requirements with derivative instruments. Real-time settlement needed.".to_string()),
+            },
+
+            // CBU-213794 (Swiss Private Bank) requests Multiple Products
+            OnboardingRequest {
+                id: 4,
+                onboarding_request_id: "ORQ-2024-004".to_string(),
+                cbu_id: "CBU-213794".to_string(),
+                cbu_name: "Swiss Private Banking".to_string(),
+                product_bundle: vec![],
+                request_date: "2024-01-28".to_string(),
+                requested_by: "Alpine Wealth Management".to_string(),
+                status: "approved".to_string(),
+                priority: "high".to_string(),
+                expected_go_live_date: Some("2024-04-01".to_string()),
+                estimated_setup_time_days: Some(55),
+                approval_workflow_stage: "implementation".to_string(),
+                assigned_relationship_manager: Some("Klaus Weber - EMEA Private Client".to_string()),
+                estimated_annual_revenue: Some(4100000.0),
+                complexity_score: Some(8),
+                notes: Some("Premium private banking client requiring white-glove service and custom reporting.".to_string()),
+            },
+
+            // CBU-215928 (Japanese Pension) requests ESG-compliant products
+            OnboardingRequest {
+                id: 5,
+                onboarding_request_id: "ORQ-2024-005".to_string(),
+                cbu_id: "CBU-215928".to_string(),
+                cbu_name: "Japan ESG Investment Platform".to_string(),
+                product_bundle: vec![],
+                request_date: "2024-02-05".to_string(),
+                requested_by: "Tokyo Metropolitan Pension Fund".to_string(),
+                status: "in_progress".to_string(),
+                priority: "normal".to_string(),
+                expected_go_live_date: Some("2024-05-01".to_string()),
+                estimated_setup_time_days: Some(70),
+                approval_workflow_stage: "review".to_string(),
+                assigned_relationship_manager: Some("Yuki Tanaka - APAC Institutional".to_string()),
+                estimated_annual_revenue: Some(1900000.0),
+                complexity_score: Some(5),
+                notes: Some("ESG compliance reporting required. Green bond settlement capabilities essential.".to_string()),
+            },
+        ];
+
+        // Create detailed product items for each onboarding request
+        self.onboarding_product_items = vec![
+            // ORQ-2024-001: Singapore SWF - Institutional Custody Plus + Trade Settlement
+            OnboardingProductItem {
+                id: 1,
+                onboarding_request_id: "ORQ-2024-001".to_string(),
+                product_id: 1, // Institutional Custody Plus
+                product_name: "Institutional Custody Plus".to_string(),
+                selected_options: vec![], // Will be populated in onboarding_product_options
+                estimated_volume: Some("$2.5B AUM, 500 trades/day".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("Segregated accounts for government assets".to_string()),
+            },
+            OnboardingProductItem {
+                id: 2,
+                onboarding_request_id: "ORQ-2024-001".to_string(),
+                product_id: 3, // Trade Settlement Professional
+                product_name: "Trade Settlement Professional".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("DvP settlement, T+2 Asia markets".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("Multi-currency settlement in USD, SGD, HKD".to_string()),
+            },
+
+            // ORQ-2024-002: Nordic Pension - Fund Administration Complete
+            OnboardingProductItem {
+                id: 3,
+                onboarding_request_id: "ORQ-2024-002".to_string(),
+                product_id: 2, // Fund Administration Complete
+                product_name: "Fund Administration Complete".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("€1.8B fund complex, 50 sub-funds".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("UCITS compliance and daily NAV calculation".to_string()),
+            },
+
+            // ORQ-2024-003: Silicon Valley - Trade Settlement Professional + Custom
+            OnboardingProductItem {
+                id: 4,
+                onboarding_request_id: "ORQ-2024-003".to_string(),
+                product_id: 3, // Trade Settlement Professional
+                product_name: "Trade Settlement Professional".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("$5B notional, 2000+ derivatives/day".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("Real-time settlement for equity options and futures".to_string()),
+            },
+
+            // ORQ-2024-004: Swiss Private Bank - Multiple Products
+            OnboardingProductItem {
+                id: 5,
+                onboarding_request_id: "ORQ-2024-004".to_string(),
+                product_id: 1, // Institutional Custody Plus
+                product_name: "Institutional Custody Plus".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("CHF 3.2B private client assets".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("Discretionary portfolio management integration".to_string()),
+            },
+            OnboardingProductItem {
+                id: 6,
+                onboarding_request_id: "ORQ-2024-004".to_string(),
+                product_id: 2, // Fund Administration Complete
+                product_name: "Fund Administration Complete".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("15 private funds, custom reporting".to_string()),
+                go_live_priority: "phase2".to_string(),
+                special_requirements: Some("Swiss regulatory reporting and tax optimization".to_string()),
+            },
+
+            // ORQ-2024-005: Japanese Pension - ESG Products
+            OnboardingProductItem {
+                id: 7,
+                onboarding_request_id: "ORQ-2024-005".to_string(),
+                product_id: 1, // Institutional Custody Plus
+                product_name: "Institutional Custody Plus".to_string(),
+                selected_options: vec![],
+                estimated_volume: Some("¥280B ESG-compliant assets".to_string()),
+                go_live_priority: "phase1".to_string(),
+                special_requirements: Some("ESG scoring integration and green bond identification".to_string()),
+            },
+        ];
+
+        // Create specific product option selections for each product item
+        self.onboarding_product_options = vec![
+            // ORQ-2024-001 Product 1 Options
+            OnboardingProductOption {
+                id: 1,
+                onboarding_product_item_id: 1,
+                option_id: "OPT-001".to_string(),
+                option_name: "Multi-Currency Settlement".to_string(),
+                option_value: serde_json::json!(["USD", "SGD", "HKD", "JPY"]),
+                custom_configuration: Some("Priority: USD primary, SGD secondary".to_string()),
+            },
+            OnboardingProductOption {
+                id: 2,
+                onboarding_product_item_id: 1,
+                option_id: "OPT-002".to_string(),
+                option_name: "Enhanced Regulatory Reporting".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("MAS compliance required".to_string()),
+            },
+
+            // ORQ-2024-002 Product 1 Options
+            OnboardingProductOption {
+                id: 3,
+                onboarding_product_item_id: 3,
+                option_id: "OPT-003".to_string(),
+                option_name: "UCITS Administration".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("Luxembourg domiciled funds".to_string()),
+            },
+            OnboardingProductOption {
+                id: 4,
+                onboarding_product_item_id: 3,
+                option_id: "OPT-004".to_string(),
+                option_name: "Daily NAV Calculation".to_string(),
+                option_value: serde_json::json!("15:00 CET"),
+                custom_configuration: Some("T+1 publication requirement".to_string()),
+            },
+
+            // ORQ-2024-003 High-frequency Options
+            OnboardingProductOption {
+                id: 5,
+                onboarding_product_item_id: 4,
+                option_id: "OPT-005".to_string(),
+                option_name: "Real-time Settlement".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("Sub-second processing required".to_string()),
+            },
+            OnboardingProductOption {
+                id: 6,
+                onboarding_product_item_id: 4,
+                option_id: "OPT-006".to_string(),
+                option_name: "Derivatives Support".to_string(),
+                option_value: serde_json::json!(["equity_options", "index_futures", "currency_forwards"]),
+                custom_configuration: Some("ISDA master agreements in place".to_string()),
+            },
+
+            // ORQ-2024-004 Swiss Private Banking Options
+            OnboardingProductOption {
+                id: 7,
+                onboarding_product_item_id: 5,
+                option_id: "OPT-007".to_string(),
+                option_name: "Discretionary Management".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("Model portfolio allocation integration".to_string()),
+            },
+            OnboardingProductOption {
+                id: 8,
+                onboarding_product_item_id: 6,
+                option_id: "OPT-008".to_string(),
+                option_name: "Swiss Tax Reporting".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("Automatic withholding tax reclaim".to_string()),
+            },
+
+            // ORQ-2024-005 ESG Options
+            OnboardingProductOption {
+                id: 9,
+                onboarding_product_item_id: 7,
+                option_id: "OPT-009".to_string(),
+                option_name: "ESG Screening".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("MSCI ESG ratings integration".to_string()),
+            },
+            OnboardingProductOption {
+                id: 10,
+                onboarding_product_item_id: 7,
+                option_id: "OPT-010".to_string(),
+                option_name: "Green Bond Identification".to_string(),
+                option_value: serde_json::json!(true),
+                custom_configuration: Some("Climate Bonds Standard verification".to_string()),
+            },
+        ];
+
+        self.status_message = format!("Loaded mock onboarding requests: {} requests, {} product items, {} options",
+            self.onboarding_requests.len(),
+            self.onboarding_product_items.len(),
+            self.onboarding_product_options.len()
+        );
+    }
+
+    // Database Population Functions
+    fn populate_database_with_taxonomy(&mut self) {
+        if let Some(ref pool) = self.db_pool {
+            let pool = pool.clone();
+            let rt = self.runtime.clone();
+
+            // Load mock data first to have it available
+            self.load_mock_product_taxonomy();
+            self.load_mock_investment_mandates();
+            self.load_mock_onboarding_requests();
+
+            self.status_message = "Populating database with product taxonomy...".to_string();
+
+            // Start with products
+            let products = self.products.clone();
+            match rt.block_on(async {
+                for product in &products {
+                    sqlx::query(
+                        r#"INSERT INTO products (product_id, product_name, line_of_business, description, status, contract_type, commercial_status, pricing_model, target_market)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                           ON CONFLICT (product_id) DO UPDATE SET
+                           product_name = EXCLUDED.product_name,
+                           description = EXCLUDED.description,
+                           status = EXCLUDED.status"#)
+                    .bind(&product.product_id)
+                    .bind(&product.product_name)
+                    .bind(&product.line_of_business)
+                    .bind(&product.description)
+                    .bind(&product.status)
+                    .bind(&product.contract_type)
+                    .bind(&product.commercial_status)
+                    .bind(&product.pricing_model)
+                    .bind(&product.target_market)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} products", products.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting products: {}", e);
+                    return;
+                }
+            }
+
+            // Insert product options
+            let product_options = self.product_options.clone();
+            match rt.block_on(async {
+                for option in &product_options {
+                    sqlx::query(
+                        r#"INSERT INTO product_options (option_id, product_id, option_name, option_category, option_type, option_value, display_name, description, pricing_impact, status)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                           ON CONFLICT (option_id) DO UPDATE SET
+                           option_name = EXCLUDED.option_name,
+                           description = EXCLUDED.description,
+                           status = EXCLUDED.status"#)
+                    .bind(&option.option_id)
+                    .bind(&option.product_id)
+                    .bind(&option.option_name)
+                    .bind(&option.option_category)
+                    .bind(&option.option_type)
+                    .bind(&option.option_value)
+                    .bind(&option.display_name)
+                    .bind(&option.description)
+                    .bind(&option.pricing_impact)
+                    .bind(&option.status)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} product options", product_options.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting product options: {}", e);
+                    return;
+                }
+            }
+
+            // Insert services
+            let services = self.services.clone();
+            match rt.block_on(async {
+                for service in &services {
+                    sqlx::query(
+                        r#"INSERT INTO services (service_id, service_name, service_category, description, service_type, delivery_model, billable, status)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                           ON CONFLICT (service_id) DO UPDATE SET
+                           service_name = EXCLUDED.service_name,
+                           description = EXCLUDED.description,
+                           status = EXCLUDED.status"#)
+                    .bind(&service.service_id)
+                    .bind(&service.service_name)
+                    .bind(&service.service_category)
+                    .bind(&service.description)
+                    .bind(&service.service_type)
+                    .bind(&service.delivery_model)
+                    .bind(&service.billable)
+                    .bind(&service.status)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} services", services.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting services: {}", e);
+                    return;
+                }
+            }
+
+            // Insert resources
+            let resources = self.resources.clone();
+            match rt.block_on(async {
+                for resource in &resources {
+                    sqlx::query(
+                        r#"INSERT INTO resource_objects (resource_name, description, version, category, resource_type, criticality_level, operational_status, owner_team, status)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                           ON CONFLICT (resource_name) DO UPDATE SET
+                           description = EXCLUDED.description,
+                           version = EXCLUDED.version,
+                           status = EXCLUDED.status"#)
+                    .bind(&resource.resource_name)
+                    .bind(&resource.description)
+                    .bind(&resource.version)
+                    .bind(&resource.category)
+                    .bind(&resource.resource_type)
+                    .bind(&resource.criticality_level)
+                    .bind(&resource.operational_status)
+                    .bind(&resource.owner_team)
+                    .bind(&resource.status)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} resources", resources.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting resources: {}", e);
+                    return;
+                }
+            }
+
+            // Insert investment mandates
+            let mandates = self.investment_mandates.clone();
+            match rt.block_on(async {
+                for mandate in &mandates {
+                    sqlx::query(
+                        r#"INSERT INTO investment_mandates (mandate_id, cbu_id, asset_owner_name, asset_owner_lei, investment_manager_name, investment_manager_lei, base_currency, effective_date, expiry_date, gross_exposure_pct, net_exposure_pct, leverage_max)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                           ON CONFLICT (mandate_id) DO UPDATE SET
+                           asset_owner_name = EXCLUDED.asset_owner_name,
+                           investment_manager_name = EXCLUDED.investment_manager_name,
+                           base_currency = EXCLUDED.base_currency"#)
+                    .bind(&mandate.mandate_id)
+                    .bind(&mandate.cbu_id)
+                    .bind(&mandate.asset_owner_name)
+                    .bind(&mandate.asset_owner_lei)
+                    .bind(&mandate.investment_manager_name)
+                    .bind(&mandate.investment_manager_lei)
+                    .bind(&mandate.base_currency)
+                    .bind(&mandate.effective_date)
+                    .bind(&mandate.expiry_date)
+                    .bind(&mandate.gross_exposure_pct)
+                    .bind(&mandate.net_exposure_pct)
+                    .bind(&mandate.leverage_max)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} investment mandates", mandates.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting investment mandates: {}", e);
+                    return;
+                }
+            }
+
+            // Insert mandate instruments
+            let instruments = self.mandate_instruments.clone();
+            match rt.block_on(async {
+                for instrument in &instruments {
+                    sqlx::query(
+                        r#"INSERT INTO mandate_instruments (mandate_id, instrument_family, subtype, cfi_code, exposure_pct, short_allowed, issuer_max_pct, rating_floor)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                           ON CONFLICT (mandate_id, instrument_family) DO UPDATE SET
+                           exposure_pct = EXCLUDED.exposure_pct,
+                           short_allowed = EXCLUDED.short_allowed,
+                           issuer_max_pct = EXCLUDED.issuer_max_pct"#)
+                    .bind(&instrument.mandate_id)
+                    .bind(&instrument.instrument_family)
+                    .bind(&instrument.subtype)
+                    .bind(&instrument.cfi_code)
+                    .bind(&instrument.exposure_pct)
+                    .bind(&instrument.short_allowed)
+                    .bind(&instrument.issuer_max_pct)
+                    .bind(&instrument.rating_floor)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    self.status_message = format!("✅ Inserted {} mandate instruments", instruments.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting mandate instruments: {}", e);
+                    return;
+                }
+            }
+
+            // Insert instruction formats
+            let formats = self.instruction_formats.clone();
+            match rt.block_on(async {
+                for format in &formats {
+                    sqlx::query(
+                        r#"INSERT INTO instruction_formats (format_id, format_name, format_category, message_standard, message_type, status)
+                           VALUES ($1, $2, $3, $4, $5, $6)
+                           ON CONFLICT (format_id) DO UPDATE SET
+                           format_name = EXCLUDED.format_name,
+                           format_category = EXCLUDED.format_category,
+                           status = EXCLUDED.status"#)
+                    .bind(&format.format_id)
+                    .bind(&format.format_name)
+                    .bind(&format.format_category)
+                    .bind(&format.message_standard)
+                    .bind(&format.message_type)
+                    .bind(&format.status)
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok::<(), sqlx::Error>(())
+            }) {
+                Ok(_) => {
+                    // Insert onboarding requests
+                    let requests = self.onboarding_requests.clone();
+                    let request_result = rt.block_on(async {
+                        for request in &requests {
+                            sqlx::query(
+                                r#"INSERT INTO onboarding_requests (onboarding_request_id, cbu_id, cbu_name, request_date, requested_by, status, priority, expected_go_live_date, estimated_setup_time_days, approval_workflow_stage, assigned_relationship_manager, estimated_annual_revenue, complexity_score, notes)
+                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                                   ON CONFLICT (onboarding_request_id) DO UPDATE SET
+                                   status = EXCLUDED.status,
+                                   approval_workflow_stage = EXCLUDED.approval_workflow_stage,
+                                   assigned_relationship_manager = EXCLUDED.assigned_relationship_manager"#)
+                            .bind(&request.onboarding_request_id)
+                            .bind(&request.cbu_id)
+                            .bind(&request.cbu_name)
+                            .bind(&request.request_date)
+                            .bind(&request.requested_by)
+                            .bind(&request.status)
+                            .bind(&request.priority)
+                            .bind(&request.expected_go_live_date)
+                            .bind(&request.estimated_setup_time_days)
+                            .bind(&request.approval_workflow_stage)
+                            .bind(&request.assigned_relationship_manager)
+                            .bind(&request.estimated_annual_revenue)
+                            .bind(&request.complexity_score)
+                            .bind(&request.notes)
+                            .execute(&pool)
+                            .await?;
+                        }
+                        Ok::<(), sqlx::Error>(())
+                    });
+
+                    match request_result {
+                        Ok(_) => {
+                            self.status_message = format!("🎉 Database population complete! Total: {} products, {} services, {} resources, {} mandates, {} onboarding requests",
+                                self.products.len(),
+                                self.services.len(),
+                                self.resources.len(),
+                                self.investment_mandates.len(),
+                                self.onboarding_requests.len()
+                            );
+                        }
+                        Err(e) => {
+                            self.status_message = format!("❌ Error inserting onboarding requests: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.status_message = format!("❌ Error inserting instruction formats: {}", e);
+                }
+            }
+        } else {
+            self.status_message = "❌ No database connection available".to_string();
+        }
+    }
+
     fn load_taxonomy_hierarchy(&mut self) {
         // For now, create a sample hierarchy
         self.taxonomy_hierarchy = vec![
@@ -3869,6 +4961,281 @@ impl DataDesignerApp {
             },
         ];
         self.status_message = "Loaded sample taxonomy hierarchy".to_string();
+    }
+
+    // CBU Tree Management Functions
+    fn build_cbu_tree(&mut self) {
+        if self.cbus.is_empty() {
+            self.cbu_tree = None;
+            return;
+        }
+
+        // For now, since we don't have parent_id in the structure, create a simple hierarchical mock
+        // In a real implementation, you'd have parent_id fields and proper hierarchy
+        let mock_tree = self.create_mock_cbu_hierarchy();
+        self.cbu_tree = Some(mock_tree);
+    }
+
+    fn create_mock_cbu_hierarchy(&self) -> CbuTreeNode {
+        use chrono::{DateTime, Utc};
+
+        // Create a mock root CBU if none exists
+        let root_cbu = if self.cbus.is_empty() {
+            ClientBusinessUnit {
+                id: 0,
+                cbu_id: "ROOT-001".to_string(),
+                cbu_name: "Global Financial Services Group".to_string(),
+                description: Some("Root holding company for all financial services".to_string()),
+                primary_entity_id: Some("GLOBAL-LEI-001".to_string()),
+                primary_lei: Some("254900OPPU84GM83MG36".to_string()),
+                domicile_country: Some("US".to_string()),
+                regulatory_jurisdiction: Some("Federal Reserve".to_string()),
+                business_type: Some("Financial Holding Company".to_string()),
+                status: "active".to_string(),
+                created_date: None,
+                last_review_date: None,
+                next_review_date: None,
+                created_by: Some("system".to_string()),
+                created_at: DateTime::<Utc>::from_timestamp(1609459200, 0).unwrap_or_else(Utc::now),
+                updated_by: Some("system".to_string()),
+                updated_at: DateTime::<Utc>::from_timestamp(1609459200, 0).unwrap_or_else(Utc::now),
+                metadata: None,
+            }
+        } else {
+            self.cbus[0].clone()
+        };
+
+        // Create child CBUs with mock hierarchy
+        let mut children = Vec::new();
+
+        // Add regional divisions as children
+        let regional_divisions = vec![
+            self.create_mock_cbu("APAC-001", "Asia Pacific Division", "Regional operations across Asia Pacific", 1),
+            self.create_mock_cbu("EMEA-001", "Europe Middle East Africa", "Regional operations across EMEA", 1),
+            self.create_mock_cbu("AMERICAS-001", "Americas Division", "Regional operations across Americas", 1),
+        ];
+
+        for regional_cbu in regional_divisions {
+            let mut regional_children = Vec::new();
+
+            // Add country-specific CBUs as children of regional divisions
+            match regional_cbu.cbu.cbu_id.as_str() {
+                "APAC-001" => {
+                    regional_children.push(self.create_mock_cbu("SG-001", "Singapore Operations", "Singapore trading and custody", 2));
+                    regional_children.push(self.create_mock_cbu("HK-001", "Hong Kong Operations", "Hong Kong wealth management", 2));
+                    regional_children.push(self.create_mock_cbu("AU-001", "Australia Operations", "Australian institutional services", 2));
+                }
+                "EMEA-001" => {
+                    regional_children.push(self.create_mock_cbu("UK-001", "United Kingdom Operations", "UK investment management", 2));
+                    regional_children.push(self.create_mock_cbu("DE-001", "Germany Operations", "German corporate banking", 2));
+                    regional_children.push(self.create_mock_cbu("CH-001", "Switzerland Operations", "Swiss private banking", 2));
+                }
+                "AMERICAS-001" => {
+                    regional_children.push(self.create_mock_cbu("US-001", "United States Operations", "US institutional custody", 2));
+                    regional_children.push(self.create_mock_cbu("CA-001", "Canada Operations", "Canadian pension services", 2));
+                    regional_children.push(self.create_mock_cbu("BR-001", "Brazil Operations", "Brazilian asset management", 2));
+                }
+                _ => {}
+            }
+
+            children.push(CbuTreeNode {
+                cbu: regional_cbu.cbu,
+                children: regional_children,
+                is_expanded: false,
+                depth: 1,
+            });
+        }
+
+        CbuTreeNode {
+            cbu: root_cbu,
+            children,
+            is_expanded: true, // Root is expanded by default
+            depth: 0,
+        }
+    }
+
+    fn create_mock_cbu(&self, cbu_id: &str, name: &str, description: &str, depth: usize) -> CbuTreeNode {
+        use chrono::{DateTime, Utc};
+
+        let cbu = ClientBusinessUnit {
+            id: cbu_id.chars().map(|c| c as i32).sum(), // Simple ID generation
+            cbu_id: cbu_id.to_string(),
+            cbu_name: name.to_string(),
+            description: Some(description.to_string()),
+            primary_entity_id: Some(format!("{}-ENTITY", cbu_id)),
+            primary_lei: Some(format!("254900{:0>12}", cbu_id.len())),
+            domicile_country: match cbu_id {
+                id if id.starts_with("SG-") => Some("SG".to_string()),
+                id if id.starts_with("HK-") => Some("HK".to_string()),
+                id if id.starts_with("AU-") => Some("AU".to_string()),
+                id if id.starts_with("UK-") => Some("GB".to_string()),
+                id if id.starts_with("DE-") => Some("DE".to_string()),
+                id if id.starts_with("CH-") => Some("CH".to_string()),
+                id if id.starts_with("US-") => Some("US".to_string()),
+                id if id.starts_with("CA-") => Some("CA".to_string()),
+                id if id.starts_with("BR-") => Some("BR".to_string()),
+                _ => Some("US".to_string()),
+            },
+            regulatory_jurisdiction: Some("Local Regulator".to_string()),
+            business_type: Some("Financial Services".to_string()),
+            status: "active".to_string(),
+            created_date: None,
+            last_review_date: None,
+            next_review_date: None,
+            created_by: Some("system".to_string()),
+            created_at: DateTime::<Utc>::from_timestamp(1609459200, 0).unwrap_or_else(Utc::now),
+            updated_by: Some("system".to_string()),
+            updated_at: DateTime::<Utc>::from_timestamp(1609459200, 0).unwrap_or_else(Utc::now),
+            metadata: None,
+        };
+
+        CbuTreeNode {
+            cbu,
+            children: Vec::new(),
+            is_expanded: false,
+            depth,
+        }
+    }
+
+    fn show_cbu_tree_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🏢 CBU Taxonomy Editor");
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            if ui.button("🔄 Rebuild Tree").clicked() {
+                self.build_cbu_tree();
+            }
+
+            if ui.button("➕ Add CBU").clicked() {
+                self.show_cbu_editor = true;
+            }
+
+            if let Some(ref selected_id) = self.selected_cbu_node {
+                ui.separator();
+                ui.label(format!("Selected: {}", selected_id));
+                if ui.button("✏️ Edit").clicked() {
+                    self.show_cbu_editor = true;
+                }
+            }
+        });
+
+        ui.separator();
+
+        // Build tree if it doesn't exist
+        if self.cbu_tree.is_none() {
+            self.build_cbu_tree();
+        }
+
+        // Render the tree
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            if self.cbu_tree.is_some() {
+                // Extract tree to avoid borrowing issues
+                if let Some(mut tree) = self.cbu_tree.take() {
+                    self.render_cbu_tree_node(ui, &mut tree);
+                    self.cbu_tree = Some(tree); // Put it back
+                }
+            } else {
+                ui.colored_label(egui::Color32::GRAY, "No CBU data available. Load CBUs first.");
+            }
+        });
+    }
+
+    fn render_cbu_tree_node(&mut self, ui: &mut egui::Ui, node: &mut CbuTreeNode) {
+        let indent = (node.depth as f32) * 20.0;
+
+        ui.horizontal(|ui| {
+            // Add indentation
+            ui.add_space(indent);
+
+            // Expand/collapse arrow if has children
+            if !node.children.is_empty() {
+                let arrow = if node.is_expanded { "🔽" } else { "▶️" };
+                if ui.button(arrow).clicked() {
+                    node.is_expanded = !node.is_expanded;
+                }
+            } else {
+                ui.add_space(20.0); // Space for alignment when no arrow
+            }
+
+            // CBU icon based on type
+            let icon = match node.depth {
+                0 => "🏛️", // Root/Global
+                1 => "🌍", // Regional
+                2 => "🏢", // Country
+                _ => "🏪", // Local
+            };
+
+            ui.label(icon);
+
+            // CBU name (clickable)
+            let cbu_response = ui.selectable_label(
+                self.selected_cbu_node.as_ref() == Some(&node.cbu.cbu_id),
+                &node.cbu.cbu_name
+            );
+
+            if cbu_response.clicked() {
+                self.selected_cbu_node = Some(node.cbu.cbu_id.clone());
+            }
+
+            // Status indicator
+            match node.cbu.status.as_str() {
+                "active" => ui.colored_label(egui::Color32::GREEN, "✅"),
+                "inactive" => ui.colored_label(egui::Color32::RED, "❌"),
+                _ => ui.colored_label(egui::Color32::YELLOW, "⚠️"),
+            };
+
+            // Quick info
+            ui.separator();
+            ui.label(format!("ID: {}", node.cbu.cbu_id));
+
+            if let Some(ref country) = node.cbu.domicile_country {
+                ui.label(format!("🌍 {}", country));
+            }
+        });
+
+        // Show description if selected
+        if self.selected_cbu_node.as_ref() == Some(&node.cbu.cbu_id) {
+            ui.horizontal(|ui| {
+                ui.add_space(indent + 40.0);
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        if let Some(ref desc) = node.cbu.description {
+                            ui.label(format!("📝 {}", desc));
+                        }
+                        if let Some(ref lei) = node.cbu.primary_lei {
+                            ui.label(format!("🏛️ LEI: {}", lei));
+                        }
+                        if let Some(ref btype) = node.cbu.business_type {
+                            ui.label(format!("💼 Type: {}", btype));
+                        }
+                        if let Some(ref jurisdiction) = node.cbu.regulatory_jurisdiction {
+                            ui.label(format!("⚖️ Jurisdiction: {}", jurisdiction));
+                        }
+
+                        // Action buttons for selected CBU
+                        ui.horizontal(|ui| {
+                            if ui.button("➕ Add Subsidiary").clicked() {
+                                // TODO: Implement add subsidiary logic
+                                self.show_cbu_editor = true;
+                            }
+                            if ui.button("✏️ Edit Details").clicked() {
+                                self.show_cbu_editor = true;
+                            }
+                            if ui.button("🗑️ Archive").clicked() {
+                                // TODO: Implement archive logic
+                            }
+                        });
+                    });
+                });
+            });
+        }
+
+        // Render children if expanded
+        if node.is_expanded {
+            for child in &mut node.children {
+                self.render_cbu_tree_node(ui, child);
+            }
+        }
     }
 
     // Mock Data Loading Methods
