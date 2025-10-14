@@ -172,6 +172,13 @@ struct DataDesignerApp {
     cbu_tree: Option<CbuTreeNode>,
     selected_cbu_node: Option<String>, // Selected CBU ID
     show_cbu_editor: bool,
+
+    // Editing State for Product Taxonomy
+    edit_mode_products: bool,
+    edit_mode_services: bool,
+    edit_mode_options: bool,
+    pending_changes: bool,
+    save_feedback: Option<String>, // Success/error messages
 }
 
 // CBU Tree Node for hierarchical representation
@@ -885,6 +892,13 @@ impl DataDesignerApp {
             cbu_tree: None,
             selected_cbu_node: None,
             show_cbu_editor: false,
+
+            // Editing State for Product Taxonomy
+            edit_mode_products: false,
+            edit_mode_services: false,
+            edit_mode_options: false,
+            pending_changes: false,
+            save_feedback: None,
         };
 
         // Load initial data
@@ -2337,7 +2351,15 @@ impl DataDesignerApp {
                                     ui.horizontal(|ui| {
                                         ui.label(format!("🔑 {}", key));
                                         ui.separator();
-                                        ui.label(format!("{}", value));
+                                        // Handle serde_json::Value properly
+                                        let value_str = match value {
+                                            serde_json::Value::String(s) => s.clone(),
+                                            serde_json::Value::Number(n) => n.to_string(),
+                                            serde_json::Value::Bool(b) => b.to_string(),
+                                            serde_json::Value::Null => "null".to_string(),
+                                            _ => serde_json::to_string_pretty(value).unwrap_or_else(|_| "Invalid JSON".to_string()),
+                                        };
+                                        ui.label(value_str);
                                     });
                                 }
                             });
@@ -2976,34 +2998,116 @@ impl DataDesignerApp {
         ui.heading("📦 Product Taxonomy");
         ui.separator();
 
-        // Refresh button
-        if ui.button("🔄 Refresh Data").clicked() {
-            self.load_product_taxonomy();
+        // Top toolbar with editing controls
+        ui.horizontal(|ui| {
+            if ui.button("🔄 Refresh Data").clicked() {
+                self.load_product_taxonomy();
+                self.save_feedback = Some("Data refreshed from database".to_string());
+            }
+
+            ui.separator();
+
+            // Edit mode toggles
+            ui.checkbox(&mut self.edit_mode_products, "✏️ Edit Products");
+            ui.checkbox(&mut self.edit_mode_services, "✏️ Edit Services");
+            ui.checkbox(&mut self.edit_mode_options, "✏️ Edit Options");
+
+            ui.separator();
+
+            // Save button - only show if there are pending changes or edit mode is on
+            if self.edit_mode_products || self.edit_mode_services || self.edit_mode_options {
+                if ui.button("💾 Save Changes").clicked() {
+                    self.save_taxonomy_changes();
+                }
+
+                if self.pending_changes {
+                    ui.colored_label(egui::Color32::YELLOW, "⚠️ Unsaved changes");
+                }
+            }
+        });
+
+        // Display save feedback
+        if let Some(feedback) = &self.save_feedback.clone() {
+            ui.horizontal(|ui| {
+                if feedback.contains("Error") || feedback.contains("Failed") {
+                    ui.colored_label(egui::Color32::RED, format!("❌ {}", feedback));
+                } else {
+                    ui.colored_label(egui::Color32::GREEN, format!("✅ {}", feedback));
+                }
+                if ui.small_button("×").clicked() {
+                    self.save_feedback = None;
+                }
+            });
         }
 
         ui.separator();
 
-        // Products section
+        // Products section - Interactive Editor
         ui.collapsing("🏪 Products", |ui| {
             if self.products.is_empty() {
                 ui.label("No products loaded. Click refresh to load data.");
             } else {
-                for product in &self.products {
+                for product in &mut self.products {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.strong(&product.product_name);
+                            ui.label("Product Name:");
+                            if self.edit_mode_products {
+                                if ui.text_edit_singleline(&mut product.product_name).changed() {
+                                    self.pending_changes = true;
+                                }
+                            } else {
+                                ui.strong(&product.product_name);
+                            }
                             ui.label(format!("({})", product.product_id));
                         });
-                        ui.label(format!("Business: {}", product.line_of_business));
-                        if let Some(desc) = &product.description {
-                            ui.label(format!("Description: {}", desc));
+
+                        ui.horizontal(|ui| {
+                            ui.label("Business Line:");
+                            if self.edit_mode_products {
+                                if ui.text_edit_singleline(&mut product.line_of_business).changed() {
+                                    self.pending_changes = true;
+                                }
+                            } else {
+                                ui.label(&product.line_of_business);
+                            }
+                        });
+
+                        if let Some(ref mut desc) = product.description {
+                            ui.horizontal(|ui| {
+                                ui.label("Description:");
+                                if self.edit_mode_products {
+                                    if ui.text_edit_multiline(desc).changed() {
+                                        self.pending_changes = true;
+                                    }
+                                } else {
+                                    ui.label(desc.as_str());
+                                }
+                            });
                         }
+
                         ui.horizontal(|ui| {
                             ui.label("Status:");
-                            match product.status.as_str() {
-                                "active" => ui.colored_label(egui::Color32::GREEN, "✅ Active"),
-                                _ => ui.colored_label(egui::Color32::YELLOW, &product.status),
-                            };
+                            if self.edit_mode_products {
+                                egui::ComboBox::from_id_salt(format!("status_{}", product.id))
+                                    .selected_text(&product.status)
+                                    .show_ui(ui, |ui| {
+                                        let old_status = product.status.clone();
+                                        ui.selectable_value(&mut product.status, "active".to_string(), "Active");
+                                        ui.selectable_value(&mut product.status, "deprecated".to_string(), "Deprecated");
+                                        ui.selectable_value(&mut product.status, "beta".to_string(), "Beta");
+                                        ui.selectable_value(&mut product.status, "coming_soon".to_string(), "Coming Soon");
+                                        if product.status != old_status {
+                                            self.pending_changes = true;
+                                        }
+                                    });
+                            } else {
+                                match product.status.as_str() {
+                                    "active" => ui.colored_label(egui::Color32::GREEN, "✅ Active"),
+                                    "deprecated" => ui.colored_label(egui::Color32::RED, "❌ Deprecated"),
+                                    "beta" => ui.colored_label(egui::Color32::BLUE, "🧪 Beta"),
+                                    _ => ui.colored_label(egui::Color32::YELLOW, &product.status),
+                                };
+                            }
                         });
                     });
                 }
@@ -3041,32 +3145,66 @@ impl DataDesignerApp {
             }
         });
 
-        // Services section
+        // Services section - Interactive Editor
         ui.collapsing("🔧 Services", |ui| {
             if self.services.is_empty() {
                 ui.label("No services loaded.");
             } else {
-                for service in &self.services {
+                for service in &mut self.services {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.strong(&service.service_name);
-                            if let Some(category) = &service.service_category {
+                            ui.label("Service Name:");
+                            if self.edit_mode_services {
+                                if ui.text_edit_singleline(&mut service.service_name).changed() {
+                                    self.pending_changes = true;
+                                }
+                            } else {
+                                ui.strong(&service.service_name);
+                            }
+                            if let Some(ref category) = service.service_category {
                                 ui.label(format!("({})", category));
                             }
                         });
-                        if let Some(service_type) = &service.service_type {
-                            ui.label(format!("Type: {}", service_type));
+
+                        if let Some(ref mut service_type) = service.service_type {
+                            ui.horizontal(|ui| {
+                                ui.label("Type:");
+                                if self.edit_mode_services {
+                                    if ui.text_edit_singleline(service_type).changed() {
+                                        self.pending_changes = true;
+                                    }
+                                } else {
+                                    ui.label(service_type.as_str());
+                                }
+                            });
                         }
-                        if let Some(delivery_model) = &service.delivery_model {
-                            ui.label(format!("Delivery: {}", delivery_model));
+
+                        if let Some(ref mut delivery_model) = service.delivery_model {
+                            ui.horizontal(|ui| {
+                                ui.label("Delivery:");
+                                if self.edit_mode_services {
+                                    if ui.text_edit_singleline(delivery_model).changed() {
+                                        self.pending_changes = true;
+                                    }
+                                } else {
+                                    ui.label(delivery_model.as_str());
+                                }
+                            });
                         }
-                        if let Some(billable) = service.billable {
+
+                        if let Some(ref mut billable) = service.billable {
                             ui.horizontal(|ui| {
                                 ui.label("Billable:");
-                                if billable {
-                                    ui.colored_label(egui::Color32::GREEN, "✅ Yes");
+                                if self.edit_mode_services {
+                                    if ui.checkbox(billable, "").changed() {
+                                        self.pending_changes = true;
+                                    }
                                 } else {
-                                    ui.colored_label(egui::Color32::GRAY, "❌ No");
+                                    if *billable {
+                                        ui.colored_label(egui::Color32::GREEN, "✅ Yes");
+                                    } else {
+                                        ui.colored_label(egui::Color32::GRAY, "❌ No");
+                                    }
                                 }
                             });
                         }
@@ -3216,6 +3354,84 @@ impl DataDesignerApp {
                 }
             }
         });
+    }
+
+    fn save_taxonomy_changes(&mut self) {
+        if let Some(ref pool) = self.db_pool {
+            let pool = pool.clone();
+            let rt = self.runtime.clone();
+
+            // Save products if in edit mode
+            if self.edit_mode_products {
+                for product in &self.products {
+                    match rt.block_on(async {
+                        sqlx::query(
+                            "UPDATE products SET
+                             product_name = $1,
+                             line_of_business = $2,
+                             description = $3,
+                             status = $4,
+                             updated_at = CURRENT_TIMESTAMP
+                             WHERE id = $5"
+                        )
+                        .bind(&product.product_name)
+                        .bind(&product.line_of_business)
+                        .bind(&product.description)
+                        .bind(&product.status)
+                        .bind(product.id)
+                        .execute(&pool)
+                        .await
+                    }) {
+                        Ok(_) => {},
+                        Err(e) => {
+                            self.save_feedback = Some(format!("Error saving product {}: {}", product.product_name, e));
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Save services if in edit mode
+            if self.edit_mode_services {
+                for service in &self.services {
+                    match rt.block_on(async {
+                        sqlx::query(
+                            "UPDATE services SET
+                             service_name = $1,
+                             service_type = $2,
+                             delivery_model = $3,
+                             billable = $4,
+                             updated_at = CURRENT_TIMESTAMP
+                             WHERE id = $5"
+                        )
+                        .bind(&service.service_name)
+                        .bind(&service.service_type)
+                        .bind(&service.delivery_model)
+                        .bind(&service.billable)
+                        .bind(service.id)
+                        .execute(&pool)
+                        .await
+                    }) {
+                        Ok(_) => {},
+                        Err(e) => {
+                            self.save_feedback = Some(format!("Error saving service {}: {}", service.service_name, e));
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Success feedback
+            let mut saved_items = Vec::new();
+            if self.edit_mode_products { saved_items.push("products"); }
+            if self.edit_mode_services { saved_items.push("services"); }
+            if self.edit_mode_options { saved_items.push("options"); }
+
+            self.save_feedback = Some(format!("Successfully saved changes to: {}", saved_items.join(", ")));
+            self.pending_changes = false;
+        } else {
+            self.save_feedback = Some("Error: No database connection available".to_string());
+        }
     }
 
     fn show_investment_mandates_tab(&mut self, ui: &mut egui::Ui) {
