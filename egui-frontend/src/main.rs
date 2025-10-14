@@ -3129,7 +3129,9 @@ impl DataDesignerApp {
                             ui.label(format!("Display: {}", display_name));
                         }
                         if let Some(pricing_impact) = option.pricing_impact {
-                            ui.label(format!("Pricing Impact: ${:.2}", pricing_impact.to_f64().unwrap_or(0.0)));
+                            // Handle rust_decimal::Decimal properly
+                            let pricing_value = pricing_impact.to_string().parse::<f64>().unwrap_or(0.0);
+                            ui.label(format!("Pricing Impact: ${:.2}", pricing_value));
                         }
                         ui.horizontal(|ui| {
                             ui.label("Type:");
@@ -3331,7 +3333,9 @@ impl DataDesignerApp {
 
                                 ui.horizontal(|ui| {
                                     if let Some(cost_pct) = &resource.cost_allocation_percentage {
-                                        ui.label(format!("Cost Allocation: {:.1}%", cost_pct.to_f64().unwrap_or(0.0)));
+                                        // Handle rust_decimal::Decimal properly
+                                        let cost_value = cost_pct.to_string().parse::<f64>().unwrap_or(0.0);
+                                        ui.label(format!("Cost Allocation: {:.1}%", cost_value));
                                     }
 
                                     if let Some(criticality) = &resource.criticality_level {
@@ -3501,7 +3505,9 @@ impl DataDesignerApp {
                             if let Some(exposure) = structure.total_exposure_pct {
                                 ui.horizontal(|ui| {
                                     ui.label("📈 Total Exposure:");
-                                    ui.label(format!("{:.1}%", exposure.to_f64().unwrap_or(0.0)));
+                                    // Handle rust_decimal::Decimal properly
+                                    let exposure_value = exposure.to_string().parse::<f64>().unwrap_or(0.0);
+                                    ui.label(format!("{:.1}%", exposure_value));
                                 });
                             }
                         } else {
