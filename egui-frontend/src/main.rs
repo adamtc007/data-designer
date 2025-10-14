@@ -2,7 +2,7 @@ use eframe::egui;
 use data_designer_core::db::{
     init_db, DbPool,
     ClientBusinessUnit, CreateCbuRequest,
-    DbOperations, DataDictionaryResponse
+    DbOperations, DataDictionaryResponse, EmbeddingOperations, SimilarRule
 };
 use data_designer_core::{parser, evaluator, models::Value};
 use std::collections::HashMap;
@@ -78,6 +78,11 @@ struct DataDesignerApp {
     show_autocomplete: bool,
     autocomplete_suggestions: Vec<String>,
     autocomplete_position: usize,
+
+    // Vector search
+    semantic_search_query: String,
+    similar_rules: Vec<SimilarRule>,
+    embedding_status: String,
 
     // UI State
     show_cbu_form: bool,
@@ -384,6 +389,9 @@ impl DataDesignerApp {
             show_autocomplete: false,
             autocomplete_suggestions: Vec::new(),
             autocomplete_position: 0,
+            semantic_search_query: String::new(),
+            similar_rules: Vec::new(),
+            embedding_status: "Ready for semantic search".to_string(),
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -869,6 +877,51 @@ impl DataDesignerApp {
 
         ui.separator();
 
+        // Semantic Search Section
+        ui.group(|ui| {
+            ui.heading("🔍 Semantic Rule Search");
+
+            ui.horizontal(|ui| {
+                ui.label("Search Query:");
+                ui.text_edit_singleline(&mut self.semantic_search_query);
+                if ui.button("🧠 Find Similar Rules").clicked() {
+                    self.search_similar_rules();
+                }
+                if ui.button("⚡ Generate Embeddings").clicked() {
+                    self.generate_all_embeddings();
+                }
+            });
+
+            ui.label(&self.embedding_status);
+
+            if !self.similar_rules.is_empty() {
+                ui.separator();
+                ui.heading("📊 Similar Rules Found:");
+
+                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    egui::Grid::new("similar_rules_grid").striped(true).show(ui, |ui| {
+                        ui.label("Similarity");
+                        ui.label("Rule Name");
+                        ui.label("Definition");
+                        ui.label("Actions");
+                        ui.end_row();
+
+                        for similar_rule in &self.similar_rules {
+                            ui.label(format!("{:.3}", 1.0 - similar_rule.similarity)); // Convert distance to similarity
+                            ui.label(&similar_rule.rule_name);
+                            ui.label(&similar_rule.rule_definition);
+                            if ui.button("📋 Copy").clicked() {
+                                self.rule_input = similar_rule.rule_definition.clone();
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+            }
+        });
+
+        ui.separator();
+
         // DSL Reference
         ui.collapsing("📖 DSL Quick Reference", |ui| {
             ui.label("🔢 Arithmetic: +, -, *, /, %, **");
@@ -1031,6 +1084,58 @@ impl DataDesignerApp {
             Err(e) => {
                 self.rule_error = Some(format!("❌ Syntax Error: {:?}", e));
             }
+        }
+    }
+
+    fn search_similar_rules(&mut self) {
+        if self.semantic_search_query.trim().is_empty() {
+            self.embedding_status = "❌ Please enter a search query".to_string();
+            return;
+        }
+
+        if let Some(ref _pool) = self.db_pool {
+            let rt = self.runtime.clone();
+            let query = self.semantic_search_query.clone();
+
+            self.embedding_status = "🔄 Searching for similar rules...".to_string();
+
+            match rt.block_on(async {
+                let pool = DbOperations::get_pool().await.map_err(|e| e.to_string())?;
+                EmbeddingOperations::find_similar_rules(&pool, &query, 5).await
+            }) {
+                Ok(rules) => {
+                    self.similar_rules = rules;
+                    self.embedding_status = format!("✅ Found {} similar rules", self.similar_rules.len());
+                }
+                Err(e) => {
+                    self.embedding_status = format!("❌ Search failed: {}", e);
+                    self.similar_rules.clear();
+                }
+            }
+        } else {
+            self.embedding_status = "❌ No database connection".to_string();
+        }
+    }
+
+    fn generate_all_embeddings(&mut self) {
+        if let Some(ref _pool) = self.db_pool {
+            let rt = self.runtime.clone();
+
+            self.embedding_status = "🔄 Generating embeddings for all rules...".to_string();
+
+            match rt.block_on(async {
+                let pool = DbOperations::get_pool().await.map_err(|e| e.to_string())?;
+                EmbeddingOperations::generate_all_embeddings(&pool).await
+            }) {
+                Ok(_) => {
+                    self.embedding_status = "✅ All embeddings generated successfully".to_string();
+                }
+                Err(e) => {
+                    self.embedding_status = format!("❌ Embedding generation failed: {}", e);
+                }
+            }
+        } else {
+            self.embedding_status = "❌ No database connection".to_string();
         }
     }
 
