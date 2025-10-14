@@ -15,6 +15,7 @@ petgraph.workspace = true
 ndarray.workspace = true
 regex.workspace = true
 nom.workspace = true
+fastrand.workspace = true
 
 # Database dependencies
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "rust_decimal"] }

@@ -1,5 +1,8 @@
 use crate::models::{Expression, Value, BinaryOperator, UnaryOperator};
+use crate::parser::parse_expression;
+use crate::db::Rule;
 use anyhow::{Result, bail};
+use serde_json;
 
 /// Transpiler pipeline: Parse -> Transform -> Generate
 /// Converts DSL expressions into optimized target code
@@ -556,6 +559,470 @@ impl Transpiler {
             BinaryOperator::Or => "or",
             _ => "# unsupported",
         }
+    }
+}
+
+/// DSL-to-Rules transpiler with detailed error reporting
+#[derive(Debug, Clone)]
+pub struct DslRule {
+    pub name: String,
+    pub expression: Expression,
+    pub definition: String,
+    pub line_number: usize,
+    pub dependencies: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranspileError {
+    pub message: String,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub rule_name: Option<String>,
+    pub error_type: ErrorType,
+}
+
+#[derive(Debug, Clone)]
+pub enum ErrorType {
+    ParseError,
+    SemanticError,
+    ValidationError,
+    ConversionError,
+}
+
+impl std::fmt::Display for TranspileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Line {}: {} - {}",
+               self.line.unwrap_or(0),
+               match self.error_type {
+                   ErrorType::ParseError => "Parse Error",
+                   ErrorType::SemanticError => "Semantic Error",
+                   ErrorType::ValidationError => "Validation Error",
+                   ErrorType::ConversionError => "Conversion Error",
+               },
+               self.message)
+    }
+}
+
+impl std::error::Error for TranspileError {}
+
+/// Multi-rule DSL transpiler
+pub struct DslTranspiler {
+    pub validation_enabled: bool,
+    pub dependency_analysis: bool,
+}
+
+impl DslTranspiler {
+    pub fn new() -> Self {
+        Self {
+            validation_enabled: true,
+            dependency_analysis: true,
+        }
+    }
+
+    /// Main entry point: transpile DSL text to Rule objects
+    pub fn transpile_dsl_to_rules(&self, dsl_text: &str) -> Result<Vec<DslRule>, Vec<TranspileError>> {
+        let mut rules = Vec::new();
+        let mut errors = Vec::new();
+
+        // Split DSL text into individual rule definitions
+        let rule_definitions = self.parse_rule_definitions(dsl_text);
+
+        for (line_number, rule_def) in rule_definitions.iter().enumerate() {
+            match self.parse_single_rule(rule_def.trim(), line_number + 1) {
+                Ok(rule) => {
+                    if self.validation_enabled {
+                        if let Err(validation_errors) = self.validate_rule(&rule) {
+                            errors.extend(validation_errors);
+                        }
+                    }
+                    rules.push(rule);
+                }
+                Err(mut parse_errors) => {
+                    // Add line context to parse errors
+                    for error in &mut parse_errors {
+                        if error.line.is_none() {
+                            error.line = Some(line_number + 1);
+                        }
+                    }
+                    errors.extend(parse_errors);
+                }
+            }
+        }
+
+        // Perform dependency analysis if enabled
+        if self.dependency_analysis && !rules.is_empty() {
+            if let Err(dep_errors) = self.analyze_dependencies(&mut rules) {
+                errors.extend(dep_errors);
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(rules)
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Parse DSL text into individual rule definitions
+    fn parse_rule_definitions(&self, dsl_text: &str) -> Vec<String> {
+        let mut rules = Vec::new();
+        let mut current_rule = String::new();
+        let mut in_rule = false;
+
+        for line in dsl_text.lines() {
+            let trimmed = line.trim();
+
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#") {
+                continue;
+            }
+
+            // Rule definition patterns
+            if trimmed.starts_with("rule ") || trimmed.contains(" = ") {
+                // Start of new rule
+                if in_rule && !current_rule.trim().is_empty() {
+                    rules.push(current_rule.trim().to_string());
+                    current_rule.clear();
+                }
+                current_rule.push_str(line);
+                current_rule.push('\n');
+                in_rule = true;
+            } else if in_rule {
+                // Continuation of current rule
+                current_rule.push_str(line);
+                current_rule.push('\n');
+
+                // Check for rule termination
+                if trimmed.ends_with(";") || trimmed.ends_with("}") {
+                    rules.push(current_rule.trim().to_string());
+                    current_rule.clear();
+                    in_rule = false;
+                }
+            } else {
+                // Single-line expression - treat as anonymous rule
+                rules.push(trimmed.to_string());
+            }
+        }
+
+        // Add final rule if exists
+        if in_rule && !current_rule.trim().is_empty() {
+            rules.push(current_rule.trim().to_string());
+        }
+
+        rules
+    }
+
+    /// Parse a single rule definition
+    fn parse_single_rule(&self, rule_def: &str, line_number: usize) -> Result<DslRule, Vec<TranspileError>> {
+        let mut errors = Vec::new();
+
+        // Extract rule name and definition
+        let (rule_name, expression_text) = self.extract_rule_parts(rule_def)?;
+
+        // Parse the expression using nom parser
+        match parse_expression(expression_text) {
+            Ok((remaining, ast)) => {
+                if !remaining.trim().is_empty() {
+                    errors.push(TranspileError {
+                        message: format!("Unexpected tokens after expression: '{}'", remaining),
+                        line: Some(line_number),
+                        column: Some(expression_text.len() - remaining.len()),
+                        rule_name: Some(rule_name.clone()),
+                        error_type: ErrorType::ParseError,
+                    });
+                }
+
+                // Extract dependencies from AST
+                let dependencies = self.extract_dependencies(&ast);
+
+                let rule = DslRule {
+                    name: rule_name,
+                    expression: ast,
+                    definition: rule_def.to_string(),
+                    line_number,
+                    dependencies,
+                };
+
+                if errors.is_empty() {
+                    Ok(rule)
+                } else {
+                    Err(errors)
+                }
+            }
+            Err(nom_error) => {
+                errors.push(TranspileError {
+                    message: format!("Failed to parse expression: {}", nom_error),
+                    line: Some(line_number),
+                    column: None,
+                    rule_name: Some(rule_name),
+                    error_type: ErrorType::ParseError,
+                });
+                Err(errors)
+            }
+        }
+    }
+
+    /// Extract rule name and expression from rule definition
+    fn extract_rule_parts<'a>(&self, rule_def: &'a str) -> Result<(String, &'a str), Vec<TranspileError>> {
+        if let Some(equals_pos) = rule_def.find(" = ") {
+            let name_part = rule_def[..equals_pos].trim();
+            let expression_part = rule_def[equals_pos + 3..].trim();
+
+            // Extract rule name (handle "rule name" or just "name")
+            let rule_name = if name_part.starts_with("rule ") {
+                name_part[5..].trim().to_string()
+            } else {
+                name_part.to_string()
+            };
+
+            // Clean up expression (remove trailing semicolon if present)
+            let clean_expr = expression_part.trim_end_matches(';').trim();
+
+            Ok((rule_name, clean_expr))
+        } else {
+            // Anonymous rule - generate name
+            let rule_name = format!("rule_{}", fastrand::u32(..));
+            Ok((rule_name, rule_def.trim_end_matches(';').trim()))
+        }
+    }
+
+    /// Extract variable dependencies from AST
+    fn extract_dependencies(&self, expr: &Expression) -> Vec<String> {
+        let mut deps = Vec::new();
+        self.collect_dependencies(expr, &mut deps);
+        deps.sort();
+        deps.dedup();
+        deps
+    }
+
+    /// Recursively collect dependencies from expression tree
+    fn collect_dependencies(&self, expr: &Expression, deps: &mut Vec<String>) {
+        match expr {
+            Expression::Variable(name) | Expression::Identifier(name) => {
+                // Skip built-in functions and literals
+                if !self.is_builtin_function(name) && !name.chars().all(|c| c.is_ascii_digit()) {
+                    deps.push(name.clone());
+                }
+            }
+            Expression::BinaryOp { left, right, .. } => {
+                self.collect_dependencies(left, deps);
+                self.collect_dependencies(right, deps);
+            }
+            Expression::UnaryOp { operand, .. } => {
+                self.collect_dependencies(operand, deps);
+            }
+            Expression::FunctionCall { args, .. } => {
+                for arg in args {
+                    self.collect_dependencies(arg, deps);
+                }
+            }
+            Expression::Conditional { condition, then_expr, else_expr } => {
+                self.collect_dependencies(condition, deps);
+                self.collect_dependencies(then_expr, deps);
+                if let Some(else_branch) = else_expr {
+                    self.collect_dependencies(else_branch, deps);
+                }
+            }
+            Expression::Assignment { value, .. } => {
+                self.collect_dependencies(value, deps);
+            }
+            Expression::List(items) => {
+                for item in items {
+                    self.collect_dependencies(item, deps);
+                }
+            }
+            Expression::Cast { expr, .. } => {
+                self.collect_dependencies(expr, deps);
+            }
+            _ => {} // Literals don't have dependencies
+        }
+    }
+
+    /// Check if a name is a built-in function
+    fn is_builtin_function(&self, name: &str) -> bool {
+        matches!(name.to_uppercase().as_str(),
+                "CONCAT" | "UPPER" | "LOWER" | "LENGTH" | "SUBSTRING" | "TRIM" |
+                "ABS" | "ROUND" | "CEIL" | "FLOOR" | "MIN" | "MAX" | "SUM" | "AVG" |
+                "IF" | "WHEN" | "THEN" | "ELSE" | "CASE" | "END" |
+                "MATCHES" | "CONTAINS" | "STARTS_WITH" | "ENDS_WITH" |
+                "TRUE" | "FALSE" | "NULL")
+    }
+
+    /// Validate a parsed rule
+    fn validate_rule(&self, rule: &DslRule) -> Result<(), Vec<TranspileError>> {
+        let mut errors = Vec::new();
+
+        // Rule name validation
+        if rule.name.is_empty() {
+            errors.push(TranspileError {
+                message: "Rule name cannot be empty".to_string(),
+                line: Some(rule.line_number),
+                column: None,
+                rule_name: Some(rule.name.clone()),
+                error_type: ErrorType::ValidationError,
+            });
+        }
+
+        // Expression validation
+        if let Err(validation_error) = self.validate_expression(&rule.expression) {
+            errors.push(TranspileError {
+                message: validation_error,
+                line: Some(rule.line_number),
+                column: None,
+                rule_name: Some(rule.name.clone()),
+                error_type: ErrorType::ValidationError,
+            });
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Validate expression semantics
+    fn validate_expression(&self, expr: &Expression) -> Result<(), String> {
+        match expr {
+            Expression::BinaryOp { left, right, op } => {
+                self.validate_expression(left)?;
+                self.validate_expression(right)?;
+                self.validate_binary_operation(left, right, op)?;
+            }
+            Expression::UnaryOp { operand, .. } => {
+                self.validate_expression(operand)?;
+            }
+            Expression::FunctionCall { name, args } => {
+                self.validate_function_call(name, args)?;
+                for arg in args {
+                    self.validate_expression(arg)?;
+                }
+            }
+            Expression::Conditional { condition, then_expr, else_expr } => {
+                self.validate_expression(condition)?;
+                self.validate_expression(then_expr)?;
+                if let Some(else_branch) = else_expr {
+                    self.validate_expression(else_branch)?;
+                }
+            }
+            Expression::List(items) => {
+                for item in items {
+                    self.validate_expression(item)?;
+                }
+            }
+            Expression::Cast { expr, .. } => {
+                self.validate_expression(expr)?;
+            }
+            _ => {} // Variables, identifiers, and literals are always valid
+        }
+        Ok(())
+    }
+
+    /// Validate binary operations
+    fn validate_binary_operation(&self, _left: &Expression, _right: &Expression, _op: &BinaryOperator) -> Result<(), String> {
+        // For now, all binary operations are considered valid
+        // In the future, we could add type checking here
+        Ok(())
+    }
+
+    /// Validate function calls
+    fn validate_function_call(&self, name: &str, args: &[Expression]) -> Result<(), String> {
+        match name.to_uppercase().as_str() {
+            "CONCAT" => {
+                if args.len() < 2 {
+                    return Err(format!("CONCAT requires at least 2 arguments, got {}", args.len()));
+                }
+            }
+            "SUBSTRING" => {
+                if args.len() != 3 {
+                    return Err(format!("SUBSTRING requires exactly 3 arguments, got {}", args.len()));
+                }
+            }
+            "IF" => {
+                if args.len() != 3 {
+                    return Err(format!("IF requires exactly 3 arguments (condition, then, else), got {}", args.len()));
+                }
+            }
+            _ => {} // Unknown functions are allowed for extensibility
+        }
+        Ok(())
+    }
+
+    /// Analyze inter-rule dependencies
+    fn analyze_dependencies(&self, rules: &mut [DslRule]) -> Result<(), Vec<TranspileError>> {
+        let mut errors = Vec::new();
+
+        // Create a map of rule names for quick lookup
+        let rule_names: std::collections::HashSet<String> =
+            rules.iter().map(|r| r.name.clone()).collect();
+
+        // Check for undefined dependencies
+        for rule in rules.iter() {
+            for dep in &rule.dependencies {
+                if !rule_names.contains(dep) && !self.is_builtin_function(dep) {
+                    errors.push(TranspileError {
+                        message: format!("Undefined dependency: '{}'", dep),
+                        line: Some(rule.line_number),
+                        column: None,
+                        rule_name: Some(rule.name.clone()),
+                        error_type: ErrorType::SemanticError,
+                    });
+                }
+            }
+        }
+
+        // Check for circular dependencies (simple implementation)
+        for rule in rules.iter() {
+            if rule.dependencies.contains(&rule.name) {
+                errors.push(TranspileError {
+                    message: "Rule cannot depend on itself".to_string(),
+                    line: Some(rule.line_number),
+                    column: None,
+                    rule_name: Some(rule.name.clone()),
+                    error_type: ErrorType::SemanticError,
+                });
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Convert DslRule to database Rule object
+    pub fn to_database_rule(&self, dsl_rule: &DslRule, category_id: Option<i32>) -> Rule {
+        use chrono::Utc;
+
+        // Serialize AST to JSON
+        let parsed_ast = serde_json::to_value(&dsl_rule.expression).ok();
+
+        Rule {
+            id: 0, // Will be set by database
+            rule_id: format!("rule_{}", fastrand::u32(..)),
+            rule_name: dsl_rule.name.clone(),
+            description: Some(format!("Auto-generated rule from DSL: {}", dsl_rule.definition)),
+            category_id,
+            target_attribute_id: None, // To be determined by dependency analysis
+            rule_definition: dsl_rule.definition.clone(),
+            parsed_ast,
+            status: "draft".to_string(),
+            version: 1,
+            tags: Some(vec!["dsl_generated".to_string()]),
+            performance_metrics: None,
+            embedding_data: None,
+            created_by: Some("dsl_transpiler".to_string()),
+            created_at: Utc::now(),
+            updated_by: Some("dsl_transpiler".to_string()),
+            updated_at: Utc::now(),
+        }
+    }
+}
+
+impl Default for DslTranspiler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

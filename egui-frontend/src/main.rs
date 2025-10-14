@@ -10,7 +10,7 @@ use code_editor::{DslCodeEditor, DslLanguage};
 
 mod ai_assistant;
 use ai_assistant::{AiAssistant, AiProvider, AiSuggestion, SuggestionType};
-use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, ViewerState}, transpiler::{Transpiler, TranspilerOptions, TargetLanguage}};
+use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, ViewerState}, transpiler::{Transpiler, TranspilerOptions, TargetLanguage, DslTranspiler, DslRule, TranspileError}};
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use std::sync::Arc;
@@ -103,6 +103,12 @@ struct DataDesignerApp {
     // Custom Code Editor
     dsl_editor: DslCodeEditor,
     output_editor: DslCodeEditor,
+
+    // Enhanced DSL Transpiler
+    dsl_transpiler: DslTranspiler,
+    parsed_rules: Vec<DslRule>,
+    transpile_errors: Vec<TranspileError>,
+    multi_rule_mode: bool,
     // AI Assistant
     ai_assistant: AiAssistant,
     ai_suggestions: Vec<AiSuggestion>,
@@ -450,6 +456,13 @@ impl DataDesignerApp {
                 .with_rows(15)
                 .with_font_size(16.0)
                 .show_line_numbers(true),
+
+            // Enhanced DSL Transpiler
+            dsl_transpiler: DslTranspiler::new(),
+            parsed_rules: Vec::new(),
+            transpile_errors: Vec::new(),
+            multi_rule_mode: false,
+
             ai_assistant,
             ai_suggestions: Vec::new(),
             ai_query: String::new(),
@@ -1519,12 +1532,17 @@ impl DataDesignerApp {
                     ui.heading("📝 Input DSL Expression");
                     ui.add_space(10.0);
 
-                    // Input area
+                    // Input area with mode controls
                     ui.horizontal(|ui| {
                         ui.label("DSL Rule:");
                         if ui.button("🔄 Clear").clicked() {
                             self.transpiler_input.clear();
                             self.dsl_editor.text.clear();
+                        }
+                        ui.separator();
+                        ui.checkbox(&mut self.multi_rule_mode, "🔀 Multi-Rule Mode");
+                        if ui.small_button("❓").on_hover_text("Enable to parse multiple rules separated by line breaks").clicked() {
+                            // Help clicked
                         }
                     });
 
@@ -1603,6 +1621,44 @@ impl DataDesignerApp {
                     if let Some(error) = &self.transpiler_error {
                         ui.add_space(10.0);
                         ui.colored_label(egui::Color32::RED, format!("❌ Error: {}", error));
+
+                        // Show detailed DSL parsing errors if available
+                        if !self.transpile_errors.is_empty() {
+                            ui.add_space(5.0);
+                            ui.collapsing("🔍 Detailed Error Report", |ui| {
+                                for (i, parse_error) in self.transpile_errors.iter().enumerate() {
+                                    ui.separator();
+                                    ui.label(format!("Error {}:", i + 1));
+                                    ui.colored_label(egui::Color32::LIGHT_RED, &parse_error.message);
+
+                                    if let Some(line) = parse_error.line {
+                                        ui.label(format!("Line: {}", line));
+                                    }
+                                    if let Some(column) = parse_error.column {
+                                        ui.label(format!("Column: {}", column));
+                                    }
+                                    if let Some(rule_name) = &parse_error.rule_name {
+                                        ui.label(format!("Rule: {}", rule_name));
+                                    }
+                                    ui.label(format!("Type: {:?}", parse_error.error_type));
+                                }
+                            });
+                        }
+
+                        // Show successfully parsed rules if any
+                        if !self.parsed_rules.is_empty() {
+                            ui.add_space(5.0);
+                            ui.collapsing("✅ Successfully Parsed Rules", |ui| {
+                                for (i, rule) in self.parsed_rules.iter().enumerate() {
+                                    ui.separator();
+                                    ui.label(format!("Rule {}: {}", i + 1, rule.name));
+                                    ui.label(format!("  Line: {}", rule.line_number));
+                                    if !rule.dependencies.is_empty() {
+                                        ui.label(format!("  Dependencies: {}", rule.dependencies.join(", ")));
+                                    }
+                                }
+                            });
+                        }
                     }
 
                     ui.add_space(10.0);
@@ -1634,6 +1690,8 @@ impl DataDesignerApp {
 
     fn transpile_expression(&mut self) {
         self.transpiler_error = None;
+        self.transpile_errors.clear();
+        self.parsed_rules.clear();
 
         if self.transpiler_input.trim().is_empty() {
             self.transpiler_error = Some("Input expression is empty".to_string());
@@ -1641,57 +1699,104 @@ impl DataDesignerApp {
             return;
         }
 
-        // Parse the expression
-        match parser::parse_expression(&self.transpiler_input) {
-            Ok((_, ast)) => {
-                // Determine target language
-                let target = match self.target_language.as_str() {
-                    "Rust" => TargetLanguage::Rust,
-                    "SQL" => TargetLanguage::SQL,
-                    "JavaScript" => TargetLanguage::JavaScript,
-                    "Python" => TargetLanguage::Python,
-                    _ => TargetLanguage::Rust,
-                };
+        if self.multi_rule_mode {
+            // Use enhanced DSL transpiler for multi-rule mode
+            match self.dsl_transpiler.transpile_dsl_to_rules(&self.transpiler_input) {
+                Ok(rules) => {
+                    self.parsed_rules = rules;
 
-                // Create transpiler with options
-                let options = TranspilerOptions {
-                    target,
-                    optimize: self.optimization_enabled,
-                    inline_functions: self.optimization_enabled,
-                    constant_folding: self.optimization_enabled,
-                    dead_code_elimination: self.optimization_enabled,
-                };
+                    // Generate summary output
+                    let mut output = String::new();
+                    output.push_str(&format!("Successfully parsed {} rule(s):\n\n", self.parsed_rules.len()));
 
-                let transpiler = Transpiler::new(options);
-
-                // Transpile
-                match transpiler.transpile(&ast) {
-                    Ok(code) => {
-                        self.transpiler_output = code.clone();
-                        self.output_editor.text = code;
-
-                        // Update output editor language based on target
-                        self.output_editor.language = match self.target_language.as_str() {
-                            "Rust" => DslLanguage::Rust,
-                            "SQL" => DslLanguage::Sql,
-                            "JavaScript" => DslLanguage::JavaScript,
-                            "Python" => DslLanguage::Python,
-                            _ => DslLanguage::Rust,
-                        };
+                    for (i, rule) in self.parsed_rules.iter().enumerate() {
+                        output.push_str(&format!("Rule {}: {}\n", i + 1, rule.name));
+                        output.push_str(&format!("  Definition: {}\n", rule.definition));
+                        if !rule.dependencies.is_empty() {
+                            output.push_str(&format!("  Dependencies: {}\n", rule.dependencies.join(", ")));
+                        }
+                        output.push_str("\n");
                     }
-                    Err(e) => {
-                        self.transpiler_error = Some(e.to_string());
-                        self.transpiler_output = String::new();
-                        self.output_editor.text = String::new();
 
-                        // Trigger AI-powered error analysis
-                        self.trigger_error_analysis(&e.to_string());
+                    self.transpiler_output = output;
+                    self.output_editor.text = self.transpiler_output.clone();
+                    self.output_editor.language = DslLanguage::Rust; // Summary is text
+                }
+                Err(errors) => {
+                    self.transpile_errors = errors;
+
+                    // Generate error report
+                    let mut error_output = String::new();
+                    error_output.push_str(&format!("Found {} error(s):\n\n", self.transpile_errors.len()));
+
+                    for error in &self.transpile_errors {
+                        error_output.push_str(&format!("{}\n", error));
+                    }
+
+                    self.transpiler_error = Some(format!("DSL parsing failed with {} errors", self.transpile_errors.len()));
+                    self.transpiler_output = error_output;
+                    self.output_editor.text = self.transpiler_output.clone();
+
+                    // Trigger AI error analysis for first error
+                    if let Some(first_error) = self.transpile_errors.first() {
+                        let error_message = first_error.message.clone();
+                        self.trigger_error_analysis(&error_message);
                     }
                 }
             }
-            Err(e) => {
-                self.transpiler_error = Some(format!("Parse error: {}", e));
-                self.transpiler_output = String::new();
+        } else {
+            // Single expression mode - use original transpiler
+            match parser::parse_expression(&self.transpiler_input) {
+                Ok((_, ast)) => {
+                    // Determine target language
+                    let target = match self.target_language.as_str() {
+                        "Rust" => TargetLanguage::Rust,
+                        "SQL" => TargetLanguage::SQL,
+                        "JavaScript" => TargetLanguage::JavaScript,
+                        "Python" => TargetLanguage::Python,
+                        _ => TargetLanguage::Rust,
+                    };
+
+                    // Create transpiler with options
+                    let options = TranspilerOptions {
+                        target,
+                        optimize: self.optimization_enabled,
+                        inline_functions: self.optimization_enabled,
+                        constant_folding: self.optimization_enabled,
+                        dead_code_elimination: self.optimization_enabled,
+                    };
+
+                    let transpiler = Transpiler::new(options);
+
+                    // Transpile
+                    match transpiler.transpile(&ast) {
+                        Ok(code) => {
+                            self.transpiler_output = code.clone();
+                            self.output_editor.text = code;
+
+                            // Update output editor language based on target
+                            self.output_editor.language = match self.target_language.as_str() {
+                                "Rust" => DslLanguage::Rust,
+                                "SQL" => DslLanguage::Sql,
+                                "JavaScript" => DslLanguage::JavaScript,
+                                "Python" => DslLanguage::Python,
+                                _ => DslLanguage::Rust,
+                            };
+                        }
+                        Err(e) => {
+                            self.transpiler_error = Some(e.to_string());
+                            self.transpiler_output = String::new();
+                            self.output_editor.text = String::new();
+
+                            // Trigger AI-powered error analysis
+                            self.trigger_error_analysis(&e.to_string());
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.transpiler_error = Some(format!("Parse error: {}", e));
+                    self.transpiler_output = String::new();
+                }
             }
         }
     }

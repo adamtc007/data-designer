@@ -656,6 +656,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "fasteval",
+ "fastrand",
  "futures",
  "log",
  "ndarray",

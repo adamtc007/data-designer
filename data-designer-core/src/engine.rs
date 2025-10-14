@@ -1,7 +1,6 @@
 use crate::models::{DataDictionary, Value};
-use crate::parser;
-use crate::evaluator::{self, Facts}; // <-- Import the new evaluator
-use anyhow::{bail, Context, Result};
+use crate::evaluator::Facts; // <-- Import the new evaluator
+use anyhow::{Context, Result};
 
 /// The RulesEngine is now an orchestrator that parses rules on demand.
 pub struct RulesEngine<'a> {

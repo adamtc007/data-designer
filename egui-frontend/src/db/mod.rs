@@ -273,6 +273,7 @@ pub mod cbu;
 pub mod products;
 pub mod config_driven;
 pub mod persistence;
+pub mod ai_attribute_service;
 
 // Re-export all database entities and operations
 pub use rules::*;
