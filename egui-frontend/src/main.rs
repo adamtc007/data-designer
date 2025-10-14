@@ -1,7 +1,7 @@
 use eframe::egui;
 use data_designer_core::db::{
     init_db, DbPool,
-    ClientBusinessUnit, CreateCbuRequest,
+    ClientBusinessUnit, CreateCbuRequest, CbuMemberDetail,
     DbOperations, DataDictionaryResponse, EmbeddingOperations, SimilarRule
 };
 
@@ -14,6 +14,9 @@ use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, View
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use rust_decimal::prelude::*;
+use sqlx::Row;
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
@@ -66,6 +69,14 @@ struct DataDesignerApp {
     // Attribute Dictionary Data
     data_dictionary: Option<DataDictionaryResponse>,
     attribute_search: String,
+
+    // Attribute Filters
+    filter_business: bool,
+    filter_derived: bool,
+    filter_system: bool,
+    filter_required: bool,
+    filter_optional: bool,
+    filter_key: bool,
 
     // Rule Engine Data
     rules: Vec<serde_json::Value>,
@@ -121,6 +132,23 @@ struct DataDesignerApp {
     cbu_form: CbuForm,
     status_message: String,
     loading: bool,
+
+    // CBU Expansion State
+    expanded_cbus: std::collections::HashSet<String>, // Set of expanded CBU IDs
+    cbu_members: std::collections::HashMap<String, Vec<CbuMemberDetail>>, // CBU ID -> Members
+
+    // Taxonomy Data
+    products: Vec<Product>,
+    product_options: Vec<ProductOption>,
+    services: Vec<Service>,
+    resources: Vec<ResourceObject>,
+    service_resource_hierarchy: Vec<ServiceResourceHierarchy>,
+    investment_mandates: Vec<InvestmentMandate>,
+    mandate_instruments: Vec<MandateInstrument>,
+    instruction_formats: Vec<InstructionFormat>,
+    cbu_mandate_structure: Vec<CbuInvestmentMandateStructure>,
+    cbu_member_roles: Vec<CbuMemberInvestmentRole>,
+    taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
 }
 
 #[derive(PartialEq, Default)]
@@ -133,6 +161,10 @@ enum Tab {
     RuleEngine,
     Transpiler,        // New tab for code generation
     Database,
+    // New taxonomy tabs
+    ProductTaxonomy,   // Products → Options → Services → Resources
+    InvestmentMandates, // Investment mandates with CBU roles
+    TaxonomyHierarchy, // Complete hierarchy view
 }
 
 #[derive(Default)]
@@ -143,6 +175,173 @@ struct CbuForm {
     primary_lei: String,
     domicile_country: String,
     business_type: String,
+}
+
+// Taxonomy Database Structs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Product {
+    id: i32,
+    product_id: String,
+    product_name: String,
+    line_of_business: String,
+    description: Option<String>,
+    status: String,
+    contract_type: Option<String>,
+    commercial_status: Option<String>,
+    pricing_model: Option<String>,
+    target_market: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProductOption {
+    id: i32,
+    option_id: String,
+    product_id: i32,
+    option_name: String,
+    option_category: String,
+    option_type: String,
+    option_value: serde_json::Value,
+    display_name: Option<String>,
+    description: Option<String>,
+    pricing_impact: Option<rust_decimal::Decimal>,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Service {
+    id: i32,
+    service_id: String,
+    service_name: String,
+    service_category: Option<String>,
+    description: Option<String>,
+    service_type: Option<String>,
+    delivery_model: Option<String>,
+    billable: Option<bool>,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InvestmentMandate {
+    mandate_id: String,
+    cbu_id: String,
+    asset_owner_name: String,
+    asset_owner_lei: String,
+    investment_manager_name: String,
+    investment_manager_lei: String,
+    base_currency: String,
+    effective_date: String,
+    expiry_date: Option<String>,
+    gross_exposure_pct: Option<f64>,
+    net_exposure_pct: Option<f64>,
+    leverage_max: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MandateInstrument {
+    id: i32,
+    mandate_id: String,
+    instrument_family: String,
+    subtype: Option<String>,
+    cfi_code: Option<String>,
+    exposure_pct: Option<f64>,
+    short_allowed: Option<bool>,
+    issuer_max_pct: Option<f64>,
+    rating_floor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InstructionFormat {
+    id: i32,
+    format_id: String,
+    format_name: String,
+    format_category: Option<String>,
+    message_standard: Option<String>,
+    message_type: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CbuInvestmentMandateStructure {
+    cbu_id: String,
+    cbu_name: String,
+    mandate_id: Option<String>,
+    asset_owner_name: Option<String>,
+    investment_manager_name: Option<String>,
+    base_currency: Option<String>,
+    total_instruments: Option<i64>,
+    families: Option<String>,
+    total_exposure_pct: Option<rust_decimal::Decimal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CbuMemberInvestmentRole {
+    cbu_id: String,
+    cbu_name: String,
+    entity_name: String,
+    entity_lei: Option<String>,
+    role_name: String,
+    role_code: String,
+    investment_responsibility: String,
+    mandate_id: Option<String>,
+    has_trading_authority: Option<bool>,
+    has_settlement_authority: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ResourceObject {
+    id: i32,
+    resource_name: String,
+    description: Option<String>,
+    version: String,
+    category: Option<String>,
+    resource_type: Option<String>,
+    criticality_level: Option<String>,
+    operational_status: Option<String>,
+    owner_team: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServiceResourceHierarchy {
+    // Service Information
+    service_id: i32,
+    service_code: String,
+    service_name: String,
+    service_category: Option<String>,
+    service_type: Option<String>,
+    delivery_model: Option<String>,
+    billable: Option<bool>,
+    service_description: Option<String>,
+    service_status: Option<String>,
+
+    // Resource Information
+    resource_id: i32,
+    resource_name: String,
+    resource_description: Option<String>,
+    resource_version: String,
+    resource_category: Option<String>,
+    resource_type: Option<String>,
+    criticality_level: Option<String>,
+    operational_status: Option<String>,
+    owner_team: Option<String>,
+
+    // Mapping Details
+    usage_type: String,
+    resource_role: Option<String>,
+    cost_allocation_percentage: Option<rust_decimal::Decimal>,
+    dependency_level: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TaxonomyHierarchyItem {
+    level: i32,
+    item_type: String,
+    item_id: i32,
+    item_name: String,
+    item_description: Option<String>,
+    parent_id: Option<i32>,
+    configuration: Option<serde_json::Value>,
+    metadata: Option<serde_json::Value>,
 }
 
 // Syntax highlighting for DSL
@@ -424,6 +623,14 @@ impl DataDesignerApp {
             selected_cbu: None,
             data_dictionary: None,
             attribute_search: String::new(),
+
+            // Initialize attribute filters (all enabled by default)
+            filter_business: true,
+            filter_derived: true,
+            filter_system: true,
+            filter_required: true,
+            filter_optional: true,
+            filter_key: true,
             rules: Vec::new(),
             selected_rule: None,
             rule_input: String::from("age > 18 AND country = \"USA\""),
@@ -472,6 +679,21 @@ impl DataDesignerApp {
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
             loading: false,
+            expanded_cbus: std::collections::HashSet::new(),
+            cbu_members: std::collections::HashMap::new(),
+
+            // Initialize taxonomy data
+            products: Vec::new(),
+            product_options: Vec::new(),
+            services: Vec::new(),
+            resources: Vec::new(),
+            service_resource_hierarchy: Vec::new(),
+            investment_mandates: Vec::new(),
+            mandate_instruments: Vec::new(),
+            instruction_formats: Vec::new(),
+            cbu_mandate_structure: Vec::new(),
+            cbu_member_roles: Vec::new(),
+            taxonomy_hierarchy: Vec::new(),
         };
 
         // Load initial data
@@ -554,6 +776,26 @@ impl DataDesignerApp {
             }
         ];
         self.status_message = "⚠️ Offline mode - using sample data".to_string();
+    }
+
+    fn load_cbu_members(&mut self, cbu_id: &str) {
+        if let Some(ref _pool) = self.db_pool {
+            let rt = self.runtime.clone();
+            let cbu_id_owned = cbu_id.to_string();
+
+            match rt.block_on(async {
+                DbOperations::get_cbu_members(&cbu_id_owned).await
+            }) {
+                Ok(members) => {
+                    self.cbu_members.insert(cbu_id_owned, members);
+                    self.status_message = format!("✅ Loaded members for CBU {}", cbu_id);
+                }
+                Err(e) => {
+                    eprintln!("Failed to load CBU members: {}", e);
+                    self.status_message = format!("❌ Failed to load members: {}", e);
+                }
+            }
+        }
     }
 
     fn create_cbu(&mut self) {
@@ -687,6 +929,10 @@ impl eframe::App for DataDesignerApp {
                 ui.selectable_value(&mut self.current_tab, Tab::RuleEngine, "⚡ Rules");
                 ui.selectable_value(&mut self.current_tab, Tab::Transpiler, "🔄 Transpiler");
                 ui.selectable_value(&mut self.current_tab, Tab::Database, "🗄️ Database");
+                ui.separator();
+                ui.selectable_value(&mut self.current_tab, Tab::ProductTaxonomy, "📦 Product Taxonomy");
+                ui.selectable_value(&mut self.current_tab, Tab::InvestmentMandates, "🎯 Investment Mandates");
+                ui.selectable_value(&mut self.current_tab, Tab::TaxonomyHierarchy, "🏗️ Taxonomy Hierarchy");
             });
         });
 
@@ -700,6 +946,9 @@ impl eframe::App for DataDesignerApp {
                 Tab::RuleEngine => self.show_rule_engine_tab(ui),
                 Tab::Transpiler => self.show_transpiler_tab(ui),
                 Tab::Database => self.show_database_tab(ui),
+                Tab::ProductTaxonomy => self.show_product_taxonomy_tab(ui),
+                Tab::InvestmentMandates => self.show_investment_mandates_tab(ui),
+                Tab::TaxonomyHierarchy => self.show_taxonomy_hierarchy_tab(ui),
             }
         });
 
@@ -758,27 +1007,113 @@ impl DataDesignerApp {
 
         ui.separator();
 
-        // CBU table
+        // Expandable CBU list
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("cbu_grid").striped(true).show(ui, |ui| {
-                ui.label("ID");
-                ui.label("CBU ID");
-                ui.label("Name");
-                ui.label("Status");
-                ui.label("Description");
-                ui.label("Created");
-                ui.end_row();
+            // Clone the CBUs to avoid borrowing issues
+            let cbus_list = self.cbus.clone();
+            let mut cbus_to_expand: Option<String> = None;
+            let mut cbus_to_collapse: Option<String> = None;
 
-                for (_index, cbu) in self.cbus.iter().enumerate() {
-                    ui.label(cbu.id.to_string());
-                    ui.label(&cbu.cbu_id);
-                    ui.label(&cbu.cbu_name);
-                    ui.label(&cbu.status);
-                    ui.label(cbu.description.as_ref().unwrap_or(&"N/A".to_string()));
-                    ui.label(cbu.created_at.format("%Y-%m-%d").to_string());
-                    ui.end_row();
+            for cbu in cbus_list.iter() {
+                let is_expanded = self.expanded_cbus.contains(&cbu.cbu_id);
+
+                ui.push_id(&cbu.cbu_id, |ui| {
+                    // CBU header row
+                    ui.horizontal(|ui| {
+                        // Expand/collapse button
+                        let expand_button = if is_expanded { "🔽" } else { "▶️" };
+                        if ui.button(expand_button).clicked() {
+                            if is_expanded {
+                                cbus_to_collapse = Some(cbu.cbu_id.clone());
+                            } else {
+                                cbus_to_expand = Some(cbu.cbu_id.clone());
+                            }
+                        }
+
+                        // CBU basic info
+                        ui.separator();
+                        ui.label(format!("🏢 {}", cbu.cbu_name));
+                        ui.separator();
+                        ui.label(format!("ID: {}", cbu.cbu_id));
+                        ui.separator();
+                        ui.label(format!("Status: {}", cbu.status));
+                        ui.separator();
+                        ui.label(format!("Type: {}", cbu.business_type.as_ref().unwrap_or(&"N/A".to_string())));
+                    });
+
+                    // Description row
+                    if let Some(description) = &cbu.description {
+                        ui.indent("desc", |ui| {
+                            ui.label(format!("📝 {}", description));
+                        });
+                    }
+
+                    // Expanded members section
+                    if is_expanded {
+                        ui.separator();
+
+                        if let Some(members) = self.cbu_members.get(&cbu.cbu_id) {
+                            ui.indent("members", |ui| {
+                                ui.heading("👥 Entity Members & Roles");
+
+                                if members.is_empty() {
+                                    ui.label("No members found for this CBU");
+                                } else {
+                                    // Members table
+                                    egui::Grid::new(format!("members_grid_{}", cbu.cbu_id))
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            // Header
+                                            ui.label("🏗️ Entity");
+                                            ui.label("🎭 Role");
+                                            ui.label("🆔 LEI");
+                                            ui.label("📧 Contact");
+                                            ui.label("⭐ Primary");
+                                            ui.label("🛡️ Authority");
+                                            ui.end_row();
+
+                                            // Member rows
+                                            for member in members {
+                                                ui.label(&member.entity_name);
+                                                ui.label(&member.role_name);
+                                                ui.label(member.entity_lei.as_ref().unwrap_or(&"N/A".to_string()));
+                                                ui.label(member.contact_email.as_ref().unwrap_or(&"N/A".to_string()));
+                                                ui.label(if member.is_primary { "⭐ Yes" } else { "No" });
+
+                                                let authority = match (member.has_trading_authority, member.has_settlement_authority) {
+                                                    (true, true) => "Trading + Settlement",
+                                                    (true, false) => "Trading Only",
+                                                    (false, true) => "Settlement Only",
+                                                    (false, false) => "None"
+                                                };
+                                                ui.label(authority);
+                                                ui.end_row();
+                                            }
+                                        });
+                                }
+                            });
+                        } else {
+                            ui.indent("loading", |ui| {
+                                ui.label("🔄 Loading entity members...");
+                            });
+                        }
+                    }
+
+                    ui.separator();
+                });
+            }
+
+            // Handle expansion/collapse after the loop to avoid borrowing issues
+            if let Some(cbu_id) = cbus_to_expand {
+                self.expanded_cbus.insert(cbu_id.clone());
+                // Load members if not already loaded
+                if !self.cbu_members.contains_key(&cbu_id) {
+                    self.load_cbu_members(&cbu_id);
                 }
-            });
+            }
+            if let Some(cbu_id) = cbus_to_collapse {
+                self.expanded_cbus.remove(&cbu_id);
+            }
         });
     }
 
@@ -859,6 +1194,7 @@ impl DataDesignerApp {
         ui.separator();
 
         if let Some(ref dictionary) = self.data_dictionary {
+            // Statistics row
             ui.horizontal(|ui| {
                 ui.label(format!("📊 Total: {}", dictionary.total_count));
                 ui.separator();
@@ -867,6 +1203,70 @@ impl DataDesignerApp {
                 ui.colored_label(egui::Color32::from_rgb(155, 89, 182), format!("⚙️ Derived: {}", dictionary.derived_count));
                 ui.separator();
                 ui.colored_label(egui::Color32::from_rgb(231, 76, 60), format!("🔧 System: {}", dictionary.system_count));
+            });
+
+            ui.separator();
+
+            // Filter buttons
+            ui.label("🔍 Filters:");
+            ui.horizontal_wrapped(|ui| {
+                // Attribute type filters
+                let business_button = ui.selectable_label(self.filter_business, "🏢 Business");
+                if business_button.clicked() {
+                    self.filter_business = !self.filter_business;
+                }
+
+                let derived_button = ui.selectable_label(self.filter_derived, "⚙️ Derived");
+                if derived_button.clicked() {
+                    self.filter_derived = !self.filter_derived;
+                }
+
+                let system_button = ui.selectable_label(self.filter_system, "🔧 System");
+                if system_button.clicked() {
+                    self.filter_system = !self.filter_system;
+                }
+
+                ui.separator();
+
+                // Nullability filters
+                let required_button = ui.selectable_label(self.filter_required, "🔒 Required");
+                if required_button.clicked() {
+                    self.filter_required = !self.filter_required;
+                }
+
+                let optional_button = ui.selectable_label(self.filter_optional, "📋 Optional");
+                if optional_button.clicked() {
+                    self.filter_optional = !self.filter_optional;
+                }
+
+                ui.separator();
+
+                // Key filter
+                let key_button = ui.selectable_label(self.filter_key, "🔑 Keys");
+                if key_button.clicked() {
+                    self.filter_key = !self.filter_key;
+                }
+
+                ui.separator();
+
+                // Clear all / Select all buttons
+                if ui.button("🚫 Clear All").clicked() {
+                    self.filter_business = false;
+                    self.filter_derived = false;
+                    self.filter_system = false;
+                    self.filter_required = false;
+                    self.filter_optional = false;
+                    self.filter_key = false;
+                }
+
+                if ui.button("✅ Select All").clicked() {
+                    self.filter_business = true;
+                    self.filter_derived = true;
+                    self.filter_system = true;
+                    self.filter_required = true;
+                    self.filter_optional = true;
+                    self.filter_key = true;
+                }
             });
 
             ui.separator();
@@ -882,8 +1282,44 @@ impl DataDesignerApp {
                     ui.label("Nullable");
                     ui.end_row();
 
+                    // Filter and display attributes
+                    let mut displayed_count = 0;
                     for attr in &dictionary.attributes {
                         let attr_type = attr.get("attribute_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let is_nullable = attr.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let is_key = attr.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                        // Apply filters
+                        let mut show_attribute = false;
+
+                        // Check attribute type filters
+                        match attr_type {
+                            "business" if self.filter_business => show_attribute = true,
+                            "derived" if self.filter_derived => show_attribute = true,
+                            "system" if self.filter_system => show_attribute = true,
+                            _ => {}
+                        }
+
+                        // If attribute type doesn't match, skip regardless of other filters
+                        if !show_attribute {
+                            continue;
+                        }
+
+                        // Apply nullability filters (both required and optional must be checked for non-nullable and nullable respectively)
+                        let nullability_matches =
+                            (!is_nullable && self.filter_required) ||
+                            (is_nullable && self.filter_optional);
+
+                        if !nullability_matches {
+                            continue;
+                        }
+
+                        // Apply key filter - when disabled, only show non-key attributes
+                        if !self.filter_key && is_key {
+                            continue;
+                        }
+
+                        // If we get here, show the attribute
                         let color = match attr_type {
                             "business" => egui::Color32::from_rgb(52, 152, 219),
                             "derived" => egui::Color32::from_rgb(155, 89, 182),
@@ -896,8 +1332,23 @@ impl DataDesignerApp {
                         ui.label(attr.get("entity_name").and_then(|v| v.as_str()).unwrap_or(""));
                         ui.label(attr.get("data_type").and_then(|v| v.as_str()).unwrap_or(""));
                         ui.label(attr.get("description").and_then(|v| v.as_str()).unwrap_or("N/A"));
-                        ui.label(if attr.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false) { "🔑" } else { "" });
-                        ui.label(if attr.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false) { "✓" } else { "✗" });
+                        ui.label(if is_key { "🔑" } else { "" });
+                        ui.label(if is_nullable { "✓" } else { "✗" });
+                        ui.end_row();
+
+                        displayed_count += 1;
+                    }
+
+                    // Show count of displayed vs total attributes
+                    if displayed_count < dictionary.attributes.len() {
+                        ui.end_row();
+                        ui.colored_label(egui::Color32::GRAY, format!("Showing {} of {} attributes", displayed_count, dictionary.attributes.len()));
+                        ui.label("");
+                        ui.label("");
+                        ui.label("");
+                        ui.label("");
+                        ui.label("");
+                        ui.label("");
                         ui.end_row();
                     }
                 });
@@ -2110,6 +2561,662 @@ impl DataDesignerApp {
 
         // Ensure AI panel is visible
         self.show_ai_panel = true;
+    }
+
+    // New Taxonomy UI Methods
+    fn show_product_taxonomy_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("📦 Product Taxonomy");
+        ui.separator();
+
+        // Refresh button
+        if ui.button("🔄 Refresh Data").clicked() {
+            self.load_product_taxonomy();
+        }
+
+        ui.separator();
+
+        // Products section
+        ui.collapsing("🏪 Products", |ui| {
+            if self.products.is_empty() {
+                ui.label("No products loaded. Click refresh to load data.");
+            } else {
+                for product in &self.products {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&product.product_name);
+                            ui.label(format!("({})", product.product_id));
+                        });
+                        ui.label(format!("Business: {}", product.line_of_business));
+                        if let Some(desc) = &product.description {
+                            ui.label(format!("Description: {}", desc));
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label("Status:");
+                            match product.status.as_str() {
+                                "active" => ui.colored_label(egui::Color32::GREEN, "✅ Active"),
+                                _ => ui.colored_label(egui::Color32::YELLOW, &product.status),
+                            };
+                        });
+                    });
+                }
+            }
+        });
+
+        // Product Options section
+        ui.collapsing("⚙️ Product Options", |ui| {
+            if self.product_options.is_empty() {
+                ui.label("No product options loaded.");
+            } else {
+                for option in &self.product_options {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&option.option_name);
+                            ui.label(format!("({})", option.option_category));
+                        });
+                        if let Some(display_name) = &option.display_name {
+                            ui.label(format!("Display: {}", display_name));
+                        }
+                        if let Some(pricing_impact) = option.pricing_impact {
+                            ui.label(format!("Pricing Impact: ${:.2}", pricing_impact.to_f64().unwrap_or(0.0)));
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label("Type:");
+                            match option.option_type.as_str() {
+                                "required" => ui.colored_label(egui::Color32::RED, "Required"),
+                                "optional" => ui.colored_label(egui::Color32::BLUE, "Optional"),
+                                "premium" => ui.colored_label(egui::Color32::GOLD, "Premium"),
+                                _ => ui.label(&option.option_type),
+                            };
+                        });
+                    });
+                }
+            }
+        });
+
+        // Services section
+        ui.collapsing("🔧 Services", |ui| {
+            if self.services.is_empty() {
+                ui.label("No services loaded.");
+            } else {
+                for service in &self.services {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&service.service_name);
+                            if let Some(category) = &service.service_category {
+                                ui.label(format!("({})", category));
+                            }
+                        });
+                        if let Some(service_type) = &service.service_type {
+                            ui.label(format!("Type: {}", service_type));
+                        }
+                        if let Some(delivery_model) = &service.delivery_model {
+                            ui.label(format!("Delivery: {}", delivery_model));
+                        }
+                        if let Some(billable) = service.billable {
+                            ui.horizontal(|ui| {
+                                ui.label("Billable:");
+                                if billable {
+                                    ui.colored_label(egui::Color32::GREEN, "✅ Yes");
+                                } else {
+                                    ui.colored_label(egui::Color32::GRAY, "❌ No");
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
+
+        // Resources section
+        ui.collapsing("💻 Resources", |ui| {
+            if self.resources.is_empty() {
+                ui.label("No resources loaded.");
+            } else {
+                for resource in &self.resources {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&resource.resource_name);
+                            ui.label(format!("v{}", resource.version));
+                        });
+
+                        if let Some(description) = &resource.description {
+                            ui.label(format!("Description: {}", description));
+                        }
+
+                        if let Some(resource_type) = &resource.resource_type {
+                            ui.horizontal(|ui| {
+                                ui.label("Type:");
+                                ui.strong(resource_type);
+                            });
+                        }
+
+                        if let Some(category) = &resource.category {
+                            ui.label(format!("Category: {}", category));
+                        }
+
+                        ui.horizontal(|ui| {
+                            if let Some(criticality) = &resource.criticality_level {
+                                ui.label("Criticality:");
+                                match criticality.as_str() {
+                                    "high" => ui.colored_label(egui::Color32::RED, "🔴 High"),
+                                    "medium" => ui.colored_label(egui::Color32::YELLOW, "🟡 Medium"),
+                                    "low" => ui.colored_label(egui::Color32::GREEN, "🟢 Low"),
+                                    _ => ui.label(criticality),
+                                };
+                            }
+
+                            if let Some(status) = &resource.operational_status {
+                                ui.label("Status:");
+                                match status.as_str() {
+                                    "active" => ui.colored_label(egui::Color32::GREEN, "✅ Active"),
+                                    "maintenance" => ui.colored_label(egui::Color32::YELLOW, "🔧 Maintenance"),
+                                    "deprecated" => ui.colored_label(egui::Color32::RED, "❌ Deprecated"),
+                                    _ => ui.label(status),
+                                };
+                            }
+                        });
+
+                        if let Some(owner_team) = &resource.owner_team {
+                            ui.label(format!("Owner Team: {}", owner_team));
+                        }
+                    });
+                }
+            }
+        });
+
+        // Service-Resource Hierarchy (1 Service : n Resources)
+        ui.collapsing("🔗 Service → Resources Hierarchy", |ui| {
+            if self.service_resource_hierarchy.is_empty() {
+                ui.label("No service-resource mappings loaded.");
+            } else {
+                // Group by service
+                let mut services: std::collections::HashMap<String, Vec<&ServiceResourceHierarchy>> = std::collections::HashMap::new();
+                for hierarchy_item in &self.service_resource_hierarchy {
+                    services.entry(hierarchy_item.service_name.clone())
+                        .or_insert_with(Vec::new)
+                        .push(hierarchy_item);
+                }
+
+                for (service_name, resources) in services {
+                    ui.collapsing(format!("🔧 {} (→ {} resources)", service_name, resources.len()), |ui| {
+                        // Service details
+                        if let Some(first_resource) = resources.first() {
+                            ui.horizontal(|ui| {
+                                ui.label("Service Type:");
+                                if let Some(service_type) = &first_resource.service_type {
+                                    ui.strong(service_type);
+                                }
+                            });
+
+                            if let Some(category) = &first_resource.service_category {
+                                ui.label(format!("Category: {}", category));
+                            }
+
+                            if let Some(delivery) = &first_resource.delivery_model {
+                                ui.label(format!("Delivery Model: {}", delivery));
+                            }
+                        }
+
+                        ui.separator();
+                        ui.label("📦 Connected Resources:");
+
+                        // Sort by dependency level
+                        let mut sorted_resources = resources;
+                        sorted_resources.sort_by_key(|r| r.dependency_level.unwrap_or(999));
+
+                        for resource in sorted_resources {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.strong(&resource.resource_name);
+                                    ui.label(format!("(Level {})", resource.dependency_level.unwrap_or(0)));
+
+                                    // Usage type badge
+                                    match resource.usage_type.as_str() {
+                                        "primary" => ui.colored_label(egui::Color32::BLUE, "🎯 Primary"),
+                                        "secondary" => ui.colored_label(egui::Color32::GRAY, "🔄 Secondary"),
+                                        "auxiliary" => ui.colored_label(egui::Color32::GREEN, "➕ Auxiliary"),
+                                        _ => ui.label(&resource.usage_type),
+                                    };
+                                });
+
+                                if let Some(role) = &resource.resource_role {
+                                    ui.label(format!("Role: {}", role));
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if let Some(cost_pct) = &resource.cost_allocation_percentage {
+                                        ui.label(format!("Cost Allocation: {:.1}%", cost_pct.to_f64().unwrap_or(0.0)));
+                                    }
+
+                                    if let Some(criticality) = &resource.criticality_level {
+                                        ui.label("Criticality:");
+                                        match criticality.as_str() {
+                                            "high" => ui.colored_label(egui::Color32::RED, "🔴 High"),
+                                            "medium" => ui.colored_label(egui::Color32::YELLOW, "🟡 Medium"),
+                                            "low" => ui.colored_label(egui::Color32::GREEN, "🟢 Low"),
+                                            _ => ui.label(criticality),
+                                        };
+                                    }
+                                });
+
+                                if let Some(owner) = &resource.owner_team {
+                                    ui.label(format!("Owner: {}", owner));
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    fn show_investment_mandates_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🎯 Investment Mandates");
+        ui.separator();
+
+        // Refresh button
+        if ui.button("🔄 Refresh Data").clicked() {
+            self.load_investment_mandates();
+        }
+
+        ui.separator();
+
+        // CBU Investment Mandate Structure
+        ui.collapsing("🏢 CBU Investment Structure", |ui| {
+            if self.cbu_mandate_structure.is_empty() {
+                ui.label("No CBU mandate structure loaded. Click refresh to load data.");
+            } else {
+                for structure in &self.cbu_mandate_structure {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&structure.cbu_name);
+                            ui.label(format!("({})", structure.cbu_id));
+                        });
+
+                        if let Some(mandate_id) = &structure.mandate_id {
+                            ui.horizontal(|ui| {
+                                ui.label("📋 Mandate:");
+                                ui.strong(mandate_id);
+                            });
+
+                            if let Some(asset_owner) = &structure.asset_owner_name {
+                                ui.horizontal(|ui| {
+                                    ui.label("💰 Asset Owner:");
+                                    ui.label(asset_owner);
+                                });
+                            }
+
+                            if let Some(investment_manager) = &structure.investment_manager_name {
+                                ui.horizontal(|ui| {
+                                    ui.label("📊 Investment Manager:");
+                                    ui.label(investment_manager);
+                                });
+                            }
+
+                            if let Some(currency) = &structure.base_currency {
+                                ui.horizontal(|ui| {
+                                    ui.label("💱 Currency:");
+                                    ui.label(currency);
+                                });
+                            }
+
+                            if let Some(instruments) = structure.total_instruments {
+                                ui.horizontal(|ui| {
+                                    ui.label("🎪 Instruments:");
+                                    ui.label(format!("{}", instruments));
+                                });
+                            }
+
+                            if let Some(families) = &structure.families {
+                                ui.horizontal(|ui| {
+                                    ui.label("📁 Families:");
+                                    ui.label(families);
+                                });
+                            }
+
+                            if let Some(exposure) = structure.total_exposure_pct {
+                                ui.horizontal(|ui| {
+                                    ui.label("📈 Total Exposure:");
+                                    ui.label(format!("{:.1}%", exposure.to_f64().unwrap_or(0.0)));
+                                });
+                            }
+                        } else {
+                            ui.colored_label(egui::Color32::GRAY, "No mandate assigned");
+                        }
+                    });
+                }
+            }
+        });
+
+        // CBU Member Investment Roles
+        ui.collapsing("👥 CBU Member Roles", |ui| {
+            if self.cbu_member_roles.is_empty() {
+                ui.label("No CBU member roles loaded.");
+            } else {
+                for role in &self.cbu_member_roles {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&role.entity_name);
+                            ui.label(format!("({})", role.role_name));
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("🏢 CBU:");
+                            ui.label(&role.cbu_name);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("🎭 Role:");
+                            ui.strong(&role.role_code);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("💼 Responsibility:");
+                            ui.label(&role.investment_responsibility);
+                        });
+
+                        if let Some(mandate_id) = &role.mandate_id {
+                            ui.horizontal(|ui| {
+                                ui.label("📋 Mandate:");
+                                ui.label(mandate_id);
+                            });
+                        }
+
+                        ui.horizontal(|ui| {
+                            ui.label("Authorities:");
+                            if role.has_trading_authority.unwrap_or(false) {
+                                ui.colored_label(egui::Color32::GREEN, "🔄 Trading");
+                            }
+                            if role.has_settlement_authority.unwrap_or(false) {
+                                ui.colored_label(egui::Color32::BLUE, "💱 Settlement");
+                            }
+                        });
+                    });
+                }
+            }
+        });
+    }
+
+    fn show_taxonomy_hierarchy_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🏗️ Taxonomy Hierarchy");
+        ui.separator();
+
+        ui.label("Complete Products → Options → Services → Resources hierarchy view");
+        ui.separator();
+
+        if ui.button("🔄 Load Sample Hierarchy").clicked() {
+            self.load_taxonomy_hierarchy();
+        }
+
+        if !self.taxonomy_hierarchy.is_empty() {
+            ui.collapsing("📊 Hierarchy Data", |ui| {
+                for item in &self.taxonomy_hierarchy {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(&item.item_name);
+                            ui.label(format!("Level {}: {}", item.level, item.item_type));
+                        });
+                        if let Some(desc) = &item.item_description {
+                            ui.label(desc);
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    // Database Loading Methods
+    fn load_product_taxonomy(&mut self) {
+        if let Some(ref pool) = self.db_pool {
+            let pool = pool.clone();
+            let rt = self.runtime.clone();
+
+            // Load products
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, product_id, product_name, line_of_business, description, status,
+                     contract_type, commercial_status, pricing_model, target_market
+                     FROM products WHERE status = 'active' ORDER BY product_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.products = rows.into_iter().map(|row| Product {
+                        id: row.get("id"),
+                        product_id: row.get("product_id"),
+                        product_name: row.get("product_name"),
+                        line_of_business: row.get("line_of_business"),
+                        description: row.get("description"),
+                        status: row.get("status"),
+                        contract_type: row.get("contract_type"),
+                        commercial_status: row.get("commercial_status"),
+                        pricing_model: row.get("pricing_model"),
+                        target_market: row.get("target_market"),
+                    }).collect();
+                    self.status_message = format!("Loaded {} products", self.products.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("Error loading products: {}", e);
+                }
+            }
+
+            // Load product options
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, option_id, product_id, option_name, option_category, option_type,
+                     option_value, display_name, description, pricing_impact, status
+                     FROM product_options WHERE status = 'active' ORDER BY option_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.product_options = rows.into_iter().map(|row| ProductOption {
+                        id: row.get("id"),
+                        option_id: row.get("option_id"),
+                        product_id: row.get("product_id"),
+                        option_name: row.get("option_name"),
+                        option_category: row.get("option_category"),
+                        option_type: row.get("option_type"),
+                        option_value: row.get("option_value"),
+                        display_name: row.get("display_name"),
+                        description: row.get("description"),
+                        pricing_impact: row.get("pricing_impact"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading product options: {}", e);
+                }
+            }
+
+            // Load services
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, service_id, service_name, service_category, description,
+                     service_type, delivery_model, billable, status
+                     FROM services WHERE status = 'active' ORDER BY service_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.services = rows.into_iter().map(|row| Service {
+                        id: row.get("id"),
+                        service_id: row.get("service_id"),
+                        service_name: row.get("service_name"),
+                        service_category: row.get("service_category"),
+                        description: row.get("description"),
+                        service_type: row.get("service_type"),
+                        delivery_model: row.get("delivery_model"),
+                        billable: row.get("billable"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading services: {}", e);
+                }
+            }
+
+            // Load resources
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, resource_name, description, version, category, resource_type,
+                     criticality_level, operational_status, owner_team, status
+                     FROM resource_objects WHERE status = 'active' ORDER BY resource_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.resources = rows.into_iter().map(|row| ResourceObject {
+                        id: row.get("id"),
+                        resource_name: row.get("resource_name"),
+                        description: row.get("description"),
+                        version: row.get("version"),
+                        category: row.get("category"),
+                        resource_type: row.get("resource_type"),
+                        criticality_level: row.get("criticality_level"),
+                        operational_status: row.get("operational_status"),
+                        owner_team: row.get("owner_team"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading resources: {}", e);
+                }
+            }
+
+            // Load service-resource hierarchy
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT service_id, service_code, service_name, service_category, service_type,
+                     delivery_model, billable, service_description, service_status,
+                     resource_id, resource_name, resource_description, resource_version,
+                     resource_category, resource_type, criticality_level, operational_status,
+                     owner_team, usage_type, resource_role, cost_allocation_percentage, dependency_level
+                     FROM service_resources_hierarchy ORDER BY service_name, dependency_level")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.service_resource_hierarchy = rows.into_iter().map(|row| ServiceResourceHierarchy {
+                        service_id: row.get("service_id"),
+                        service_code: row.get("service_code"),
+                        service_name: row.get("service_name"),
+                        service_category: row.get("service_category"),
+                        service_type: row.get("service_type"),
+                        delivery_model: row.get("delivery_model"),
+                        billable: row.get("billable"),
+                        service_description: row.get("service_description"),
+                        service_status: row.get("service_status"),
+                        resource_id: row.get("resource_id"),
+                        resource_name: row.get("resource_name"),
+                        resource_description: row.get("resource_description"),
+                        resource_version: row.get("resource_version"),
+                        resource_category: row.get("resource_category"),
+                        resource_type: row.get("resource_type"),
+                        criticality_level: row.get("criticality_level"),
+                        operational_status: row.get("operational_status"),
+                        owner_team: row.get("owner_team"),
+                        usage_type: row.get("usage_type"),
+                        resource_role: row.get("resource_role"),
+                        cost_allocation_percentage: row.get("cost_allocation_percentage"),
+                        dependency_level: row.get("dependency_level"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading service-resource hierarchy: {}", e);
+                }
+            }
+        }
+    }
+
+    fn load_investment_mandates(&mut self) {
+        if let Some(ref pool) = self.db_pool {
+            let pool = pool.clone();
+            let rt = self.runtime.clone();
+
+            // Load CBU investment mandate structure
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT cbu_id, cbu_name, mandate_id, asset_owner_name, investment_manager_name,
+                     base_currency, total_instruments, families, total_exposure_pct
+                     FROM cbu_investment_mandate_structure ORDER BY cbu_id")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.cbu_mandate_structure = rows.into_iter().map(|row| CbuInvestmentMandateStructure {
+                        cbu_id: row.get("cbu_id"),
+                        cbu_name: row.get("cbu_name"),
+                        mandate_id: row.get("mandate_id"),
+                        asset_owner_name: row.get("asset_owner_name"),
+                        investment_manager_name: row.get("investment_manager_name"),
+                        base_currency: row.get("base_currency"),
+                        total_instruments: row.get("total_instruments"),
+                        families: row.get("families"),
+                        total_exposure_pct: row.get("total_exposure_pct"),
+                    }).collect();
+                    self.status_message = format!("Loaded {} CBU mandate structures", self.cbu_mandate_structure.len());
+                }
+                Err(e) => {
+                    self.status_message = format!("Error loading CBU mandate structure: {}", e);
+                }
+            }
+
+            // Load CBU member investment roles
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT cbu_id, cbu_name, entity_name, entity_lei, role_name, role_code,
+                     investment_responsibility, mandate_id, has_trading_authority, has_settlement_authority
+                     FROM cbu_member_investment_roles ORDER BY cbu_id, role_code")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.cbu_member_roles = rows.into_iter().map(|row| CbuMemberInvestmentRole {
+                        cbu_id: row.get("cbu_id"),
+                        cbu_name: row.get("cbu_name"),
+                        entity_name: row.get("entity_name"),
+                        entity_lei: row.get("entity_lei"),
+                        role_name: row.get("role_name"),
+                        role_code: row.get("role_code"),
+                        investment_responsibility: row.get("investment_responsibility"),
+                        mandate_id: row.get("mandate_id"),
+                        has_trading_authority: row.get("has_trading_authority"),
+                        has_settlement_authority: row.get("has_settlement_authority"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading CBU member roles: {}", e);
+                }
+            }
+        }
+    }
+
+    fn load_taxonomy_hierarchy(&mut self) {
+        // For now, create a sample hierarchy
+        self.taxonomy_hierarchy = vec![
+            TaxonomyHierarchyItem {
+                level: 1,
+                item_type: "product".to_string(),
+                item_id: 1,
+                item_name: "Institutional Custody Plus".to_string(),
+                item_description: Some("Comprehensive custody services".to_string()),
+                parent_id: None,
+                configuration: None,
+                metadata: None,
+            },
+            TaxonomyHierarchyItem {
+                level: 2,
+                item_type: "product_option".to_string(),
+                item_id: 2,
+                item_name: "US Market Settlement".to_string(),
+                item_description: Some("Settlement in US markets".to_string()),
+                parent_id: Some(1),
+                configuration: None,
+                metadata: None,
+            },
+        ];
+        self.status_message = "Loaded sample taxonomy hierarchy".to_string();
     }
 
 }
