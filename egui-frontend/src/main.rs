@@ -4,7 +4,13 @@ use data_designer_core::db::{
     ClientBusinessUnit, CreateCbuRequest,
     DbOperations, DataDictionaryResponse, EmbeddingOperations, SimilarRule
 };
-use data_designer_core::{parser, evaluator, models::Value};
+
+mod code_editor;
+use code_editor::{DslCodeEditor, DslLanguage};
+
+mod ai_assistant;
+use ai_assistant::{AiAssistant, AiProvider, AiSuggestion, SuggestionType};
+use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, ViewerState}, transpiler::{Transpiler, TranspilerOptions, TargetLanguage}};
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use std::sync::Arc;
@@ -84,6 +90,26 @@ struct DataDesignerApp {
     similar_rules: Vec<SimilarRule>,
     embedding_status: String,
 
+    // Dictionary Viewer State
+    dictionary_data: Option<DataDictionary>,
+    viewer_state: ViewerState,
+    dictionary_loaded: bool,
+    // Transpiler State
+    transpiler_input: String,
+    transpiler_output: String,
+    target_language: String,
+    optimization_enabled: bool,
+    transpiler_error: Option<String>,
+    // Custom Code Editor
+    dsl_editor: DslCodeEditor,
+    output_editor: DslCodeEditor,
+    // AI Assistant
+    ai_assistant: AiAssistant,
+    ai_suggestions: Vec<AiSuggestion>,
+    ai_query: String,
+    show_ai_panel: bool,
+    ai_loading: bool,
+
     // UI State
     show_cbu_form: bool,
     cbu_form: CbuForm,
@@ -97,7 +123,9 @@ enum Tab {
     Dashboard,
     CBUs,
     AttributeDictionary,
+    DictionaryViewer,  // New tab for the JSON viewer
     RuleEngine,
+    Transpiler,        // New tab for code generation
     Database,
 }
 
@@ -371,6 +399,17 @@ impl SyntaxHighlighter {
 
 impl DataDesignerApp {
     fn new(db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
+        let ai_assistant = if let Some(ref pool) = db_pool {
+            AiAssistant::new()
+                .with_provider(AiProvider::Offline)
+                .with_env_api_keys()
+                .with_database(pool.clone())
+        } else {
+            AiAssistant::new()
+                .with_provider(AiProvider::Offline)
+                .with_env_api_keys()
+        };
+
         let mut app = Self {
             current_tab: Tab::default(),
             db_pool,
@@ -392,6 +431,30 @@ impl DataDesignerApp {
             semantic_search_query: String::new(),
             similar_rules: Vec::new(),
             embedding_status: "Ready for semantic search".to_string(),
+            dictionary_data: None,
+            viewer_state: ViewerState::default(),
+            dictionary_loaded: false,
+            transpiler_input: "price * quantity + tax".to_string(),
+            transpiler_output: String::new(),
+            target_language: "Rust".to_string(),
+            optimization_enabled: true,
+            transpiler_error: None,
+            dsl_editor: DslCodeEditor::new()
+                .with_text("price * quantity + tax")
+                .with_language(DslLanguage::Dsl)
+                .with_rows(12)
+                .with_font_size(16.0)
+                .show_line_numbers(true),
+            output_editor: DslCodeEditor::new()
+                .with_language(DslLanguage::Rust)
+                .with_rows(15)
+                .with_font_size(16.0)
+                .show_line_numbers(true),
+            ai_assistant,
+            ai_suggestions: Vec::new(),
+            ai_query: String::new(),
+            show_ai_panel: true,
+            ai_loading: false,
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -513,6 +576,10 @@ impl DataDesignerApp {
     }
 
     fn load_data_dictionary(&mut self) {
+        // Load JSON dictionary for viewer
+        self.load_json_dictionary();
+
+        // Load database dictionary for existing functionality
         if let Some(ref _pool) = self.db_pool {
             let rt = self.runtime.clone();
 
@@ -527,6 +594,27 @@ impl DataDesignerApp {
                 Err(e) => {
                     eprintln!("Failed to load data dictionary: {}", e);
                 }
+            }
+        }
+    }
+
+    fn load_json_dictionary(&mut self) {
+        match std::fs::read_to_string("test_data/source_attributes.json") {
+            Ok(json_content) => {
+                match DataDictionary::load_from_json(&json_content) {
+                    Ok(dictionary) => {
+                        self.dictionary_data = Some(dictionary);
+                        self.dictionary_loaded = true;
+                        println!("✅ Dictionary JSON loaded successfully");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to parse dictionary JSON: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to read test_data/source_attributes.json: {}", e);
+                eprintln!("   Make sure the file exists in the project root");
             }
         }
     }
@@ -582,7 +670,9 @@ impl eframe::App for DataDesignerApp {
                 ui.selectable_value(&mut self.current_tab, Tab::Dashboard, "🏠 Dashboard");
                 ui.selectable_value(&mut self.current_tab, Tab::CBUs, "🏢 CBUs");
                 ui.selectable_value(&mut self.current_tab, Tab::AttributeDictionary, "📚 Attributes");
+                ui.selectable_value(&mut self.current_tab, Tab::DictionaryViewer, "📋 Dictionary Viewer");
                 ui.selectable_value(&mut self.current_tab, Tab::RuleEngine, "⚡ Rules");
+                ui.selectable_value(&mut self.current_tab, Tab::Transpiler, "🔄 Transpiler");
                 ui.selectable_value(&mut self.current_tab, Tab::Database, "🗄️ Database");
             });
         });
@@ -593,7 +683,9 @@ impl eframe::App for DataDesignerApp {
                 Tab::Dashboard => self.show_dashboard(ui),
                 Tab::CBUs => self.show_cbu_tab(ui),
                 Tab::AttributeDictionary => self.show_attribute_dictionary_tab(ui),
+                Tab::DictionaryViewer => self.show_dictionary_viewer_tab(ui),
                 Tab::RuleEngine => self.show_rule_engine_tab(ui),
+                Tab::Transpiler => self.show_transpiler_tab(ui),
                 Tab::Database => self.show_database_tab(ui),
             }
         });
@@ -1032,6 +1124,7 @@ impl DataDesignerApp {
                     Value::String(s) => format!("\"{}\"", s),
                     Value::Integer(i) => i.to_string(),
                     Value::Float(f) => f.to_string(),
+                    Value::Number(n) => n.to_string(),
                     Value::Boolean(b) => b.to_string(),
                     Value::Null => "null".to_string(),
                     Value::List(list) => {
@@ -1210,4 +1303,708 @@ impl DataDesignerApp {
             }).inner
         }).inner
     }
+
+    fn show_dictionary_viewer_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("📋 Dictionary Viewer - JSON Data Explorer");
+
+        if !self.dictionary_loaded {
+            ui.colored_label(egui::Color32::YELLOW, "⚠️ Dictionary not loaded");
+            if ui.button("🔄 Reload Dictionary").clicked() {
+                self.load_json_dictionary();
+            }
+            return;
+        }
+
+        if let Some(ref dictionary) = self.dictionary_data {
+            // Statistics and overview
+            ui.horizontal(|ui| {
+                let stats = dictionary.get_statistics();
+                ui.label(format!("📊 {} Datasets", stats.total_datasets));
+                ui.separator();
+                ui.label(format!("🏷️ {} Attributes", stats.total_attributes));
+                ui.separator();
+                ui.label(format!("📚 {} Lookup Tables", stats.lookup_tables_count));
+                ui.separator();
+                ui.label(format!("🔗 {} Lookup Entries", stats.total_lookup_entries));
+            });
+
+            ui.separator();
+
+            // Search functionality
+            ui.horizontal(|ui| {
+                ui.label("🔍 Search:");
+                ui.text_edit_singleline(&mut self.viewer_state.search_query);
+                if ui.button("❌ Clear").clicked() {
+                    self.viewer_state.clear_search();
+                }
+                if self.viewer_state.has_active_filters() {
+                    ui.colored_label(egui::Color32::GREEN, "Filters active");
+                }
+            });
+
+            ui.separator();
+
+            // Two-panel layout
+            ui.horizontal(|ui| {
+                // Left panel - Dataset list and groups
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.heading("📁 Datasets");
+                        ui.set_width(300.0);
+
+                        egui::ScrollArea::vertical()
+                            .max_height(500.0)
+                            .show(ui, |ui| {
+                                for (i, dataset) in dictionary.datasets.iter().enumerate() {
+                                    let group_name = &dataset.name;
+                                    let expanded = self.viewer_state.is_group_expanded(group_name);
+
+                                    ui.horizontal(|ui| {
+                                        let expand_icon = if expanded { "📂" } else { "📁" };
+                                        if ui.button(format!("{} {}", expand_icon, dataset.name)).clicked() {
+                                            self.viewer_state.toggle_group(group_name);
+                                        }
+                                        ui.label(format!("({} attrs)", dataset.attributes.len()));
+                                    });
+
+                                    if expanded {
+                                        ui.indent("dataset_attrs", |ui| {
+                                            ui.label(&dataset.description);
+                                            ui.separator();
+
+                                            // Show filtered attributes
+                                            for (attr_name, attr_value) in &dataset.attributes {
+                                                if self.viewer_state.search_query.is_empty()
+                                                   || attr_name.to_lowercase().contains(&self.viewer_state.search_query.to_lowercase()) {
+
+                                                    if ui.selectable_label(false, format!("🏷️ {}", attr_name)).clicked() {
+                                                        self.viewer_state.selected_dataset = Some(format!("{}.{}", dataset.id, attr_name));
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                    ui.separator();
+                                }
+                            });
+                    });
+                });
+
+                ui.separator();
+
+                // Right panel - Attribute details
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.heading("🔍 Attribute Details");
+
+                        if let Some(ref selected) = self.viewer_state.selected_dataset {
+                            if let Some((dataset_id, attr_name)) = selected.split_once('.') {
+                                if let Some(dataset) = dictionary.get_dataset_by_id(dataset_id) {
+                                    if let Some(attr_value) = dataset.attributes.get(attr_name) {
+                                        ui.label(format!("Dataset: {}", dataset.name));
+                                        ui.label(format!("Attribute: {}", attr_name));
+
+                                        ui.separator();
+
+                                        ui.label("Value:");
+                                        ui.code(format!("{:#}", attr_value));
+
+                                        ui.separator();
+
+                                        // Type information
+                                        match attr_value {
+                                            serde_json::Value::String(s) => {
+                                                ui.label(format!("Type: String (length: {})", s.len()));
+                                                if s.contains('@') {
+                                                    ui.colored_label(egui::Color32::BLUE, "📧 Looks like email");
+                                                }
+                                                if s.contains("http") {
+                                                    ui.colored_label(egui::Color32::BLUE, "🔗 Looks like URL");
+                                                }
+                                            }
+                                            serde_json::Value::Number(n) => {
+                                                if n.is_i64() {
+                                                    ui.label("Type: Integer");
+                                                } else {
+                                                    ui.label("Type: Decimal");
+                                                }
+                                            }
+                                            serde_json::Value::Bool(_) => {
+                                                ui.label("Type: Boolean");
+                                            }
+                                            serde_json::Value::Array(arr) => {
+                                                ui.label(format!("Type: Array (length: {})", arr.len()));
+                                            }
+                                            serde_json::Value::Object(obj) => {
+                                                ui.label(format!("Type: Object (keys: {})", obj.len()));
+                                            }
+                                            serde_json::Value::Null => {
+                                                ui.label("Type: Null");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            ui.label("Select an attribute to view details");
+                        }
+                    });
+                });
+            });
+
+            ui.separator();
+
+            // Lookup tables section
+            ui.collapsing("📚 Lookup Tables", |ui| {
+                for (table_name, table_data) in &dictionary.lookup_tables {
+                    ui.collapsing(format!("📋 {} ({} entries)", table_name, table_data.len()), |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(200.0)
+                            .show(ui, |ui| {
+                                for (key, value) in table_data {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("🔑 {}", key));
+                                        ui.separator();
+                                        ui.label(format!("{}", value));
+                                    });
+                                }
+                            });
+                    });
+                }
+            });
+
+        } else {
+            ui.colored_label(egui::Color32::RED, "❌ No dictionary data available");
+        }
+    }
+
+    fn show_transpiler_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🔄 DSL Transpiler & Code Generation");
+
+        // AI Assistant Toggle
+        ui.horizontal(|ui| {
+            if ui.button(if self.show_ai_panel { "🤖 Hide AI Assistant" } else { "🤖 Show AI Assistant" }).clicked() {
+                self.show_ai_panel = !self.show_ai_panel;
+            }
+            ui.separator();
+            ui.label("💡 Get intelligent suggestions and help while coding");
+        });
+
+        ui.add_space(10.0);
+
+        // Main layout with optional AI panel
+        if self.show_ai_panel {
+            ui.horizontal(|ui| {
+                // Left side: Editor and transpiler
+                ui.vertical(|ui| {
+                    self.show_editor_panel(ui);
+                });
+
+                ui.separator();
+
+                // Right side: AI Assistant
+                ui.vertical(|ui| {
+                    self.show_ai_assistant_panel(ui);
+                });
+            });
+        } else {
+            self.show_editor_panel(ui);
+        }
+    }
+
+    fn show_editor_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("📝 Input DSL Expression");
+                    ui.add_space(10.0);
+
+                    // Input area
+                    ui.horizontal(|ui| {
+                        ui.label("DSL Rule:");
+                        if ui.button("🔄 Clear").clicked() {
+                            self.transpiler_input.clear();
+                            self.dsl_editor.text.clear();
+                        }
+                    });
+
+                    // Enhanced DSL Editor with syntax highlighting and real-time completion
+                    let editor_response = ui.add(&mut self.dsl_editor);
+
+                    // Sync with transpiler input for now
+                    self.transpiler_input = self.dsl_editor.text.clone();
+
+                    // Trigger intelligent code completion on typing
+                    if editor_response.changed() || self.should_trigger_completion() {
+                        self.trigger_code_completion();
+                    }
+
+                    ui.add_space(10.0);
+
+                    // Configuration
+                    ui.horizontal(|ui| {
+                        ui.label("Target Language:");
+                        egui::ComboBox::from_id_salt("target_language")
+                            .selected_text(&self.target_language)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.target_language, "Rust".to_string(), "🦀 Rust");
+                                ui.selectable_value(&mut self.target_language, "SQL".to_string(), "🗄️ SQL");
+                                ui.selectable_value(&mut self.target_language, "JavaScript".to_string(), "📱 JavaScript");
+                                ui.selectable_value(&mut self.target_language, "Python".to_string(), "🐍 Python");
+                            });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.optimization_enabled, "Enable Optimizations");
+                        ui.label("(constant folding, dead code elimination)");
+                    });
+
+                    ui.add_space(10.0);
+
+                    // Real-time syntax validation
+                    ui.horizontal(|ui| {
+                        if ui.button("🔍 Validate Syntax").clicked() {
+                            self.dsl_editor.validate_syntax();
+                        }
+
+                        // Transpile button
+                        if ui.add(egui::Button::new("🚀 Transpile").min_size(egui::vec2(100.0, 30.0))).clicked() {
+                            self.transpile_expression();
+                        }
+                    });
+                });
+            });
+
+            ui.separator();
+
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("💻 Generated Code");
+                    ui.add_space(10.0);
+
+                    // Output area
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Output ({})", self.target_language));
+                        if ui.button("📋 Copy").clicked() {
+                            ui.ctx().copy_text(self.transpiler_output.clone());
+                        }
+                    });
+
+                    let output_color = if self.transpiler_error.is_some() {
+                        egui::Color32::LIGHT_RED
+                    } else {
+                        ui.visuals().text_color()
+                    };
+
+                    // Enhanced output editor with syntax highlighting
+                    ui.add(&mut self.output_editor);
+
+                    // Error display
+                    if let Some(error) = &self.transpiler_error {
+                        ui.add_space(10.0);
+                        ui.colored_label(egui::Color32::RED, format!("❌ Error: {}", error));
+                    }
+
+                    ui.add_space(10.0);
+
+                    // Info panel
+                    ui.collapsing("ℹ️ Transpiler Features", |ui| {
+                        ui.label("🔧 Optimizations:");
+                        ui.label("  • Constant folding (2 + 3 → 5)");
+                        ui.label("  • Dead code elimination");
+                        ui.label("  • Function inlining");
+                        ui.separator();
+                        ui.label("🎯 Target Languages:");
+                        ui.label("  • Rust: Direct Value enum mapping");
+                        ui.label("  • SQL: CASE/WHEN expressions");
+                        ui.label("  • JavaScript: Ternary operators");
+                        ui.label("  • Python: Native expressions");
+                        ui.separator();
+                        ui.label("✅ Supported Features:");
+                        ui.label("  • Arithmetic operations");
+                        ui.label("  • Logical operations");
+                        ui.label("  • Function calls");
+                        ui.label("  • Conditional expressions");
+                        ui.label("  • String operations");
+                    });
+                });
+            });
+        });
+    }
+
+    fn transpile_expression(&mut self) {
+        self.transpiler_error = None;
+
+        if self.transpiler_input.trim().is_empty() {
+            self.transpiler_error = Some("Input expression is empty".to_string());
+            self.transpiler_output = String::new();
+            return;
+        }
+
+        // Parse the expression
+        match parser::parse_expression(&self.transpiler_input) {
+            Ok((_, ast)) => {
+                // Determine target language
+                let target = match self.target_language.as_str() {
+                    "Rust" => TargetLanguage::Rust,
+                    "SQL" => TargetLanguage::SQL,
+                    "JavaScript" => TargetLanguage::JavaScript,
+                    "Python" => TargetLanguage::Python,
+                    _ => TargetLanguage::Rust,
+                };
+
+                // Create transpiler with options
+                let options = TranspilerOptions {
+                    target,
+                    optimize: self.optimization_enabled,
+                    inline_functions: self.optimization_enabled,
+                    constant_folding: self.optimization_enabled,
+                    dead_code_elimination: self.optimization_enabled,
+                };
+
+                let transpiler = Transpiler::new(options);
+
+                // Transpile
+                match transpiler.transpile(&ast) {
+                    Ok(code) => {
+                        self.transpiler_output = code.clone();
+                        self.output_editor.text = code;
+
+                        // Update output editor language based on target
+                        self.output_editor.language = match self.target_language.as_str() {
+                            "Rust" => DslLanguage::Rust,
+                            "SQL" => DslLanguage::Sql,
+                            "JavaScript" => DslLanguage::JavaScript,
+                            "Python" => DslLanguage::Python,
+                            _ => DslLanguage::Rust,
+                        };
+                    }
+                    Err(e) => {
+                        self.transpiler_error = Some(e.to_string());
+                        self.transpiler_output = String::new();
+                        self.output_editor.text = String::new();
+
+                        // Trigger AI-powered error analysis
+                        self.trigger_error_analysis(&e.to_string());
+                    }
+                }
+            }
+            Err(e) => {
+                self.transpiler_error = Some(format!("Parse error: {}", e));
+                self.transpiler_output = String::new();
+            }
+        }
+    }
+
+    fn show_ai_assistant_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.heading("🤖 AI Assistant");
+                ui.add_space(10.0);
+
+                // Provider selection
+                ui.horizontal(|ui| {
+                    ui.label("Provider:");
+                    egui::ComboBox::from_id_salt("ai_provider")
+                        .selected_text(&self.ai_assistant.get_provider_status())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::OpenAI { api_key: None }, "🔮 OpenAI");
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Anthropic { api_key: None }, "🧠 Anthropic");
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Offline, "🔒 Offline");
+                        });
+                });
+
+                ui.add_space(10.0);
+
+                // Query input
+                ui.horizontal(|ui| {
+                    ui.label("Ask AI:");
+                    if ui.button("🧹 Clear").clicked() {
+                        self.ai_query.clear();
+                    }
+                });
+
+                ui.add(egui::TextEdit::multiline(&mut self.ai_query)
+                    .hint_text("Ask for help with DSL syntax, patterns, or optimizations...")
+                    .desired_rows(3));
+
+                ui.add_space(5.0);
+
+                // Generate suggestion button
+                ui.horizontal(|ui| {
+                    if ui.add(egui::Button::new("✨ Get Suggestions").min_size(egui::vec2(120.0, 25.0))).clicked() {
+                        self.generate_ai_suggestions();
+                    }
+
+                    if ui.button("🔄 Refresh Context").clicked() {
+                        self.update_ai_context();
+                    }
+                });
+
+                ui.add_space(10.0);
+
+                // Context display
+                ui.collapsing("📋 Current Context", |ui| {
+                    ui.label(format!("Input: {}", if self.ai_assistant.context.current_rule.is_empty() {
+                        "No input provided"
+                    } else {
+                        &self.ai_assistant.context.current_rule
+                    }));
+
+                    ui.label(format!("Target: {}", if self.ai_assistant.context.target_language.is_empty() {
+                        "Not set"
+                    } else {
+                        &self.ai_assistant.context.target_language
+                    }));
+
+                    if !self.ai_assistant.context.available_attributes.is_empty() {
+                        ui.label(format!("Attributes: {} available", self.ai_assistant.context.available_attributes.len()));
+                    }
+
+                    if !self.ai_assistant.context.recent_errors.is_empty() {
+                        ui.label(format!("Recent errors: {}", self.ai_assistant.context.recent_errors.len()));
+                    }
+                });
+
+                ui.add_space(10.0);
+
+                // AI Suggestions display
+                ui.separator();
+                ui.label("💡 AI Suggestions:");
+
+                let mut apply_suggestion_index = None;
+
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        if self.ai_suggestions.is_empty() {
+                            ui.label("No suggestions yet. Ask a question or request help!");
+                        } else {
+                            for (i, suggestion) in self.ai_suggestions.iter().enumerate() {
+                                ui.group(|ui| {
+                                    ui.vertical(|ui| {
+                                        // Suggestion header
+                                        ui.horizontal(|ui| {
+                                            let icon = match suggestion.suggestion_type {
+                                                SuggestionType::CodeCompletion => "💻",
+                                                SuggestionType::ErrorFix => "🔧",
+                                                SuggestionType::Optimization => "⚡",
+                                                SuggestionType::Alternative => "🔄",
+                                                SuggestionType::Documentation => "📖",
+                                                SuggestionType::FunctionUsage => "🔧",
+                                                SuggestionType::BestPractice => "⭐",
+                                                SuggestionType::SimilarPattern => "🔍",
+                                                SuggestionType::PatternMatch => "🎯",
+                                                SuggestionType::AutoComplete => "🏃",
+                                                SuggestionType::SnippetCompletion => "📝",
+                                                SuggestionType::ErrorAnalysis => "🔍",
+                                                SuggestionType::QuickFix => "⚡",
+                                            };
+                                            ui.label(format!("{} {}", icon, suggestion.title));
+
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if ui.small_button("📋 Apply").clicked() {
+                                                    apply_suggestion_index = Some(i);
+                                                }
+                                                ui.label(format!("Confidence: {:.0}%", suggestion.confidence * 100.0));
+                                            });
+                                        });
+
+                                        // Suggestion content
+                                        ui.label(&suggestion.description);
+
+                                        if let Some(code) = &suggestion.code_snippet {
+                                            ui.add_space(5.0);
+                                            ui.monospace(code);
+                                        }
+                                    });
+                                });
+                                ui.add_space(5.0);
+                            }
+                        }
+                    });
+
+                // Apply suggestion outside the borrow
+                if let Some(index) = apply_suggestion_index {
+                    self.apply_ai_suggestion(index);
+                }
+
+                ui.add_space(10.0);
+
+                // Quick actions
+                ui.separator();
+                ui.label("🚀 Quick Actions:");
+                ui.horizontal_wrapped(|ui| {
+                    if ui.small_button("🔍 Analyze Input").clicked() {
+                        self.ai_query = "Analyze my current DSL expression and suggest improvements".to_string();
+                        self.generate_ai_suggestions();
+                    }
+                    if ui.small_button("💡 Suggest Optimizations").clicked() {
+                        self.ai_query = "What optimizations can be applied to this expression?".to_string();
+                        self.generate_ai_suggestions();
+                    }
+                    if ui.small_button("🐛 Debug Errors").clicked() {
+                        self.ai_query = "Help me debug any errors in my expression".to_string();
+                        self.generate_ai_suggestions();
+                    }
+                    if ui.small_button("📚 Explain Syntax").clicked() {
+                        self.ai_query = "Explain the DSL syntax I'm using".to_string();
+                        self.generate_ai_suggestions();
+                    }
+                });
+            });
+        });
+    }
+
+    fn generate_ai_suggestions(&mut self) {
+        // Update context with current state
+        self.update_ai_context();
+
+        // Use offline suggestions for now (can be enhanced later for async RAG)
+        let query = self.ai_query.clone();
+        let suggestions = self.ai_assistant.get_offline_suggestions(&query);
+
+        // Add manual RAG suggestions if database is available
+        if let Some(_) = &self.db_pool {
+            // Note: RAG suggestions require async, which would need a different architecture
+            // For now, we'll use the offline suggestions and enhance later
+        }
+
+        self.ai_suggestions = suggestions;
+    }
+
+    fn should_trigger_completion(&self) -> bool {
+        // Trigger completion on certain characters or after a delay
+        let text = &self.dsl_editor.text;
+        let cursor = self.dsl_editor.cursor_position;
+
+        if cursor == 0 || cursor > text.len() {
+            return false;
+        }
+
+        // Get the character before cursor
+        let chars: Vec<char> = text.chars().collect();
+        if cursor > 0 && cursor <= chars.len() {
+            let prev_char = chars[cursor - 1];
+            // Trigger on letters, dots, and after spaces following keywords
+            prev_char.is_alphabetic() || prev_char == '.' || prev_char == '_'
+        } else {
+            false
+        }
+    }
+
+    fn trigger_code_completion(&mut self) {
+        // Update AI context for real-time completion
+        self.update_ai_context();
+
+        // Get intelligent code completions based on cursor position
+        let completions = self.ai_assistant.get_code_completions(
+            &self.dsl_editor.text,
+            self.dsl_editor.cursor_position
+        );
+
+        // Mix completion suggestions with existing suggestions
+        if !completions.is_empty() {
+            // Keep existing suggestions but prioritize completions
+            let mut mixed_suggestions = completions;
+
+            // Add some existing suggestions if we have room
+            for suggestion in &self.ai_suggestions {
+                if mixed_suggestions.len() < 10 &&
+                   !mixed_suggestions.iter().any(|s| s.title == suggestion.title) {
+                    mixed_suggestions.push(suggestion.clone());
+                }
+            }
+
+            self.ai_suggestions = mixed_suggestions;
+        }
+    }
+
+    fn update_ai_context(&mut self) {
+        // Update AI context with current application state
+        self.ai_assistant.context.current_rule = self.transpiler_input.clone();
+
+        // Set target language
+        self.ai_assistant.context.target_language = self.target_language.clone();
+
+        // Add recent error if present
+        if let Some(error) = &self.transpiler_error {
+            self.ai_assistant.context.recent_errors.push(error.clone());
+            // Keep only last 5 errors
+            if self.ai_assistant.context.recent_errors.len() > 5 {
+                self.ai_assistant.context.recent_errors.remove(0);
+            }
+        }
+
+        // Add available attributes from dictionary
+        if let Some(dictionary) = &self.data_dictionary {
+            let mut attributes = Vec::new();
+            for attr in &dictionary.attributes {
+                if let Some(attr_name) = attr.get("attribute_name").and_then(|v| v.as_str()) {
+                    if let Some(entity_name) = attr.get("entity_name").and_then(|v| v.as_str()) {
+                        attributes.push(format!("{}.{}", entity_name, attr_name));
+                    } else {
+                        attributes.push(attr_name.to_string());
+                    }
+                }
+            }
+            self.ai_assistant.context.available_attributes = attributes;
+        }
+    }
+
+    fn apply_ai_suggestion(&mut self, suggestion_index: usize) {
+        if let Some(suggestion) = self.ai_suggestions.get(suggestion_index) {
+            match suggestion.suggestion_type {
+                SuggestionType::CodeCompletion | SuggestionType::Alternative |
+                SuggestionType::AutoComplete | SuggestionType::SnippetCompletion => {
+                    // Replace current input with suggested code
+                    if let Some(code) = &suggestion.code_snippet {
+                        self.transpiler_input = code.clone();
+                        self.dsl_editor.text = code.clone();
+
+                        // Auto-transpile the new code
+                        self.transpile_expression();
+                    }
+                }
+                SuggestionType::ErrorFix | SuggestionType::QuickFix => {
+                    // Apply the fix to current input
+                    if let Some(code) = &suggestion.code_snippet {
+                        self.transpiler_input = code.clone();
+                        self.dsl_editor.text = code.clone();
+                        self.transpile_expression();
+                    }
+                }
+                SuggestionType::ErrorAnalysis => {
+                    // For error analysis, just display the information
+                    // The analysis text is already shown in the UI
+                }
+                SuggestionType::Optimization => {
+                    // Apply optimization and retranspile
+                    if let Some(code) = &suggestion.code_snippet {
+                        self.transpiler_input = code.clone();
+                        self.dsl_editor.text = code.clone();
+                        self.optimization_enabled = true; // Enable optimizations
+                        self.transpile_expression();
+                    }
+                }
+                _ => {
+                    // For explanations, just show in a popup or status
+                    // Note: Clipboard access requires UI context, handled in the UI layer
+                }
+            }
+        }
+    }
+
+    fn trigger_error_analysis(&mut self, error_message: &str) {
+        let suggestions = self.ai_assistant.analyze_error(error_message, &self.transpiler_input);
+
+        // Add error analysis suggestions to the AI suggestions list
+        for suggestion in suggestions {
+            self.ai_suggestions.push(suggestion);
+        }
+
+        // Ensure AI panel is visible
+        self.show_ai_panel = true;
+    }
+
 }

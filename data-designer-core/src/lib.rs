@@ -2,6 +2,7 @@ pub mod models;
 pub mod engine;
 pub mod parser;
 pub mod evaluator;
+pub mod transpiler;
 
 // Configuration
 pub mod config;

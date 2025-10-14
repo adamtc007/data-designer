@@ -337,6 +337,7 @@ impl FunctionLibrary {
             Value::Boolean(b) => *b,
             Value::Integer(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
+            Value::Number(n) => *n != 0.0,
             Value::String(s) => !s.is_empty() && s.to_lowercase() != "false",
             Value::Null => false,
             Value::List(l) => !l.is_empty(),
@@ -412,6 +413,12 @@ pub fn evaluate_with_functions(expr: &Expression, facts: &Facts, functions: &Fun
                  .unwrap_or(Value::Null))  // Return null instead of error for missing facts
         }
 
+        Expression::Variable(name) => {
+            Ok(facts.get(name)
+                 .cloned()
+                 .unwrap_or(Value::Null))  // Return null instead of error for missing facts
+        }
+
         Expression::Assignment { target: _, value } => {
             let result = evaluate_with_functions(value, facts, functions)?;
             // Note: In a real system, you'd update the facts here
@@ -458,6 +465,7 @@ pub fn evaluate_with_functions(expr: &Expression, facts: &Facts, functions: &Fun
                 Value::Null => false,
                 Value::Integer(i) => i != 0,
                 Value::Float(f) => f != 0.0,
+                Value::Number(n) => n != 0.0,
                 Value::String(s) => !s.is_empty(),
                 Value::List(l) => !l.is_empty(),
                 Value::Regex(_) => true,
@@ -612,6 +620,7 @@ fn value_to_string(value: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Integer(i) => i.to_string(),
         Value::Float(f) => f.to_string(),
+        Value::Number(n) => n.to_string(),
         Value::Boolean(b) => b.to_string(),
         Value::Null => "null".to_string(),
         Value::List(list) => {
@@ -627,6 +636,7 @@ fn to_bool(value: &Value) -> bool {
         Value::Boolean(b) => *b,
         Value::Integer(i) => *i != 0,
         Value::Float(f) => *f != 0.0,
+        Value::Number(n) => *n != 0.0,
         Value::String(s) => !s.is_empty(),
         Value::Null => false,
         Value::List(l) => !l.is_empty(),
