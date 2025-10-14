@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "data-designer-core",
+    "egui-frontend",
 ]
 resolver = "2"
 

@@ -291,7 +291,7 @@ export class ConfigDrivenRenderer {
         select.name = attribute.name;
 
         // Add default option
-        const defaultOption = this.createElement('option', []);
+        const defaultOption = this.createElement('option', []) as HTMLOptionElement;
         defaultOption.value = '';
         defaultOption.textContent = ui.placeholder || 'Select...';
         select.appendChild(defaultOption);
@@ -299,7 +299,7 @@ export class ConfigDrivenRenderer {
         // Add options from allowedValues
         if (attribute.allowedValues) {
             attribute.allowedValues.forEach(value => {
-                const option = this.createElement('option', []);
+                const option = this.createElement('option', []) as HTMLOptionElement;
                 option.value = value;
                 option.textContent = value;
                 select.appendChild(option);
@@ -506,7 +506,7 @@ export class ConfigDrivenRenderer {
         const select = this.createElement('select', ['perspective-select']) as HTMLSelectElement;
 
         this.context.perspective.availablePerspectives.forEach(perspective => {
-            const option = this.createElement('option', []);
+            const option = this.createElement('option', []) as HTMLOptionElement;
             option.value = perspective;
             option.textContent = perspective;
             option.selected = perspective === this.context.perspective.activePerspective;

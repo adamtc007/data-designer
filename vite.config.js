@@ -2,19 +2,25 @@ import { defineConfig } from "vite";
 import { resolve } from "path";
 
 export default defineConfig({
-  // Add this line to tell Vite where your HTML file is
+  // Configure TypeScript-first build
   root: "src",
 
-  // Configure multi-page app build
+  // Configure build output
   build: {
+    outDir: "../dist",
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, "src/index-new.html"),
-        schema: resolve(__dirname, "src/schema.html")
-      }
+      input: "main.ts"
     },
     // Copy additional assets
-    assetsInclude: ['**/*.json', '**/*.css']
+    assetsInclude: ['**/*.json', '**/*.css'],
+    // Ensure TypeScript is properly processed
+    target: 'es2020',
+    minify: false, // Disable minification for debugging
+    lib: {
+      entry: "main.ts",
+      name: "DataDesignerIDE",
+      formats: ["es"]
+    }
   },
 
   // prevent vite from clearing screen

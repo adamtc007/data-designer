@@ -4,19 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "npm run build:types && vite build",
-    "build:types": "rustc generate_types.rs && ./generate_types",
+    "build": "cd data-designer && cargo build --release",
     "build:ts": "tsc",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dev": "cd data-designer/egui-frontend && cargo run",
+    "dev:release": "cd data-designer/egui-frontend && cargo run --release",
+    "electron": "npm run build && electron electron-main.js",
+    "electron:dev": "NODE_ENV=development npm run build && electron electron-main.js"
   },
+  "main": "electron-main.js",
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0",
     "monaco-editor": "^0.43.0"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.9"
+    "electron": "^38.2.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.3"
   }
 }

@@ -18,7 +18,7 @@ use config::Config;
 mod db;
 use db::{DbPool, RuleOperations};
 use db::{CreateRuleWithTemplateRequest, CreateRuleRequest};
-use db::persistence::{PersistenceService, CompositePersistenceService};
+use db::persistence::PersistenceService;
 use db::CreateDerivedAttributeRequest;
 use db::grammar::GrammarOperations;
 use db::{CreateCbuRequest, AddCbuMemberRequest, ClientBusinessUnit, CbuSummary, CbuRole, CbuMember, CbuMemberDetail};
@@ -203,64 +203,6 @@ struct ASTVisualization {
     text_tree: String,
 }
 
-// Data Dictionary Structures
-#[derive(Serialize, Deserialize, Clone)]
-struct AttributeConstraints {
-    allowed_values: Option<Vec<String>>,
-    required: Option<bool>,
-    max_length: Option<u32>,
-    min_length: Option<u32>,
-    pattern: Option<String>,
-    min_value: Option<f64>,
-    max_value: Option<f64>,
-    decimal_places: Option<u32>,
-    integer_only: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct AttributeSource {
-    system: String,
-    field: String,
-    table: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct AttributeDefinition {
-    name: String,
-    display_name: String,
-    data_type: String, // "String", "Number", "Boolean"
-    description: String,
-    constraints: AttributeConstraints,
-    source: AttributeSource,
-    tags: Vec<String>,
-    created_date: String,
-    last_modified: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct AttributeCategory {
-    name: String,
-    description: String,
-    color: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct DataDictionary {
-    metadata: GrammarMetadata,
-    attributes: Vec<AttributeDefinition>,
-    categories: Vec<AttributeCategory>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct CompiledRule {
-    rule_id: String,
-    rule_name: String,
-    generated_code: String,
-    rhai_script: Option<String>,
-    input_attributes: Vec<String>,
-    output_attribute: String,
-    compilation_timestamp: String,
-}
 
 // AI Context Engine data structures
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1153,7 +1095,7 @@ async fn open_schema_viewer(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn db_get_table_relationships(
     pool: State<'_, DbPool>,
-    table_name: String,
+    _table_name: String,
 ) -> Result<Vec<schema_visualizer::RelationshipInfo>, String> {
     schema_visualizer::get_table_relationships(&pool)
         .await
@@ -1889,7 +1831,7 @@ async fn resolve_attribute_with_perspective(
 
 #[tauri::command]
 async fn get_attribute_ui_config(
-    resource_name: String,
+    _resource_name: String,
     attribute_name: String,
     perspective: Option<String>
 ) -> Result<ResolvedAttributeUI, String> {
@@ -2790,12 +2732,6 @@ fn calculate_phrase_similarity(user_text: &str, example_text: &str) -> f32 {
     max_similarity
 }
 
-// Vector-based similarity function (for future integration with embeddings)
-async fn calculate_vector_similarity(user_prompt: &str, example_prompt: &str) -> Result<f32, String> {
-    // This would integrate with the embeddings module for true vector similarity
-    // For now, return error to fall back to word-based similarity
-    Err("Vector embeddings not yet available".to_string())
-}
 
 // Build augmented prompt with retrieved examples
 fn build_augmented_prompt(

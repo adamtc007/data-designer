@@ -1,4 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getSharedDbService } from './shared-db-service.js';
+import type { SharedDatabaseService } from './shared-db-service.js';
+
+// Ensure Tauri API is available globally for dynamically loaded modules
+(window as any).__TAURI__ = {
+    invoke: invoke
+};
+(window as any).__TAURI_INVOKE__ = invoke;
 import * as monaco from 'monaco-editor';
 import { createEditorPanelHeader, panelManager } from './ui-components';
 import { ResourceDictionary, ResourceObject, AttributeObject } from './data-dictionary-types';
@@ -12,16 +20,19 @@ interface TestResult {
     error?: string;
 }
 
-interface CBUCreateRequest {
-    cbu_name: string;
-    description?: string;
-    primary_entity_id?: string;
-    primary_lei?: string;
-    domicile_country?: string;
-    regulatory_jurisdiction?: string;
-    business_type?: string;
-    created_by?: string;
+interface AISuggestionRequest {
+    user_prompt: string;
+    perspective: string;
+    selected_attributes: string[];
 }
+
+interface AISuggestionResponse {
+    success: boolean;
+    generated_dsl?: string;
+    explanation?: string;
+    error?: string;
+}
+
 
 // Global variables
 let editor: monaco.editor.IStandaloneCodeEditor;
@@ -30,14 +41,64 @@ let resourceDictionary: ResourceDictionary | null = null;
 let configRenderer: ConfigDrivenRenderer | null = null;
 let metadataEngine: MetadataDrivenEngine | null = null;
 let currentPerspective: string = 'default';
+let sharedDbService: SharedDatabaseService | null = null;
+
+// ==========================================
+// IMMEDIATE GLOBAL FUNCTION EXPORTS
+// ==========================================
+// Export functions to window object for onclick handlers
+// Forward declarations - actual implementations defined later
+
+// Forward declaration - will be replaced with real implementation after DOM loads
+let menuActionImpl: ((action: string) => void) | null = null;
+(window as any).menuAction = (action: string) => {
+    if (menuActionImpl) {
+        menuActionImpl(action);
+    } else {
+        console.log('MenuAction (not yet initialized):', action);
+    }
+};
+(window as any).refreshRules = () => console.log('RefreshRules (placeholder)');
+(window as any).testDatabaseConnection = () => console.log('TestDB (placeholder)');
+(window as any).testMonacoEditor = () => console.log('TestMonaco (placeholder)');
+(window as any).refreshDatabase = () => console.log('RefreshDatabase (placeholder)');
+(window as any).closeTab = (tabId: string) => console.log('CloseTab (placeholder):', tabId);
+(window as any).undockEditor = () => console.log('UndockEditor (placeholder)');
+(window as any).toggleEditorMaximize = () => console.log('ToggleEditorMaximize (placeholder)');
+
+console.log('🔧 Placeholder functions exported for rules editor');
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize shared database service first
+    sharedDbService = getSharedDbService();
+
+    // Try to connect to shared database service or initialize it
+    try {
+        console.log('🔌 Attempting to connect to shared database service...');
+        const connectionStatus = sharedDbService.getConnectionStatus();
+        console.log('🔍 Initial connection status:', connectionStatus);
+
+        if (!connectionStatus.isConnected) {
+            console.log('🔌 Initializing database connection from IDE...');
+            await sharedDbService.initialize();
+            // Update database status display after successful initialization
+            await checkDatabaseStatus();
+        } else {
+            console.log('✅ Using existing shared database connection');
+            // Update database status display for existing connection
+            await checkDatabaseStatus();
+        }
+    } catch (error) {
+        console.warn('⚠️ Shared database service initialization failed:', error);
+    }
+
     await initializeMonacoEditor();
     await initializeMetadataEngine();
     await loadDataDictionary();
     setupEventListeners();
-    console.log('🚀 Data Designer IDE initialized with Metadata-Driven Engine');
+    await checkDatabaseStatus(); // Check database status on startup
+    console.log('🚀 Data Designer Rules Editor initialized');
 });
 
 // Monaco Editor setup
@@ -50,7 +111,7 @@ async function initializeMonacoEditor(): Promise<void> {
 
     editor = monaco.editor.create(editorContainer, {
         value: 'price * quantity + tax',
-        language: 'javascript',
+        language: 'plaintext',
         theme: 'vs-dark',
         fontSize: 14,
         minimap: { enabled: false },
@@ -96,13 +157,143 @@ function setupEventListeners(): void {
     }
 }
 
+// AI Suggestion functionality - The revolutionary AI Context Engine integration
+async function getAISuggestion(): Promise<void> {
+    if (!editor) {
+        console.error('Editor not initialized');
+        return;
+    }
+
+    // Get user prompt
+    const userPrompt = prompt('Describe the rule you want to create:');
+    if (!userPrompt?.trim()) {
+        return;
+    }
+
+    // Get current perspective (default to 'KYC' if not set)
+    const perspective = currentPerspective === 'default' ? 'KYC' : currentPerspective;
+
+    // For now, we'll use all available attributes. In the future, this could be
+    // selected from the data dictionary sidebar
+    const selectedAttributes = [
+        'legal_entity_name',
+        'ubo_full_name',
+        'sanctions_screening_result',
+        'risk_score',
+        'jurisdiction'
+    ];
+
+    try {
+        console.log('🤖 AI Context Engine: Requesting DSL generation...');
+        console.log('📝 User Prompt:', userPrompt);
+        console.log('👀 Perspective:', perspective);
+        console.log('📊 Selected Attributes:', selectedAttributes);
+
+        // Show loading indicator
+        const loadingMsg = document.createElement('div');
+        loadingMsg.innerHTML = '🤖 AI Context Engine is generating your rule...';
+        loadingMsg.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #2d2d30;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #3e3e42;
+            z-index: 10000;
+            font-family: monospace;
+        `;
+        document.body.appendChild(loadingMsg);
+
+        const request: AISuggestionRequest = {
+            user_prompt: userPrompt,
+            perspective: perspective,
+            selected_attributes: selectedAttributes
+        };
+
+        const response = await invoke<AISuggestionResponse>('get_ai_suggestion', { request });
+
+        // Remove loading indicator
+        document.body.removeChild(loadingMsg);
+
+        if (response.success && response.generated_dsl) {
+            // Set the generated DSL in the editor
+            editor.setValue(response.generated_dsl);
+            editor.focus();
+
+            // Show explanation if available
+            if (response.explanation) {
+                const explanationModal = document.createElement('div');
+                explanationModal.innerHTML = `
+                    <div style="
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0, 0, 0, 0.7);
+                        z-index: 10001;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    ">
+                        <div style="
+                            background: #2d2d30;
+                            color: #d4d4d4;
+                            padding: 30px;
+                            border-radius: 12px;
+                            border: 1px solid #3e3e42;
+                            max-width: 600px;
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+                        ">
+                            <h3 style="margin: 0 0 15px 0; color: #4CAF50;">🤖 AI Generated Rule</h3>
+                            <p style="margin: 0 0 20px 0; line-height: 1.6;">${response.explanation}</p>
+                            <div style="text-align: right;">
+                                <button onclick="this.closest('.modal').remove()" style="
+                                    background: #0078d4;
+                                    color: white;
+                                    border: none;
+                                    padding: 8px 16px;
+                                    border-radius: 4px;
+                                    cursor: pointer;
+                                ">Got it!</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                explanationModal.className = 'modal';
+                document.body.appendChild(explanationModal);
+            }
+
+            console.log('✅ AI Context Engine: Successfully generated DSL rule');
+        } else {
+            // Show error message
+            const errorMsg = response.error || 'Unknown error occurred';
+            alert(`❌ AI Context Engine Error: ${errorMsg}`);
+            console.error('AI Context Engine Error:', errorMsg);
+        }
+
+    } catch (error) {
+        // Remove loading indicator if it exists
+        const loadingIndicator = document.querySelector('div[style*="AI Context Engine is generating"]');
+        if (loadingIndicator) {
+            document.body.removeChild(loadingIndicator);
+        }
+
+        console.error('AI Context Engine Error:', error);
+        alert(`❌ Failed to get AI suggestion: ${error}`);
+    }
+}
+
 // Menu action handler
 function handleMenuAction(action: string): void {
     console.log(`ℹ️ Action: ${action}`);
 
     switch (action) {
-        case 'create-cbu':
-            createNewCBU();
+        case 'ai-suggestion':
+            getAISuggestion();
             break;
         case 'data-dictionary':
             toggleDataDictionary();
@@ -134,112 +325,6 @@ function handleMenuAction(action: string): void {
     }
 }
 
-// CBU Creation Modal
-function createNewCBU(): void {
-    const modalHtml = `
-        <div class="modal" id="create-cbu-modal" style="display: block;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Create New Client Business Unit</h3>
-                    <span class="close" onclick="closeModal('create-cbu-modal')">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <form id="cbu-form">
-                        <div class="form-group">
-                            <label for="cbu-name">CBU Name *</label>
-                            <input type="text" id="cbu-name" required placeholder="Enter CBU name">
-                        </div>
-                        <div class="form-group">
-                            <label for="cbu-description">Description</label>
-                            <textarea id="cbu-description" rows="3" placeholder="Optional description"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label for="primary-entity-id">Primary Entity ID</label>
-                            <input type="text" id="primary-entity-id" placeholder="e.g., ENT-12345">
-                        </div>
-                        <div class="form-group">
-                            <label for="primary-lei">Primary LEI</label>
-                            <input type="text" id="primary-lei" placeholder="Legal Entity Identifier">
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="domicile-country">Domicile Country</label>
-                                <select id="domicile-country">
-                                    <option value="">Select country</option>
-                                    <option value="US">United States</option>
-                                    <option value="UK">United Kingdom</option>
-                                    <option value="DE">Germany</option>
-                                    <option value="FR">France</option>
-                                    <option value="SG">Singapore</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="regulatory-jurisdiction">Regulatory Jurisdiction</label>
-                                <select id="regulatory-jurisdiction">
-                                    <option value="">Select jurisdiction</option>
-                                    <option value="SEC">SEC (US)</option>
-                                    <option value="FCA">FCA (UK)</option>
-                                    <option value="BaFin">BaFin (Germany)</option>
-                                    <option value="MAS">MAS (Singapore)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="business-type">Business Type</label>
-                            <select id="business-type">
-                                <option value="">Select business type</option>
-                                <option value="Investment Manager">Investment Manager</option>
-                                <option value="Hedge Fund">Hedge Fund</option>
-                                <option value="Private Equity">Private Equity</option>
-                                <option value="Family Office">Family Office</option>
-                                <option value="Pension Fund">Pension Fund</option>
-                                <option value="Insurance Company">Insurance Company</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="created-by">Created By</label>
-                            <input type="text" id="created-by" placeholder="Your name/ID">
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal('create-cbu-modal')">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="submitCBU()">Create CBU</button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-// Submit CBU form
-async function submitCBU(): Promise<void> {
-    const form = document.getElementById('cbu-form') as HTMLFormElement;
-    if (!form) return;
-
-    const formData = new FormData(form);
-    const cbuData: CBUCreateRequest = {
-        cbu_name: (document.getElementById('cbu-name') as HTMLInputElement).value,
-        description: (document.getElementById('cbu-description') as HTMLTextAreaElement).value || undefined,
-        primary_entity_id: (document.getElementById('primary-entity-id') as HTMLInputElement).value || undefined,
-        primary_lei: (document.getElementById('primary-lei') as HTMLInputElement).value || undefined,
-        domicile_country: (document.getElementById('domicile-country') as HTMLSelectElement).value || undefined,
-        regulatory_jurisdiction: (document.getElementById('regulatory-jurisdiction') as HTMLSelectElement).value || undefined,
-        business_type: (document.getElementById('business-type') as HTMLSelectElement).value || undefined,
-        created_by: (document.getElementById('created-by') as HTMLInputElement).value || undefined,
-    };
-
-    try {
-        const result = await invoke('create_cbu', { request: cbuData });
-        console.log('✅ CBU created successfully:', result);
-        closeModal('create-cbu-modal');
-        showSuccessMessage('CBU created successfully!');
-    } catch (error) {
-        console.error('❌ Failed to create CBU:', error);
-        showErrorMessage(`Failed to create CBU: ${error}`);
-    }
-}
 
 // Modal utilities
 function closeModal(modalId: string): void {
@@ -270,6 +355,7 @@ async function initializeMetadataEngine(): Promise<void> {
         // Continue without the engine for now
     }
 }
+
 
 // Data Dictionary v2.0 - Configuration-driven approach
 async function loadDataDictionary(): Promise<void> {
@@ -315,15 +401,8 @@ async function loadResourceDictionary(): Promise<ResourceDictionary | null> {
             }
         }
 
-        const dictionary: ResourceDictionary = {
-            dictionaryName: dict.dictionary_name,
-            version: dict.version,
-            description: dict.description,
-            author: dict.author,
-            creationDate: dict.creation_date,
-            lastModified: dict.last_modified,
-            resources: resourceObjects
-        };
+        // ResourceDictionary is just an array of ResourceObject[]
+        const dictionary: ResourceDictionary = resourceObjects;
 
         return dictionary;
     } catch (error) {
@@ -827,12 +906,232 @@ async function demonstrateAllLayouts(): Promise<void> {
     };
 }
 
+
+// Simplified menu action handler - Rules editor only
+function menuAction(action: string): void {
+    console.log('🔧 Menu action:', action);
+
+    switch(action) {
+        // File menu
+        case 'new-rule':
+            console.log('Creating new rule...');
+            if (editor) {
+                editor.setValue('// New rule - ' + new Date().toISOString() + '\n');
+                editor.focus();
+            }
+            break;
+        case 'ai-suggestion':
+            console.log('Opening AI suggestion...');
+            getAISuggestion();
+            break;
+        case 'open-rule':
+            console.log('Opening rule...');
+            alert('Open Rule functionality - Coming soon!');
+            break;
+        case 'save-rule':
+            console.log('Saving rule...');
+            if (editor) {
+                const content = editor.getValue();
+                console.log('Rule content to save:', content);
+                alert('Save Rule functionality - Coming soon!\nRule content logged to console.');
+            }
+            break;
+        case 'export-rules':
+            console.log('Exporting rules...');
+            alert('Export Rules functionality - Coming soon!');
+            break;
+
+        // Database menu
+        case 'data-dictionary':
+            console.log('Opening data dictionary...');
+            alert('Data Dictionary functionality - Coming soon!');
+            break;
+        case 'schema-viewer':
+            console.log('Opening schema viewer...');
+            alert('Schema Viewer functionality - Coming soon!');
+            break;
+        case 'db-connection':
+            console.log('Opening database connection settings...');
+            alert('Database Connection Settings - Coming soon!');
+            break;
+
+        // Rules menu
+        case 'rules-catalogue':
+            console.log('Opening rules catalogue...');
+            alert('Rules Catalogue functionality - Coming soon!');
+            break;
+        case 'grammar-editor':
+            console.log('Opening grammar editor...');
+            alert('Grammar Editor functionality - Coming soon!');
+            break;
+        case 'test-rule':
+            console.log('Testing current rule...');
+            if (editor) {
+                const content = editor.getValue();
+                console.log('Testing rule:', content);
+                alert('Test Rule functionality - Coming soon!\nRule content logged to console.');
+            }
+            break;
+        case 'find-similar':
+            console.log('Finding similar rules...');
+            alert('Find Similar Rules functionality - Coming soon!');
+            break;
+        case 'show-ast':
+            console.log('Showing AST...');
+            alert('Show AST functionality - Coming soon!');
+            break;
+
+        // Tools menu
+        case 'lsp-settings':
+            console.log('Opening LSP settings...');
+            alert('LSP Settings functionality - Coming soon!');
+            break;
+        case 'preferences':
+            console.log('Opening preferences...');
+            alert('Preferences functionality - Coming soon!');
+            break;
+
+        // Help menu
+        case 'documentation':
+            console.log('Opening documentation...');
+            alert('Documentation functionality - Coming soon!');
+            break;
+        case 'about':
+            console.log('Opening about...');
+            alert('About Data Designer IDE\n\nVersion: 1.0.0\nProfessional multi-domain IDE for data transformation rules');
+            break;
+
+        default:
+            console.log('⚠️ Unhandled menu action:', action);
+            alert(`Menu action "${action}" not yet implemented.`);
+    }
+}
+
+// Assign the real implementation to replace the forward declaration
+menuActionImpl = menuAction;
+
+// UI utility functions
+function refreshDatabase(): void {
+    console.log('Refreshing database...');
+    // Add database refresh logic here
+}
+
+function refreshRules(): void {
+    console.log('Refreshing rules...');
+    // Add rules refresh logic here
+}
+
+function undockEditor(): void {
+    console.log('Undocking editor...');
+    // Add editor undock logic here
+}
+
+function toggleEditorMaximize(): void {
+    console.log('Toggling editor maximize...');
+    // Add editor maximize toggle logic here
+}
+
+function closeTab(tabId: string): void {
+    console.log('Closing tab:', tabId);
+    // Add tab close logic here
+}
+
+// ==========================================
+// EXPOSE ALL FUNCTIONS TO GLOBAL SCOPE IMMEDIATELY
+// ==========================================
+// These MUST be at module level, not inside any event handlers,
+// so onclick handlers can access them when HTML loads
+
 // Expose functions globally for HTML onclick handlers
 (window as any).closeModal = closeModal;
-(window as any).submitCBU = submitCBU;
 (window as any).runCode = runCode;
 (window as any).saveRule = saveRule;
 (window as any).showAST = showAST;
 (window as any).openKYCWizard = openKYCWizard;
 (window as any).openTradeSettlement = openTradeSettlement;
 (window as any).demonstrateAllLayouts = demonstrateAllLayouts;
+(window as any).getAISuggestion = getAISuggestion;
+
+// Expose menu and UI functions
+(window as any).menuAction = menuAction;
+(window as any).refreshDatabase = refreshDatabase;
+(window as any).refreshRules = refreshRules;
+(window as any).undockEditor = undockEditor;
+(window as any).toggleEditorMaximize = toggleEditorMaximize;
+(window as any).closeTab = closeTab;
+(window as any).testDatabaseConnection = testDatabaseConnection;
+(window as any).testMonacoEditor = testMonacoEditor;
+
+// Database status checking
+async function checkDatabaseStatus(): Promise<void> {
+    try {
+        // Use shared database service if available, otherwise fall back to direct invoke
+        let result: any;
+        if (sharedDbService) {
+            const connectionStatus = sharedDbService.getConnectionStatus();
+            console.log('🔍 Database status check via shared service:', connectionStatus);
+            result = {
+                connected: connectionStatus.isConnected,
+                database: connectionStatus.status?.database || 'Connected'
+            };
+        } else {
+            console.log('🔍 Database status check via direct invoke...');
+            result = await invoke('check_database_connection') as any;
+            console.log('🔍 Database status check result:', result);
+        }
+
+        const statusDot = document.getElementById('db-status');
+        const statusText = document.getElementById('db-status-text');
+
+        if (result && result.connected) {
+            if (statusDot) statusDot.classList.add('connected');
+            if (statusText) statusText.textContent = `Database: ${result.database || 'Connected'}`;
+            console.log('✅ Database connection confirmed from frontend');
+        } else {
+            if (statusDot) statusDot.classList.remove('connected');
+            if (statusText) statusText.textContent = 'Database: Disconnected';
+            console.log('❌ Database connection failed');
+        }
+    } catch (error) {
+        console.error('❌ Database status check failed:', error);
+        const statusDot = document.getElementById('db-status');
+        const statusText = document.getElementById('db-status-text');
+        if (statusDot) statusDot.classList.remove('connected');
+        if (statusText) statusText.textContent = 'Database: Error';
+    }
+}
+
+// Test functions for debugging
+async function testDatabaseConnection(): Promise<void> {
+    try {
+        console.log('🔍 Testing database connection...');
+        const result = await invoke('check_database_connection');
+        console.log('✅ Database connection test result:', result);
+        alert('Database test successful! Check console for details.');
+        await checkDatabaseStatus(); // Update status after test
+    } catch (error) {
+        console.error('❌ Database connection test failed:', error);
+        alert(`Database test failed: ${error}`);
+        await checkDatabaseStatus(); // Update status after test
+    }
+}
+
+function testMonacoEditor(): void {
+    try {
+        console.log('🔍 Testing Monaco Editor...');
+        if (editor) {
+            const value = editor.getValue();
+            console.log('✅ Monaco Editor is working, current value:', value);
+            editor.setValue('// Monaco Editor Test - ' + new Date().toISOString());
+            alert('Monaco Editor test successful! Value updated.');
+        } else {
+            console.error('❌ Monaco Editor not initialized');
+            alert('Monaco Editor not initialized');
+        }
+    } catch (error) {
+        console.error('❌ Monaco Editor test failed:', error);
+        alert(`Monaco Editor test failed: ${error}`);
+    }
+}
+
+console.log('🔧 Global functions exported to window for rules editor');
