@@ -114,6 +114,18 @@ impl DslCodeEditor {
         self
     }
 
+    pub fn get_text(&self) -> String {
+        self.text.clone()
+    }
+
+    pub fn set_text(&mut self, text: String) {
+        self.text = text;
+        self.cursor_position = 0;
+        self.selection_start = None;
+        self.selection_end = None;
+        self.validate_syntax();
+    }
+
     /// Tokenize the text for syntax highlighting
     fn tokenize(&self) -> Vec<Token> {
         match self.language {
@@ -489,13 +501,160 @@ impl DslCodeEditor {
         }
     }
 
-    /// Render the editor with syntax highlighting
+    /// Render the editor with syntax highlighting - SIMPLIFIED VERSION
     pub fn show(&mut self, ui: &mut Ui) -> Response {
-        // Simplified, reliable approach - just use the enhanced text editor
-        ui.add(egui::TextEdit::multiline(&mut self.text)
-            .desired_rows(self.desired_rows)
-            .code_editor()
-            .font(egui::FontId::monospace(self.font_size)))
+        // Validate syntax in real-time
+        self.validate_syntax();
+
+        ui.vertical(|ui| {
+            // Just show a clean text editor with syntax status
+            let response = ui.add(egui::TextEdit::multiline(&mut self.text)
+                .desired_rows(self.desired_rows)
+                .code_editor()
+                .font(egui::FontId::monospace(self.font_size)));
+
+            // Simple status line
+            ui.horizontal(|ui| {
+                if !self.syntax_errors.is_empty() {
+                    ui.colored_label(egui::Color32::RED, "❌ Syntax Error");
+                    // Show only the first error to keep it clean
+                    if let Some(error) = self.syntax_errors.first() {
+                        ui.label(format!("- {}", error.message));
+                    }
+                } else if !self.text.trim().is_empty() {
+                    ui.colored_label(egui::Color32::GREEN, "✅ Valid");
+                } else {
+                    ui.colored_label(egui::Color32::GRAY, "Enter DSL code...");
+                }
+            });
+
+            response
+        }).response
+    }
+
+    /// Enhanced version with syntax preview (kept for future use)
+    pub fn show_with_highlighting(&mut self, ui: &mut Ui) -> Response {
+        // Validate syntax in real-time
+        self.validate_syntax();
+
+        ui.vertical(|ui| {
+            // Clean syntax highlighted preview
+            if !self.text.trim().is_empty() {
+                ui.label("📖 Preview:");
+                ui.separator();
+
+                ui.group(|ui| {
+                    self.render_simple_highlighted_preview(ui);
+                });
+
+                ui.separator();
+            }
+
+            // Editable text section
+            let response = ui.add(egui::TextEdit::multiline(&mut self.text)
+                .desired_rows(self.desired_rows)
+                .code_editor()
+                .font(egui::FontId::monospace(self.font_size)));
+
+            // Simple status
+            ui.horizontal(|ui| {
+                if !self.syntax_errors.is_empty() {
+                    ui.colored_label(egui::Color32::RED, "❌ Syntax Error");
+                } else if !self.text.trim().is_empty() {
+                    ui.colored_label(egui::Color32::GREEN, "✅ Valid");
+                }
+            });
+
+            response
+        }).response
+    }
+
+    /// Simple, clean highlighted preview without LayoutJob
+    fn render_simple_highlighted_preview(&self, ui: &mut Ui) {
+        if self.text.trim().is_empty() {
+            ui.colored_label(egui::Color32::GRAY, "Enter DSL code to see preview...");
+            return;
+        }
+
+        // Simple approach: just show the text with basic syntax coloring
+        ui.horizontal_wrapped(|ui| {
+            let tokens = self.tokenize();
+
+            for token in &tokens {
+                let color = match token.token_type {
+                    TokenType::Keyword => egui::Color32::from_rgb(86, 156, 214),     // Blue
+                    TokenType::Function => egui::Color32::from_rgb(220, 220, 170),   // Yellow
+                    TokenType::String => egui::Color32::from_rgb(206, 145, 120),     // Orange
+                    TokenType::Number => egui::Color32::from_rgb(181, 206, 168),     // Light green
+                    TokenType::Comment => egui::Color32::from_rgb(106, 153, 85),     // Green
+                    _ => ui.visuals().text_color(),
+                };
+
+                ui.colored_label(color, &token.text);
+            }
+        });
+    }
+
+    /// Render a beautiful syntax highlighted preview using LayoutJob
+    fn render_syntax_highlighted_preview(&self, ui: &mut Ui) {
+        if self.text.trim().is_empty() {
+            ui.colored_label(egui::Color32::GRAY, "Enter DSL code to see syntax highlighting...");
+            return;
+        }
+
+        let tokens = self.tokenize();
+
+        // Create a LayoutJob for advanced text rendering
+        let mut job = egui::text::LayoutJob::default();
+
+        for token in &tokens {
+            let color = self.get_token_color(&token.token_type, ui);
+
+            job.append(
+                &token.text,
+                0.0, // No extra spacing
+                egui::TextFormat {
+                    font_id: egui::FontId::monospace(self.font_size),
+                    color,
+                    background: egui::Color32::TRANSPARENT,
+                    italics: matches!(token.token_type, TokenType::Comment),
+                    underline: egui::Stroke::NONE,
+                    strikethrough: egui::Stroke::NONE,
+                    valign: egui::Align::BOTTOM,
+                    expand_bg: 0.0,
+                    extra_letter_spacing: 0.0,
+                    line_height: None,
+                },
+            );
+        }
+
+        // Render the highlighted text
+        ui.label(job);
+
+        // Show token breakdown for debugging/learning
+        if ui.collapsing("🔍 Token Analysis", |ui| {
+            egui::Grid::new("token_grid").striped(true).show(ui, |ui| {
+                ui.label("Token");
+                ui.label("Type");
+                ui.label("Color Preview");
+                ui.end_row();
+
+                for token in &tokens {
+                    if token.token_type == TokenType::Whitespace {
+                        continue; // Skip whitespace tokens in display
+                    }
+
+                    let color = self.get_token_color(&token.token_type, ui);
+
+                    ui.label(&token.text);
+                    ui.label(format!("{:?}", token.token_type));
+                    ui.colored_label(color, "●●●");
+                    ui.end_row();
+                }
+            });
+        }).header_response.clicked() {
+            // Collapsing was clicked
+        }
     }
 
     pub fn show_old(&mut self, ui: &mut Ui) -> Response {
@@ -611,20 +770,111 @@ impl DslCodeEditor {
     pub fn validate_syntax(&mut self) -> bool {
         self.syntax_errors.clear();
 
-        // This would integrate with your actual parser
+        if self.text.trim().is_empty() {
+            return true; // Empty is valid
+        }
+
+        // Try parsing the entire text as a DSL expression
         match data_designer_core::parser::parse_expression(&self.text) {
-            Ok(_) => true,
+            Ok(_) => {
+                // Also try parsing as a rule if expression parsing succeeds
+                match data_designer_core::parser::parse_rule(&self.text) {
+                    Ok(_) => true,
+                    Err(e) => {
+                        // Expression is valid but not a complete rule - this is okay
+                        true // Don't mark as error for expressions
+                    }
+                }
+            }
             Err(e) => {
-                self.syntax_errors.push(SyntaxError {
-                    line: 1, // Parser would provide actual line/column
-                    column: 1,
-                    length: self.text.len(),
-                    message: format!("Parse error: {}", e),
-                    severity: ErrorSeverity::Error,
-                });
-                false
+                // Try parsing as a rule instead
+                match data_designer_core::parser::parse_rule(&self.text) {
+                    Ok(_) => true,
+                    Err(rule_err) => {
+                        // Both failed, show the more informative error
+                        let error_msg = if self.text.contains("IF") || self.text.contains("WHEN") {
+                            format!("Rule parse error: {}", rule_err)
+                        } else {
+                            format!("Expression parse error: {}", e)
+                        };
+
+                        self.syntax_errors.push(SyntaxError {
+                            line: 1, // TODO: Extract line/column from parser error
+                            column: 1,
+                            length: self.text.len(),
+                            message: error_msg,
+                            severity: ErrorSeverity::Error,
+                        });
+                        false
+                    }
+                }
             }
         }
+    }
+
+    /// Add a helper method to get suggestions for the current cursor position
+    pub fn get_completion_suggestions(&self, cursor_pos: usize) -> Vec<String> {
+        let mut suggestions = Vec::new();
+
+        // Get the word at cursor position
+        let (word_start, current_word) = self.get_word_at_position(cursor_pos);
+
+        // DSL keywords
+        let keywords = vec![
+            "IF", "THEN", "ELSE", "WHEN", "AND", "OR", "NOT", "IN", "MATCHES",
+            "CONTAINS", "STARTS_WITH", "ENDS_WITH", "true", "false", "null"
+        ];
+
+        // DSL functions
+        let functions = vec![
+            "CONCAT", "SUBSTRING", "UPPER", "LOWER", "LENGTH", "TRIM",
+            "ABS", "ROUND", "FLOOR", "CEIL", "MIN", "MAX", "SUM", "AVG", "COUNT",
+            "IS_EMAIL", "IS_LEI", "IS_SWIFT", "IS_PHONE", "VALIDATE", "EXTRACT",
+            "HAS", "IS_NULL", "IS_EMPTY", "TO_STRING", "TO_NUMBER", "TO_BOOLEAN",
+            "FIRST", "LAST", "GET", "LOOKUP"
+        ];
+
+        // Add matching keywords
+        for keyword in &keywords {
+            if keyword.to_lowercase().starts_with(&current_word.to_lowercase()) {
+                suggestions.push(keyword.to_string());
+            }
+        }
+
+        // Add matching functions
+        for function in &functions {
+            if function.to_lowercase().starts_with(&current_word.to_lowercase()) {
+                suggestions.push(format!("{}()", function));
+            }
+        }
+
+        suggestions.sort();
+        suggestions.dedup();
+        suggestions.truncate(10); // Limit suggestions
+        suggestions
+    }
+
+    /// Helper to extract word at cursor position
+    fn get_word_at_position(&self, pos: usize) -> (usize, String) {
+        let chars: Vec<char> = self.text.chars().collect();
+        if pos > chars.len() {
+            return (pos, String::new());
+        }
+
+        // Find word start
+        let mut start = pos;
+        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+
+        // Find word end
+        let mut end = pos;
+        while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+
+        let word: String = chars[start..end].iter().collect();
+        (start, word)
     }
 }
 

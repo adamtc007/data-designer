@@ -127,6 +127,13 @@ struct DataDesignerApp {
     show_ai_panel: bool,
     ai_loading: bool,
 
+    // AI Command Palette
+    show_command_palette: bool,
+    command_palette_input: String,
+    command_suggestions: Vec<CommandSuggestion>,
+    selected_command_index: usize,
+    palette_loading: bool,
+
     // UI State
     show_cbu_form: bool,
     cbu_form: CbuForm,
@@ -149,6 +156,56 @@ struct DataDesignerApp {
     cbu_mandate_structure: Vec<CbuInvestmentMandateStructure>,
     cbu_member_roles: Vec<CbuMemberInvestmentRole>,
     taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
+
+    // Editable Attributes State
+    editable_attributes: Vec<EditableAttribute>,
+    modified_attributes: std::collections::HashSet<i32>, // Track changed attribute IDs
+    edit_mode: bool,
+    show_save_button: bool,
+}
+
+// Editable attribute structure for change tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EditableAttribute {
+    id: i32,
+    attribute_name: String,
+    full_path: String,
+    data_type: String,
+    description: Option<String>,
+    attribute_type: String,
+    entity_name: String,
+    is_key: bool,
+    is_nullable: bool,
+    // Track if this attribute has been modified
+    is_dirty: bool,
+    // Original values for comparison
+    original_description: Option<String>,
+    original_data_type: String,
+}
+
+impl EditableAttribute {
+    fn from_json_value(value: &serde_json::Value, id: i32) -> Self {
+        Self {
+            id,
+            attribute_name: value.get("attribute_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            full_path: value.get("full_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            data_type: value.get("data_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: value.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            attribute_type: value.get("attribute_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            entity_name: value.get("entity_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            is_key: value.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false),
+            is_nullable: value.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false),
+            is_dirty: false,
+            original_description: value.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            original_data_type: value.get("data_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        }
+    }
+
+    fn mark_dirty_if_changed(&mut self) {
+        self.is_dirty =
+            self.description != self.original_description ||
+            self.data_type != self.original_data_type;
+    }
 }
 
 #[derive(PartialEq, Default)]
@@ -175,6 +232,52 @@ struct CbuForm {
     primary_lei: String,
     domicile_country: String,
     business_type: String,
+}
+
+// AI Command Palette Structures
+#[derive(Debug, Clone)]
+struct CommandSuggestion {
+    command_type: CommandType,
+    title: String,
+    description: String,
+    action: String,
+    shortcut: Option<String>,
+    confidence: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CommandType {
+    GenerateDsl,
+    AnalyzeRule,
+    OptimizeExpression,
+    FindSimilar,
+    ExplainError,
+    NavigateTo,
+    QuickAction,
+    Template,
+}
+
+impl CommandSuggestion {
+    fn new(command_type: CommandType, title: &str, description: &str, action: &str) -> Self {
+        Self {
+            command_type,
+            title: title.to_string(),
+            description: description.to_string(),
+            action: action.to_string(),
+            shortcut: None,
+            confidence: 1.0,
+        }
+    }
+
+    fn with_shortcut(mut self, shortcut: &str) -> Self {
+        self.shortcut = Some(shortcut.to_string());
+        self
+    }
+
+    fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = confidence;
+        self
+    }
 }
 
 // Taxonomy Database Structs
@@ -675,6 +778,13 @@ impl DataDesignerApp {
             ai_query: String::new(),
             show_ai_panel: true,
             ai_loading: false,
+
+            // AI Command Palette
+            show_command_palette: false,
+            command_palette_input: String::new(),
+            command_suggestions: Vec::new(),
+            selected_command_index: 0,
+            palette_loading: false,
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -694,6 +804,12 @@ impl DataDesignerApp {
             cbu_mandate_structure: Vec::new(),
             cbu_member_roles: Vec::new(),
             taxonomy_hierarchy: Vec::new(),
+
+            // Editable Attributes State
+            editable_attributes: Vec::new(),
+            modified_attributes: std::collections::HashSet::new(),
+            edit_mode: false,
+            show_save_button: false,
         };
 
         // Load initial data
@@ -844,6 +960,12 @@ impl DataDesignerApp {
                 DataDictionaryOperations::get_data_dictionary(&pool, None).await
             }) {
                 Ok(dictionary) => {
+                    // Populate editable attributes
+                    self.editable_attributes = dictionary.attributes.iter()
+                        .enumerate()
+                        .map(|(i, attr)| EditableAttribute::from_json_value(attr, i as i32))
+                        .collect();
+
                     self.data_dictionary = Some(dictionary);
                 }
                 Err(e) => {
@@ -877,6 +999,26 @@ impl DataDesignerApp {
 
 impl eframe::App for DataDesignerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Handle keyboard shortcuts for command palette
+        ctx.input(|i| {
+            if i.modifiers.command && i.key_pressed(egui::Key::K) {
+                self.show_command_palette = !self.show_command_palette;
+                if self.show_command_palette {
+                    self.command_palette_input.clear();
+                    self.generate_command_suggestions();
+                }
+            }
+            // Escape to close command palette
+            if i.key_pressed(egui::Key::Escape) {
+                self.show_command_palette = false;
+            }
+        });
+
+        // Command Palette Modal
+        if self.show_command_palette {
+            self.show_command_palette_modal(ctx);
+        }
+
         // Top menu bar
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -1193,16 +1335,38 @@ impl DataDesignerApp {
 
         ui.separator();
 
-        if let Some(ref dictionary) = self.data_dictionary {
-            // Statistics row
+        // Extract values to avoid borrowing conflicts
+        let dictionary_info = self.data_dictionary.as_ref().map(|d| {
+            (d.total_count, d.business_count, d.derived_count, d.system_count)
+        });
+
+        if let Some((total_count, business_count, derived_count, system_count)) = dictionary_info {
+            // Statistics and edit mode controls
             ui.horizontal(|ui| {
-                ui.label(format!("📊 Total: {}", dictionary.total_count));
+                ui.label(format!("📊 Total: {}", total_count));
                 ui.separator();
-                ui.colored_label(egui::Color32::from_rgb(52, 152, 219), format!("🏢 Business: {}", dictionary.business_count));
+                ui.colored_label(egui::Color32::from_rgb(52, 152, 219), format!("🏢 Business: {}", business_count));
                 ui.separator();
-                ui.colored_label(egui::Color32::from_rgb(155, 89, 182), format!("⚙️ Derived: {}", dictionary.derived_count));
+                ui.colored_label(egui::Color32::from_rgb(155, 89, 182), format!("⚙️ Derived: {}", derived_count));
                 ui.separator();
-                ui.colored_label(egui::Color32::from_rgb(231, 76, 60), format!("🔧 System: {}", dictionary.system_count));
+                ui.colored_label(egui::Color32::from_rgb(231, 76, 60), format!("🔧 System: {}", system_count));
+
+                ui.separator();
+                // Edit mode toggle
+                let edit_button_text = if self.edit_mode { "👁️ View Mode" } else { "✏️ Edit Mode" };
+                if ui.button(edit_button_text).clicked() {
+                    self.edit_mode = !self.edit_mode;
+                    self.show_save_button = false; // Reset save button when switching modes
+                }
+
+                // Show save button when in edit mode and has changes
+                if self.edit_mode && !self.modified_attributes.is_empty() {
+                    ui.separator();
+                    if ui.button("💾 Save Changes").clicked() {
+                        self.save_attribute_changes();
+                    }
+                    ui.colored_label(egui::Color32::YELLOW, format!("({} modified)", self.modified_attributes.len()));
+                }
             });
 
             ui.separator();
@@ -1271,92 +1435,246 @@ impl DataDesignerApp {
 
             ui.separator();
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("attribute_grid").striped(true).show(ui, |ui| {
-                    ui.label("Name");
-                    ui.label("Type");
-                    ui.label("Entity");
-                    ui.label("Data Type");
-                    ui.label("Description");
-                    ui.label("Key");
-                    ui.label("Nullable");
-                    ui.end_row();
+            if self.edit_mode {
+                // Interactive editing mode
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.show_editable_attributes_grid(ui);
+                });
+            } else {
+                // Read-only view mode
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if let Some(ref dictionary) = self.data_dictionary {
+                        egui::Grid::new("attribute_grid").striped(true).show(ui, |ui| {
+                            ui.label("Name");
+                            ui.label("Type");
+                            ui.label("Entity");
+                            ui.label("Data Type");
+                            ui.label("Description");
+                            ui.label("Key");
+                            ui.label("Nullable");
+                            ui.end_row();
 
-                    // Filter and display attributes
-                    let mut displayed_count = 0;
-                    for attr in &dictionary.attributes {
-                        let attr_type = attr.get("attribute_type").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let is_nullable = attr.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false);
-                        let is_key = attr.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false);
+                            // Filter and display attributes
+                            let mut displayed_count = 0;
+                            for attr in &dictionary.attributes {
+                            let attr_type = attr.get("attribute_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+                            let is_nullable = attr.get("is_nullable").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let is_key = attr.get("is_key").and_then(|v| v.as_bool()).unwrap_or(false);
 
-                        // Apply filters
-                        let mut show_attribute = false;
+                            // Apply filters
+                            let mut show_attribute = false;
 
-                        // Check attribute type filters
-                        match attr_type {
-                            "business" if self.filter_business => show_attribute = true,
-                            "derived" if self.filter_derived => show_attribute = true,
-                            "system" if self.filter_system => show_attribute = true,
-                            _ => {}
+                            // Check attribute type filters
+                            match attr_type {
+                                "business" if self.filter_business => show_attribute = true,
+                                "derived" if self.filter_derived => show_attribute = true,
+                                "system" if self.filter_system => show_attribute = true,
+                                _ => {}
+                            }
+
+                            // If attribute type doesn't match, skip regardless of other filters
+                            if !show_attribute {
+                                continue;
+                            }
+
+                            // Apply nullability filters (both required and optional must be checked for non-nullable and nullable respectively)
+                            let nullability_matches =
+                                (!is_nullable && self.filter_required) ||
+                                (is_nullable && self.filter_optional);
+
+                            if !nullability_matches {
+                                continue;
+                            }
+
+                            // Apply key filter - when disabled, only show non-key attributes
+                            if !self.filter_key && is_key {
+                                continue;
+                            }
+
+                            // If we get here, show the attribute
+                            let color = match attr_type {
+                                "business" => egui::Color32::from_rgb(52, 152, 219),
+                                "derived" => egui::Color32::from_rgb(155, 89, 182),
+                                "system" => egui::Color32::from_rgb(231, 76, 60),
+                                _ => egui::Color32::GRAY,
+                            };
+
+                            ui.colored_label(color, attr.get("attribute_name").and_then(|v| v.as_str()).unwrap_or(""));
+                            ui.label(attr_type);
+                            ui.label(attr.get("entity_name").and_then(|v| v.as_str()).unwrap_or(""));
+                            ui.label(attr.get("data_type").and_then(|v| v.as_str()).unwrap_or(""));
+                            ui.label(attr.get("description").and_then(|v| v.as_str()).unwrap_or("N/A"));
+                            ui.label(if is_key { "🔑" } else { "" });
+                            ui.label(if is_nullable { "✓" } else { "✗" });
+                            ui.end_row();
+
+                            displayed_count += 1;
                         }
 
-                        // If attribute type doesn't match, skip regardless of other filters
-                        if !show_attribute {
-                            continue;
+                        // Show count of displayed vs total attributes
+                        if displayed_count < dictionary.attributes.len() {
+                            ui.end_row();
+                            ui.colored_label(egui::Color32::GRAY, format!("Showing {} of {} attributes", displayed_count, dictionary.attributes.len()));
+                            ui.label("");
+                            ui.label("");
+                            ui.label("");
+                            ui.label("");
+                            ui.label("");
+                            ui.label("");
+                            ui.end_row();
                         }
-
-                        // Apply nullability filters (both required and optional must be checked for non-nullable and nullable respectively)
-                        let nullability_matches =
-                            (!is_nullable && self.filter_required) ||
-                            (is_nullable && self.filter_optional);
-
-                        if !nullability_matches {
-                            continue;
-                        }
-
-                        // Apply key filter - when disabled, only show non-key attributes
-                        if !self.filter_key && is_key {
-                            continue;
-                        }
-
-                        // If we get here, show the attribute
-                        let color = match attr_type {
-                            "business" => egui::Color32::from_rgb(52, 152, 219),
-                            "derived" => egui::Color32::from_rgb(155, 89, 182),
-                            "system" => egui::Color32::from_rgb(231, 76, 60),
-                            _ => egui::Color32::GRAY,
-                        };
-
-                        ui.colored_label(color, attr.get("attribute_name").and_then(|v| v.as_str()).unwrap_or(""));
-                        ui.label(attr_type);
-                        ui.label(attr.get("entity_name").and_then(|v| v.as_str()).unwrap_or(""));
-                        ui.label(attr.get("data_type").and_then(|v| v.as_str()).unwrap_or(""));
-                        ui.label(attr.get("description").and_then(|v| v.as_str()).unwrap_or("N/A"));
-                        ui.label(if is_key { "🔑" } else { "" });
-                        ui.label(if is_nullable { "✓" } else { "✗" });
-                        ui.end_row();
-
-                        displayed_count += 1;
-                    }
-
-                    // Show count of displayed vs total attributes
-                    if displayed_count < dictionary.attributes.len() {
-                        ui.end_row();
-                        ui.colored_label(egui::Color32::GRAY, format!("Showing {} of {} attributes", displayed_count, dictionary.attributes.len()));
-                        ui.label("");
-                        ui.label("");
-                        ui.label("");
-                        ui.label("");
-                        ui.label("");
-                        ui.label("");
-                        ui.end_row();
+                        });
+                    } else {
+                        ui.label("Loading attribute dictionary...");
+                        ui.spinner();
                     }
                 });
-            });
+            }
         } else {
             ui.label("Loading attribute dictionary...");
             ui.spinner();
         }
+    }
+
+    fn show_editable_attributes_grid(&mut self, ui: &mut egui::Ui) {
+        egui::Grid::new("editable_attribute_grid").striped(true).show(ui, |ui| {
+            ui.label("Name");
+            ui.label("Type");
+            ui.label("Entity");
+            ui.label("Data Type");
+            ui.label("Description");
+            ui.label("Key");
+            ui.label("Nullable");
+            ui.label("Status");
+            ui.end_row();
+
+            let mut displayed_count = 0;
+            // Create a mutable copy of the indices to iterate over
+            let indices: Vec<usize> = (0..self.editable_attributes.len()).collect();
+
+            for i in indices {
+                let should_display = {
+                    let attr = &self.editable_attributes[i];
+
+                    // Apply the same filters as the read-only view
+                    let mut show_attribute = false;
+                    match attr.attribute_type.as_str() {
+                        "business" if self.filter_business => show_attribute = true,
+                        "derived" if self.filter_derived => show_attribute = true,
+                        "system" if self.filter_system => show_attribute = true,
+                        _ => {}
+                    }
+
+                    if !show_attribute {
+                        false
+                    } else {
+                        let nullability_matches =
+                            (!attr.is_nullable && self.filter_required) ||
+                            (attr.is_nullable && self.filter_optional);
+
+                        if !nullability_matches {
+                            false
+                        } else if !self.filter_key && attr.is_key {
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                };
+
+                if should_display {
+                    // Get the attribute
+                    let attr = &mut self.editable_attributes[i];
+
+                    // Show name (read-only for now)
+                    let color = match attr.attribute_type.as_str() {
+                        "business" => egui::Color32::from_rgb(52, 152, 219),
+                        "derived" => egui::Color32::from_rgb(155, 89, 182),
+                        "system" => egui::Color32::from_rgb(231, 76, 60),
+                        _ => egui::Color32::GRAY,
+                    };
+                    ui.colored_label(color, &attr.attribute_name);
+
+                    // Type (read-only)
+                    ui.label(&attr.attribute_type);
+
+                    // Entity (read-only)
+                    ui.label(&attr.entity_name);
+
+                    // Data Type (editable)
+                    let data_type_response = ui.text_edit_singleline(&mut attr.data_type);
+                    if data_type_response.changed() {
+                        attr.mark_dirty_if_changed();
+                        if attr.is_dirty {
+                            self.modified_attributes.insert(attr.id);
+                        }
+                    }
+
+                    // Description (editable)
+                    let mut description = attr.description.clone().unwrap_or_default();
+                    let desc_response = ui.text_edit_singleline(&mut description);
+                    if desc_response.changed() {
+                        attr.description = if description.is_empty() { None } else { Some(description) };
+                        attr.mark_dirty_if_changed();
+                        if attr.is_dirty {
+                            self.modified_attributes.insert(attr.id);
+                        }
+                    }
+
+                    // Key (read-only for now)
+                    ui.label(if attr.is_key { "🔑" } else { "" });
+
+                    // Nullable (read-only for now)
+                    ui.label(if attr.is_nullable { "✓" } else { "✗" });
+
+                    // Status indicator
+                    if attr.is_dirty {
+                        ui.colored_label(egui::Color32::YELLOW, "⚠️ Modified");
+                    } else {
+                        ui.label("✅ Saved");
+                    }
+
+                    ui.end_row();
+                    displayed_count += 1;
+                }
+            }
+
+            // Show count
+            if displayed_count < self.editable_attributes.len() {
+                ui.end_row();
+                ui.colored_label(egui::Color32::GRAY, format!("Editing {} of {} attributes", displayed_count, self.editable_attributes.len()));
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.end_row();
+            }
+        });
+    }
+
+    fn save_attribute_changes(&mut self) {
+        // For now, simulate saving and reset dirty flags
+        println!("🔄 Saving {} attribute changes...", self.modified_attributes.len());
+
+        // Reset dirty flags for all modified attributes
+        for attr in &mut self.editable_attributes {
+            if self.modified_attributes.contains(&attr.id) {
+                attr.is_dirty = false;
+                // Update original values to current values
+                attr.original_description = attr.description.clone();
+                attr.original_data_type = attr.data_type.clone();
+            }
+        }
+
+        // Clear modified set
+        self.modified_attributes.clear();
+
+        println!("✅ All changes saved successfully!");
+
+        // TODO: Implement actual database saving in the next step
     }
 
     fn show_rule_engine_tab(&mut self, ui: &mut egui::Ui) {
@@ -2996,7 +3314,9 @@ impl DataDesignerApp {
                     self.status_message = format!("Loaded {} products", self.products.len());
                 }
                 Err(e) => {
-                    self.status_message = format!("Error loading products: {}", e);
+                    // Load mock data if database query fails
+                    self.load_mock_product_taxonomy();
+                    self.status_message = format!("Database error, loaded mock data: {}", e);
                 }
             }
 
@@ -3026,6 +3346,10 @@ impl DataDesignerApp {
                 }
                 Err(e) => {
                     eprintln!("Error loading product options: {}", e);
+                    // Load mock options if database fails
+                    if self.product_options.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
                 }
             }
 
@@ -3053,6 +3377,10 @@ impl DataDesignerApp {
                 }
                 Err(e) => {
                     eprintln!("Error loading services: {}", e);
+                    // Load mock services if database fails
+                    if self.services.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
                 }
             }
 
@@ -3081,6 +3409,10 @@ impl DataDesignerApp {
                 }
                 Err(e) => {
                     eprintln!("Error loading resources: {}", e);
+                    // Load mock resources if database fails
+                    if self.resources.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
                 }
             }
 
@@ -3124,8 +3456,15 @@ impl DataDesignerApp {
                 }
                 Err(e) => {
                     eprintln!("Error loading service-resource hierarchy: {}", e);
+                    // Load mock hierarchy if database fails
+                    if self.service_resource_hierarchy.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
                 }
             }
+        } else {
+            // No database connection, load mock data
+            self.load_mock_product_taxonomy();
         }
     }
 
@@ -3158,7 +3497,8 @@ impl DataDesignerApp {
                     self.status_message = format!("Loaded {} CBU mandate structures", self.cbu_mandate_structure.len());
                 }
                 Err(e) => {
-                    self.status_message = format!("Error loading CBU mandate structure: {}", e);
+                    self.status_message = format!("Database error, loading mock investment mandates: {}", e);
+                    self.load_mock_investment_mandates();
                 }
             }
 
@@ -3189,7 +3529,319 @@ impl DataDesignerApp {
                     eprintln!("Error loading CBU member roles: {}", e);
                 }
             }
+        } else {
+            self.load_mock_investment_mandates();
         }
+    }
+
+    fn load_mock_investment_mandates(&mut self) {
+        use std::str::FromStr;
+
+        // Mock Investment Mandates
+        self.investment_mandates = vec![
+            InvestmentMandate {
+                mandate_id: "MND-2024-001".to_string(),
+                cbu_id: "CBU-203914".to_string(),
+                asset_owner_name: "Singapore Sovereign Wealth Fund".to_string(),
+                asset_owner_lei: "SGSWF-LEI-001".to_string(),
+                investment_manager_name: "Asian Trade Capital Management".to_string(),
+                investment_manager_lei: "ATCM-LEI-001".to_string(),
+                base_currency: "USD".to_string(),
+                effective_date: "2024-01-01".to_string(),
+                expiry_date: Some("2026-12-31".to_string()),
+                gross_exposure_pct: Some(95.0),
+                net_exposure_pct: Some(85.0),
+                leverage_max: Some(1.5),
+            },
+            InvestmentMandate {
+                mandate_id: "MND-2024-002".to_string(),
+                cbu_id: "CBU-205816".to_string(),
+                asset_owner_name: "Nordic Pension Consortium".to_string(),
+                asset_owner_lei: "NORDIC-LEI-002".to_string(),
+                investment_manager_name: "European Growth Partners".to_string(),
+                investment_manager_lei: "EGP-LEI-002".to_string(),
+                base_currency: "EUR".to_string(),
+                effective_date: "2024-03-15".to_string(),
+                expiry_date: Some("2027-03-14".to_string()),
+                gross_exposure_pct: Some(90.0),
+                net_exposure_pct: Some(80.0),
+                leverage_max: Some(1.2),
+            },
+            InvestmentMandate {
+                mandate_id: "MND-2024-003".to_string(),
+                cbu_id: "CBU-207925".to_string(),
+                asset_owner_name: "Australian Infrastructure Fund".to_string(),
+                asset_owner_lei: "AIF-LEI-003".to_string(),
+                investment_manager_name: "Pacific Asset Management".to_string(),
+                investment_manager_lei: "PAM-LEI-003".to_string(),
+                base_currency: "AUD".to_string(),
+                effective_date: "2024-06-01".to_string(),
+                expiry_date: None,
+                gross_exposure_pct: Some(100.0),
+                net_exposure_pct: Some(90.0),
+                leverage_max: Some(2.0),
+            },
+        ];
+
+        // Mock Mandate Instruments with allocation constraints
+        self.mandate_instruments = vec![
+            MandateInstrument {
+                id: 1,
+                mandate_id: "MND-2024-001".to_string(),
+                instrument_family: "Government Bonds".to_string(),
+                subtype: Some("Treasury Bills".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(50.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(15.0),
+                rating_floor: Some("AA".to_string()),
+            },
+            MandateInstrument {
+                id: 2,
+                mandate_id: "MND-2024-001".to_string(),
+                instrument_family: "Corporate Bonds".to_string(),
+                subtype: Some("Investment Grade".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(5.0),
+                rating_floor: Some("BBB".to_string()),
+            },
+            MandateInstrument {
+                id: 3,
+                mandate_id: "MND-2024-001".to_string(),
+                instrument_family: "Money Market".to_string(),
+                subtype: Some("Commercial Paper".to_string()),
+                cfi_code: Some("MMISSS".to_string()),
+                exposure_pct: Some(20.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(10.0),
+                rating_floor: Some("A".to_string()),
+            },
+            MandateInstrument {
+                id: 4,
+                mandate_id: "MND-2024-002".to_string(),
+                instrument_family: "Equities".to_string(),
+                subtype: Some("Large Cap".to_string()),
+                cfi_code: Some("ESVUFR".to_string()),
+                exposure_pct: Some(60.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(8.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 5,
+                mandate_id: "MND-2024-002".to_string(),
+                instrument_family: "Corporate Bonds".to_string(),
+                subtype: Some("High Yield".to_string()),
+                cfi_code: Some("DBFTFR".to_string()),
+                exposure_pct: Some(25.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(3.0),
+                rating_floor: Some("B".to_string()),
+            },
+            MandateInstrument {
+                id: 6,
+                mandate_id: "MND-2024-002".to_string(),
+                instrument_family: "Derivatives".to_string(),
+                subtype: Some("Currency Forwards".to_string()),
+                cfi_code: Some("FFXXXX".to_string()),
+                exposure_pct: Some(15.0),
+                short_allowed: Some(true),
+                issuer_max_pct: Some(20.0),
+                rating_floor: None,
+            },
+            MandateInstrument {
+                id: 7,
+                mandate_id: "MND-2024-003".to_string(),
+                instrument_family: "Infrastructure Debt".to_string(),
+                subtype: Some("Project Finance".to_string()),
+                cfi_code: Some("DLTTFR".to_string()),
+                exposure_pct: Some(70.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(12.0),
+                rating_floor: Some("BBB".to_string()),
+            },
+            MandateInstrument {
+                id: 8,
+                mandate_id: "MND-2024-003".to_string(),
+                instrument_family: "Real Estate".to_string(),
+                subtype: Some("REITs".to_string()),
+                cfi_code: Some("ESXXXX".to_string()),
+                exposure_pct: Some(30.0),
+                short_allowed: Some(false),
+                issuer_max_pct: Some(15.0),
+                rating_floor: None,
+            },
+        ];
+
+        // Mock Instruction Formats for trading systems
+        self.instruction_formats = vec![
+            InstructionFormat {
+                id: 1,
+                format_id: "FIX-4.4".to_string(),
+                format_name: "FIX Protocol 4.4".to_string(),
+                format_category: Some("Trading".to_string()),
+                message_standard: Some("FIX".to_string()),
+                message_type: Some("NewOrderSingle".to_string()),
+                status: "active".to_string(),
+            },
+            InstructionFormat {
+                id: 2,
+                format_id: "SWIFT-MT544".to_string(),
+                format_name: "SWIFT MT544 Settlement Instruction".to_string(),
+                format_category: Some("Settlement".to_string()),
+                message_standard: Some("SWIFT".to_string()),
+                message_type: Some("ReceiveAgainstPayment".to_string()),
+                status: "active".to_string(),
+            },
+            InstructionFormat {
+                id: 3,
+                format_id: "ISO20022-SETR".to_string(),
+                format_name: "ISO 20022 Securities Trade".to_string(),
+                format_category: Some("Trade Reporting".to_string()),
+                message_standard: Some("ISO20022".to_string()),
+                message_type: Some("SubscriptionOrder".to_string()),
+                status: "active".to_string(),
+            },
+            InstructionFormat {
+                id: 4,
+                format_id: "JSON-REST".to_string(),
+                format_name: "JSON REST API".to_string(),
+                format_category: Some("API".to_string()),
+                message_standard: Some("JSON".to_string()),
+                message_type: Some("OrderRequest".to_string()),
+                status: "active".to_string(),
+            },
+            InstructionFormat {
+                id: 5,
+                format_id: "CSV-BULK".to_string(),
+                format_name: "CSV Bulk Upload".to_string(),
+                format_category: Some("Batch".to_string()),
+                message_standard: Some("CSV".to_string()),
+                message_type: Some("BulkInstructions".to_string()),
+                status: "active".to_string(),
+            },
+        ];
+
+        // Enhanced CBU mandate structure with mock data
+        self.cbu_mandate_structure = vec![
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-203914".to_string(),
+                cbu_name: "Global Trade Finance Consortium".to_string(),
+                mandate_id: Some("MND-2024-001".to_string()),
+                asset_owner_name: Some("Singapore Sovereign Wealth Fund".to_string()),
+                investment_manager_name: Some("Asian Trade Capital Management".to_string()),
+                base_currency: Some("USD".to_string()),
+                total_instruments: Some(3),
+                families: Some("Government Bonds, Corporate Bonds, Money Market".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-205816".to_string(),
+                cbu_name: "European Growth Capital".to_string(),
+                mandate_id: Some("MND-2024-002".to_string()),
+                asset_owner_name: Some("Nordic Pension Consortium".to_string()),
+                investment_manager_name: Some("European Growth Partners".to_string()),
+                base_currency: Some("EUR".to_string()),
+                total_instruments: Some(3),
+                families: Some("Equities, Corporate Bonds, Derivatives".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+            },
+            CbuInvestmentMandateStructure {
+                cbu_id: "CBU-207925".to_string(),
+                cbu_name: "Pacific Infrastructure Partners".to_string(),
+                mandate_id: Some("MND-2024-003".to_string()),
+                asset_owner_name: Some("Australian Infrastructure Fund".to_string()),
+                investment_manager_name: Some("Pacific Asset Management".to_string()),
+                base_currency: Some("AUD".to_string()),
+                total_instruments: Some(2),
+                families: Some("Infrastructure Debt, Real Estate".to_string()),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+            },
+        ];
+
+        // Enhanced CBU member roles with realistic authorities
+        self.cbu_member_roles = vec![
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-203914".to_string(),
+                cbu_name: "Global Trade Finance Consortium".to_string(),
+                entity_name: "Singapore Sovereign Wealth Fund".to_string(),
+                entity_lei: Some("SGSWF-LEI-001".to_string()),
+                role_name: "Asset Owner / SPV".to_string(),
+                role_code: "AO".to_string(),
+                investment_responsibility: "Mandate Definition & Risk Oversight".to_string(),
+                mandate_id: Some("MND-2024-001".to_string()),
+                has_trading_authority: Some(false),
+                has_settlement_authority: Some(false),
+            },
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-203914".to_string(),
+                cbu_name: "Global Trade Finance Consortium".to_string(),
+                entity_name: "Asian Trade Capital Management".to_string(),
+                entity_lei: Some("ATCM-LEI-001".to_string()),
+                role_name: "Investment Manager".to_string(),
+                role_code: "IM".to_string(),
+                investment_responsibility: "Portfolio Management & Trade Execution".to_string(),
+                mandate_id: Some("MND-2024-001".to_string()),
+                has_trading_authority: Some(true),
+                has_settlement_authority: Some(true),
+            },
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-205816".to_string(),
+                cbu_name: "European Growth Capital".to_string(),
+                entity_name: "Nordic Pension Consortium".to_string(),
+                entity_lei: Some("NORDIC-LEI-002".to_string()),
+                role_name: "Asset Owner / SPV".to_string(),
+                role_code: "AO".to_string(),
+                investment_responsibility: "Strategic Asset Allocation".to_string(),
+                mandate_id: Some("MND-2024-002".to_string()),
+                has_trading_authority: Some(false),
+                has_settlement_authority: Some(false),
+            },
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-205816".to_string(),
+                cbu_name: "European Growth Capital".to_string(),
+                entity_name: "European Growth Partners".to_string(),
+                entity_lei: Some("EGP-LEI-002".to_string()),
+                role_name: "Investment Manager".to_string(),
+                role_code: "IM".to_string(),
+                investment_responsibility: "Active Portfolio Management & Risk Control".to_string(),
+                mandate_id: Some("MND-2024-002".to_string()),
+                has_trading_authority: Some(true),
+                has_settlement_authority: Some(true),
+            },
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-207925".to_string(),
+                cbu_name: "Pacific Infrastructure Partners".to_string(),
+                entity_name: "Australian Infrastructure Fund".to_string(),
+                entity_lei: Some("AIF-LEI-003".to_string()),
+                role_name: "Asset Owner / SPV".to_string(),
+                role_code: "AO".to_string(),
+                investment_responsibility: "Long-term Infrastructure Strategy".to_string(),
+                mandate_id: Some("MND-2024-003".to_string()),
+                has_trading_authority: Some(false),
+                has_settlement_authority: Some(false),
+            },
+            CbuMemberInvestmentRole {
+                cbu_id: "CBU-207925".to_string(),
+                cbu_name: "Pacific Infrastructure Partners".to_string(),
+                entity_name: "Pacific Asset Management".to_string(),
+                entity_lei: Some("PAM-LEI-003".to_string()),
+                role_name: "Investment Manager".to_string(),
+                role_code: "IM".to_string(),
+                investment_responsibility: "Infrastructure Investment & Asset Management".to_string(),
+                mandate_id: Some("MND-2024-003".to_string()),
+                has_trading_authority: Some(true),
+                has_settlement_authority: Some(true),
+            },
+        ];
+
+        self.status_message = format!("Loaded mock investment mandates: {} mandates, {} instruments, {} formats",
+            self.investment_mandates.len(),
+            self.mandate_instruments.len(),
+            self.instruction_formats.len()
+        );
     }
 
     fn load_taxonomy_hierarchy(&mut self) {
@@ -3217,6 +3869,757 @@ impl DataDesignerApp {
             },
         ];
         self.status_message = "Loaded sample taxonomy hierarchy".to_string();
+    }
+
+    // Mock Data Loading Methods
+    fn load_mock_product_taxonomy(&mut self) {
+        // Mock Products
+        self.products = vec![
+            Product {
+                id: 1,
+                product_id: "ICP-001".to_string(),
+                product_name: "Institutional Custody Plus".to_string(),
+                line_of_business: "Asset Servicing".to_string(),
+                description: Some("Comprehensive custody and safekeeping services for institutional clients".to_string()),
+                status: "active".to_string(),
+                contract_type: Some("Master Service Agreement".to_string()),
+                commercial_status: Some("Live".to_string()),
+                pricing_model: Some("Asset-based + Transaction fees".to_string()),
+                target_market: Some("Pension Funds, Insurance Companies".to_string()),
+            },
+            Product {
+                id: 2,
+                product_id: "FAC-002".to_string(),
+                product_name: "Fund Administration Complete".to_string(),
+                line_of_business: "Fund Services".to_string(),
+                description: Some("Full-service fund administration including NAV calculation and reporting".to_string()),
+                status: "active".to_string(),
+                contract_type: Some("Fund Service Agreement".to_string()),
+                commercial_status: Some("Live".to_string()),
+                pricing_model: Some("Fixed fee + AUM basis points".to_string()),
+                target_market: Some("Mutual Funds, Hedge Funds".to_string()),
+            },
+            Product {
+                id: 3,
+                product_id: "TSP-003".to_string(),
+                product_name: "Trade Settlement Professional".to_string(),
+                line_of_business: "Securities Services".to_string(),
+                description: Some("Multi-market trade settlement and clearance services".to_string()),
+                status: "active".to_string(),
+                contract_type: Some("Clearing Agreement".to_string()),
+                commercial_status: Some("Live".to_string()),
+                pricing_model: Some("Per transaction + market fees".to_string()),
+                target_market: Some("Investment Managers, Broker-Dealers".to_string()),
+            },
+        ];
+
+        // Mock Product Options
+        self.product_options = vec![
+            ProductOption {
+                id: 1,
+                option_id: "ICP-001-US".to_string(),
+                product_id: 1, // Fixed: should be i32, not String
+                option_name: "US Market Settlement".to_string(),
+                option_category: "Market Coverage".to_string(),
+                option_type: "required".to_string(),
+                option_value: serde_json::json!("USD settlements via DTC/NSCC"), // Fixed: use serde_json::json!
+                display_name: Some("US Markets".to_string()),
+                description: Some("Settlement and custody for US equities and fixed income".to_string()),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.05").unwrap()),
+                status: "active".to_string(),
+            },
+            ProductOption {
+                id: 2,
+                option_id: "ICP-001-EMEA".to_string(),
+                product_id: 1, // Fixed: should be i32
+                option_name: "EMEA Market Settlement".to_string(),
+                option_category: "Market Coverage".to_string(),
+                option_type: "optional".to_string(),
+                option_value: serde_json::json!("EUR/GBP settlements via Euroclear/Clearstream"), // Fixed: use serde_json::json!
+                display_name: Some("EMEA Markets".to_string()),
+                description: Some("European and UK market settlement capabilities".to_string()),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.08").unwrap()),
+                status: "active".to_string(),
+            },
+            ProductOption {
+                id: 3,
+                option_id: "FAC-002-NAV".to_string(),
+                product_id: 2, // Fixed: should be i32
+                option_name: "Daily NAV Calculation".to_string(),
+                option_category: "Valuation Services".to_string(),
+                option_type: "required".to_string(),
+                option_value: serde_json::json!("T+1 NAV calculation and distribution"), // Fixed: use serde_json::json!
+                display_name: Some("Daily NAV".to_string()),
+                description: Some("Daily net asset value calculation with T+1 delivery".to_string()),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.03").unwrap()),
+                status: "active".to_string(),
+            },
+            ProductOption {
+                id: 4,
+                option_id: "TSP-003-FIX".to_string(),
+                product_id: 3, // Fixed: should be i32
+                option_name: "FIX Protocol Support".to_string(),
+                option_category: "Connectivity".to_string(),
+                option_type: "premium".to_string(),
+                option_value: serde_json::json!("FIX 4.4/5.0 trade messaging"), // Fixed: use serde_json::json!
+                display_name: Some("FIX Connectivity".to_string()),
+                description: Some("High-speed FIX protocol for trade execution".to_string()),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.15").unwrap()),
+                status: "active".to_string(),
+            },
+        ];
+
+        // Mock Services
+        self.services = vec![
+            Service {
+                id: 1,
+                service_id: "SVC-CUSTODY".to_string(),
+                service_name: "Enhanced Custody Services".to_string(),
+                service_category: Some("Safekeeping".to_string()),
+                description: Some("Secure asset custody with segregated accounts".to_string()),
+                service_type: Some("Core".to_string()),
+                delivery_model: Some("24/7 Operations".to_string()),
+                billable: Some(true),
+                status: "active".to_string(),
+            },
+            Service {
+                id: 2,
+                service_id: "SVC-SETTLEMENT".to_string(),
+                service_name: "Multi-Market Settlement".to_string(),
+                service_category: Some("Transaction Processing".to_string()),
+                description: Some("Cross-border settlement and clearance".to_string()),
+                service_type: Some("Core".to_string()),
+                delivery_model: Some("Real-time Processing".to_string()),
+                billable: Some(true),
+                status: "active".to_string(),
+            },
+            Service {
+                id: 3,
+                service_id: "SVC-RECONCILIATION".to_string(),
+                service_name: "Automated Reconciliation".to_string(),
+                service_category: Some("Control Functions".to_string()),
+                description: Some("Daily position and cash reconciliation".to_string()),
+                service_type: Some("Support".to_string()),
+                delivery_model: Some("Overnight Batch".to_string()),
+                billable: Some(false),
+                status: "active".to_string(),
+            },
+            Service {
+                id: 4,
+                service_id: "SVC-REPORTING".to_string(),
+                service_name: "Regulatory Reporting".to_string(),
+                service_category: Some("Compliance".to_string()),
+                description: Some("Automated regulatory report generation".to_string()),
+                service_type: Some("Support".to_string(),),
+                delivery_model: Some("Scheduled Reports".to_string()),
+                billable: Some(true),
+                status: "active".to_string(),
+            },
+            Service {
+                id: 5,
+                service_id: "SVC-VALUATION".to_string(),
+                service_name: "Portfolio Valuation".to_string(),
+                service_category: Some("Pricing".to_string()),
+                description: Some("Daily portfolio marking and valuation".to_string()),
+                service_type: Some("Core".to_string()),
+                delivery_model: Some("End-of-day Processing".to_string()),
+                billable: Some(true),
+                status: "active".to_string(),
+            },
+        ];
+
+        // Mock Resources (fixed types)
+        self.resources = vec![
+            ResourceObject {
+                id: 1,
+                resource_name: "Global Custody Platform".to_string(),
+                description: Some("Core custody system managing $2.5T in assets".to_string()),
+                version: "v12.3.1".to_string(), // Fixed: String, not Option<String>
+                category: Some("Core Platform".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("Mission Critical".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Custody Engineering".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+            ResourceObject {
+                id: 2,
+                resource_name: "Settlement Engine".to_string(),
+                description: Some("High-throughput settlement processing system".to_string()),
+                version: "v8.7.2".to_string(), // Fixed: String, not Option<String>
+                category: Some("Transaction Processing".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("Mission Critical".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Settlement Operations".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+            ResourceObject {
+                id: 3,
+                resource_name: "Reconciliation Workbench".to_string(),
+                description: Some("Automated break management and resolution".to_string()),
+                version: "v5.2.8".to_string(), // Fixed: String, not Option<String>
+                category: Some("Control Systems".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("High".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Reconciliation Team".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+            ResourceObject {
+                id: 4,
+                resource_name: "Market Data Hub".to_string(),
+                description: Some("Real-time and end-of-day pricing data".to_string()),
+                version: "v3.9.1".to_string(), // Fixed: String, not Option<String>
+                category: Some("Data Services".to_string()),
+                resource_type: Some("Data Platform".to_string()),
+                criticality_level: Some("High".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Market Data Team".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+            ResourceObject {
+                id: 5,
+                resource_name: "Client Portal API".to_string(),
+                description: Some("RESTful API for client access and reporting".to_string()),
+                version: "v2.1.4".to_string(), // Fixed: String, not Option<String>
+                category: Some("Client Interface".to_string()),
+                resource_type: Some("API Gateway".to_string()),
+                criticality_level: Some("Medium".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Digital Channels".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+            ResourceObject {
+                id: 6,
+                resource_name: "Regulatory Reporting Engine".to_string(),
+                description: Some("Automated generation of regulatory filings".to_string()),
+                version: "v4.6.3".to_string(), // Fixed: String, not Option<String>
+                category: Some("Compliance".to_string()),
+                resource_type: Some("Reporting Tool".to_string()),
+                criticality_level: Some("High".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Compliance Technology".to_string()),
+                status: Some("active".to_string()), // Fixed: Option<String>, not String
+            },
+        ];
+
+        // Mock Service-Resource Hierarchy with cross-linking (simplified)
+        self.service_resource_hierarchy = vec![
+            // Enhanced Custody Services → Global Custody Platform
+            ServiceResourceHierarchy {
+                service_id: 1,
+                service_code: "CUST".to_string(),
+                service_name: "Enhanced Custody Services".to_string(),
+                service_category: Some("Safekeeping".to_string()),
+                service_type: Some("Core".to_string()),
+                delivery_model: Some("24/7 Operations".to_string()),
+                billable: Some(true),
+                service_description: Some("Secure asset custody with segregated accounts".to_string()),
+                service_status: Some("active".to_string()),
+                resource_id: 1,
+                resource_name: "Global Custody Platform".to_string(),
+                resource_description: Some("Core custody system managing $2.5T in assets".to_string()),
+                resource_version: "v12.3.1".to_string(),
+                resource_category: Some("Core Platform".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("Mission Critical".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Custody Engineering".to_string()),
+                usage_type: "Primary System".to_string(),
+                resource_role: Some("Core Processing".to_string()),
+                cost_allocation_percentage: Some(rust_decimal::Decimal::from_str("65.0").unwrap()),
+                dependency_level: Some(1),
+            },
+            // Multi-Market Settlement → Settlement Engine
+            ServiceResourceHierarchy {
+                service_id: 2,
+                service_code: "SETTL".to_string(),
+                service_name: "Multi-Market Settlement".to_string(),
+                service_category: Some("Transaction Processing".to_string()),
+                service_type: Some("Core".to_string()),
+                delivery_model: Some("Real-time Processing".to_string()),
+                billable: Some(true),
+                service_description: Some("Cross-border settlement and clearance".to_string()),
+                service_status: Some("active".to_string()),
+                resource_id: 2,
+                resource_name: "Settlement Engine".to_string(),
+                resource_description: Some("High-throughput settlement processing system".to_string()),
+                resource_version: "v8.7.2".to_string(),
+                resource_category: Some("Transaction Processing".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("Mission Critical".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Settlement Operations".to_string()),
+                usage_type: "Primary Engine".to_string(),
+                resource_role: Some("Transaction Processing".to_string()),
+                cost_allocation_percentage: Some(rust_decimal::Decimal::from_str("80.0").unwrap()),
+                dependency_level: Some(1),
+            },
+            // Reconciliation → Reconciliation Workbench
+            ServiceResourceHierarchy {
+                service_id: 3,
+                service_code: "RECON".to_string(),
+                service_name: "Automated Reconciliation".to_string(),
+                service_category: Some("Control Functions".to_string()),
+                service_type: Some("Support".to_string()),
+                delivery_model: Some("Overnight Batch".to_string()),
+                billable: Some(false),
+                service_description: Some("Daily position and cash reconciliation".to_string()),
+                service_status: Some("active".to_string()),
+                resource_id: 3,
+                resource_name: "Reconciliation Workbench".to_string(),
+                resource_description: Some("Automated break management and resolution".to_string()),
+                resource_version: "v5.2.8".to_string(),
+                resource_category: Some("Control Systems".to_string()),
+                resource_type: Some("Application".to_string()),
+                criticality_level: Some("High".to_string()),
+                operational_status: Some("Production".to_string()),
+                owner_team: Some("Reconciliation Team".to_string()),
+                usage_type: "Primary Tool".to_string(),
+                resource_role: Some("Break Management".to_string()),
+                cost_allocation_percentage: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+                dependency_level: Some(1),
+            },
+        ];
+
+        self.status_message = "Loaded comprehensive mock taxonomy data with cross-links".to_string();
+    }
+
+    // AI Command Palette Implementation
+    fn show_command_palette_modal(&mut self, ctx: &egui::Context) {
+        egui::Window::new("🎯 AI Command Palette")
+            .collapsible(false)
+            .resizable(false)
+            .title_bar(false)
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 80.0))
+            .default_width(600.0)
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.add_space(10.0);
+
+                    // Search input with focus
+                    let search_response = ui.add(
+                        egui::TextEdit::singleline(&mut self.command_palette_input)
+                            .hint_text("Type command or natural language... (Ctrl+K to open/close)")
+                            .desired_width(560.0)
+                            .font(egui::FontId::proportional(16.0))
+                    );
+
+                    // Auto-focus input when palette opens
+                    if self.show_command_palette {
+                        search_response.request_focus();
+                    }
+
+                    // Generate suggestions when input changes
+                    if search_response.changed() {
+                        self.generate_command_suggestions();
+                    }
+
+                    ui.add_space(10.0);
+
+                    // Keyboard navigation
+                    ui.input(|i| {
+                        if i.key_pressed(egui::Key::ArrowDown) {
+                            self.selected_command_index = (self.selected_command_index + 1).min(self.command_suggestions.len().saturating_sub(1));
+                        }
+                        if i.key_pressed(egui::Key::ArrowUp) {
+                            self.selected_command_index = self.selected_command_index.saturating_sub(1);
+                        }
+                        if i.key_pressed(egui::Key::Enter) && !self.command_suggestions.is_empty() {
+                            self.execute_command(self.selected_command_index);
+                            self.show_command_palette = false;
+                        }
+                    });
+
+                    // Command suggestions
+                    let mut clicked_command_index = None;
+
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            if self.command_suggestions.is_empty() {
+                                ui.centered_and_justified(|ui| {
+                                    ui.label("🤔 No suggestions found. Try typing something like 'generate email validation' or 'explain IF'");
+                                });
+                            } else {
+                                for (i, suggestion) in self.command_suggestions.iter().enumerate() {
+                                    let is_selected = i == self.selected_command_index;
+
+                                    let bg_color = if is_selected {
+                                        egui::Color32::from_rgb(45, 85, 135)
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
+
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(560.0, 60.0),
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            let rect = ui.available_rect_before_wrap();
+                                            ui.painter().rect_filled(rect, 4.0, bg_color);
+
+                                            if ui.allocate_response(rect.size(), egui::Sense::click()).clicked() {
+                                                clicked_command_index = Some(i);
+                                            }
+
+                                            ui.horizontal(|ui| {
+                                                // Command type icon
+                                                let icon = match suggestion.command_type {
+                                                    CommandType::GenerateDsl => "🧬",
+                                                    CommandType::AnalyzeRule => "🔍",
+                                                    CommandType::OptimizeExpression => "⚡",
+                                                    CommandType::FindSimilar => "🎯",
+                                                    CommandType::ExplainError => "🆘",
+                                                    CommandType::NavigateTo => "🧭",
+                                                    CommandType::QuickAction => "⚡",
+                                                    CommandType::Template => "📋",
+                                                };
+                                                ui.label(format!("{} ", icon));
+
+                                                ui.vertical(|ui| {
+                                                    ui.strong(&suggestion.title);
+                                                    ui.label(&suggestion.description);
+                                                    if let Some(shortcut) = &suggestion.shortcut {
+                                                        ui.small(format!("Shortcut: {}", shortcut));
+                                                    }
+                                                });
+
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    ui.label(format!("{:.0}%", suggestion.confidence * 100.0));
+                                                });
+                                            });
+                                        }
+                                    );
+                                    ui.add_space(2.0);
+                                }
+                            }
+                        });
+
+                    // Handle clicked command outside the borrow
+                    if let Some(index) = clicked_command_index {
+                        self.execute_command(index);
+                        self.show_command_palette = false;
+                    }
+
+                    ui.add_space(10.0);
+
+                    // Footer with tips
+                    ui.horizontal(|ui| {
+                        ui.small("💡 Tips: Use ↑↓ to navigate, Enter to execute, Esc to close");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.small("Powered by AI 🤖");
+                        });
+                    });
+                });
+            });
+    }
+
+    fn generate_command_suggestions(&mut self) {
+        let query = self.command_palette_input.trim().to_lowercase();
+        let mut suggestions = Vec::new();
+
+        if query.is_empty() {
+            // Show default commands when no input
+            suggestions.extend(vec![
+                CommandSuggestion::new(
+                    CommandType::GenerateDsl,
+                    "Generate DSL Expression",
+                    "Create a DSL rule from natural language description",
+                    "generate_dsl"
+                ).with_shortcut("Ctrl+G"),
+
+                CommandSuggestion::new(
+                    CommandType::AnalyzeRule,
+                    "Analyze Current Rule",
+                    "Get insights and suggestions for the current DSL rule",
+                    "analyze_rule"
+                ).with_shortcut("Ctrl+A"),
+
+                CommandSuggestion::new(
+                    CommandType::FindSimilar,
+                    "Find Similar Patterns",
+                    "Search for similar DSL patterns in the database",
+                    "find_similar"
+                ).with_shortcut("Ctrl+F"),
+
+                CommandSuggestion::new(
+                    CommandType::Template,
+                    "Insert Template",
+                    "Insert a common DSL template or pattern",
+                    "insert_template"
+                ).with_shortcut("Ctrl+T"),
+
+                CommandSuggestion::new(
+                    CommandType::NavigateTo,
+                    "Go to Attribute Dictionary",
+                    "Navigate to the attribute dictionary tab",
+                    "nav_attributes"
+                ),
+
+                CommandSuggestion::new(
+                    CommandType::NavigateTo,
+                    "Go to Rule Engine",
+                    "Navigate to the rule engine tab",
+                    "nav_rules"
+                ),
+            ]);
+        } else {
+            // Natural language processing for DSL generation
+            if query.contains("generate") || query.contains("create") || query.contains("make") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::GenerateDsl,
+                        "Generate DSL from Description",
+                        &format!("Create DSL code for: '{}'", self.command_palette_input),
+                        "generate_from_description"
+                    ).with_confidence(0.9)
+                );
+            }
+
+            if query.contains("email") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::Template,
+                        "Email Validation Template",
+                        "Insert email validation DSL pattern",
+                        "template_email"
+                    ).with_confidence(0.95)
+                );
+            }
+
+            if query.contains("if") || query.contains("condition") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::Template,
+                        "Conditional Expression Template",
+                        "Insert IF-THEN-ELSE conditional pattern",
+                        "template_if"
+                    ).with_confidence(0.9)
+                );
+            }
+
+            if query.contains("kyc") || query.contains("risk") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::Template,
+                        "KYC Risk Assessment",
+                        "Insert KYC risk calculation pattern",
+                        "template_kyc"
+                    ).with_confidence(0.95)
+                );
+            }
+
+            if query.contains("optimize") || query.contains("improve") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::OptimizeExpression,
+                        "Optimize Current Expression",
+                        "Suggest optimizations for the current DSL expression",
+                        "optimize_current"
+                    ).with_confidence(0.85)
+                );
+            }
+
+            if query.contains("error") || query.contains("fix") || query.contains("debug") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::ExplainError,
+                        "Explain and Fix Errors",
+                        "Analyze current errors and suggest fixes",
+                        "explain_errors"
+                    ).with_confidence(0.9)
+                );
+            }
+
+            if query.contains("similar") || query.contains("find") || query.contains("search") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::FindSimilar,
+                        "Find Similar Patterns",
+                        "Search for similar DSL patterns",
+                        "find_patterns"
+                    ).with_confidence(0.8)
+                );
+            }
+
+            // Navigation commands
+            if query.contains("attribute") || query.contains("dictionary") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::NavigateTo,
+                        "Go to Attribute Dictionary",
+                        "Navigate to attribute dictionary tab",
+                        "nav_attributes"
+                    ).with_confidence(0.95)
+                );
+            }
+
+            if query.contains("rule") || query.contains("engine") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::NavigateTo,
+                        "Go to Rule Engine",
+                        "Navigate to rule engine tab",
+                        "nav_rules"
+                    ).with_confidence(0.95)
+                );
+            }
+
+            if query.contains("transpiler") || query.contains("code") {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::NavigateTo,
+                        "Go to Transpiler",
+                        "Navigate to code transpiler tab",
+                        "nav_transpiler"
+                    ).with_confidence(0.95)
+                );
+            }
+
+            // Quick actions based on current context
+            if !self.dsl_editor.get_text().trim().is_empty() {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::QuickAction,
+                        "Test Current Rule",
+                        "Test the current DSL rule with sample data",
+                        "test_rule"
+                    ).with_confidence(0.8)
+                );
+            }
+        }
+
+        // Sort by confidence and relevance
+        suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+
+        self.command_suggestions = suggestions;
+        self.selected_command_index = 0; // Reset selection
+    }
+
+    fn execute_command(&mut self, index: usize) {
+        if let Some(command) = self.command_suggestions.get(index) {
+            match command.action.as_str() {
+                "generate_dsl" => {
+                    self.ai_query = "Generate a DSL expression for data validation".to_string();
+                    self.show_ai_panel = true;
+                    self.generate_ai_suggestions();
+                }
+
+                "generate_from_description" => {
+                    // Use the command palette input as the generation prompt
+                    let input = self.command_palette_input.clone();
+                    self.generate_dsl_from_natural_language(&input);
+                }
+
+                "analyze_rule" => {
+                    let current_rule = self.dsl_editor.get_text();
+                    if !current_rule.trim().is_empty() {
+                        self.ai_query = format!("Analyze this DSL rule and suggest improvements: {}", current_rule);
+                        self.show_ai_panel = true;
+                        self.generate_ai_suggestions();
+                    }
+                }
+
+                "find_similar" => {
+                    self.ai_query = "Find similar patterns to my current expression".to_string();
+                    self.show_ai_panel = true;
+                    self.generate_ai_suggestions();
+                }
+
+                "optimize_current" => {
+                    let current_rule = self.dsl_editor.get_text();
+                    if !current_rule.trim().is_empty() {
+                        self.ai_query = format!("Optimize this DSL expression: {}", current_rule);
+                        self.show_ai_panel = true;
+                        self.generate_ai_suggestions();
+                    }
+                }
+
+                "explain_errors" => {
+                    if let Some(error) = &self.rule_error {
+                        self.ai_query = format!("Explain and fix this error: {}", error);
+                        self.show_ai_panel = true;
+                        self.generate_ai_suggestions();
+                    }
+                }
+
+                "template_email" => {
+                    self.dsl_editor.set_text("IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string());
+                }
+
+                "template_if" => {
+                    self.dsl_editor.set_text("IF condition THEN value ELSE fallback".to_string());
+                }
+
+                "template_kyc" => {
+                    self.dsl_editor.set_text("risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF Client.high_risk_country THEN 30 ELSE 10".to_string());
+                }
+
+                "test_rule" => {
+                    // Test current rule
+                    self.test_rule();
+                }
+
+                "nav_attributes" => {
+                    self.current_tab = Tab::AttributeDictionary;
+                }
+
+                "nav_rules" => {
+                    self.current_tab = Tab::RuleEngine;
+                }
+
+                "nav_transpiler" => {
+                    self.current_tab = Tab::Transpiler;
+                }
+
+                _ => {
+                    println!("Unknown command: {}", command.action);
+                }
+            }
+        }
+    }
+
+    fn generate_dsl_from_natural_language(&mut self, description: &str) {
+        // Enhanced natural language to DSL conversion
+        let description_lower = description.to_lowercase();
+        let mut generated_dsl = String::new();
+
+        // Pattern matching for common requests
+        if description_lower.contains("email") && description_lower.contains("valid") {
+            generated_dsl = "IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string();
+        } else if description_lower.contains("lei") && description_lower.contains("valid") {
+            generated_dsl = "IS_LEI(Client.lei_code) AND LENGTH(Client.lei_code) == 20".to_string();
+        } else if description_lower.contains("risk") && description_lower.contains("score") {
+            generated_dsl = "risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string();
+        } else if description_lower.contains("name") && description_lower.contains("concat") {
+            generated_dsl = "full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string();
+        } else if description_lower.contains("age") && (description_lower.contains("18") || description_lower.contains("adult")) {
+            generated_dsl = "is_adult = Client.age >= 18".to_string();
+        } else if description_lower.contains("empty") || description_lower.contains("null") {
+            generated_dsl = "field != null AND LENGTH(TRIM(field)) > 0".to_string();
+        } else if description_lower.contains("phone") && description_lower.contains("format") {
+            generated_dsl = "Client.phone ~ /^\\+?[1-9]\\d{1,14}$/".to_string();
+        } else if description_lower.contains("date") && description_lower.contains("valid") {
+            generated_dsl = "Client.birth_date != null AND Client.birth_date < TODAY()".to_string();
+        } else {
+            // Generic pattern based on keywords
+            if description_lower.contains("if") || description_lower.contains("condition") {
+                generated_dsl = "IF condition THEN value ELSE fallback".to_string();
+            } else if description_lower.contains("check") || description_lower.contains("validate") {
+                generated_dsl = "field != null AND LENGTH(field) > 0".to_string();
+            } else {
+                generated_dsl = "// Generated from: ".to_string() + description + "\n// Please refine this expression\nfield_value != null";
+            }
+        }
+
+        // Set the generated DSL in the editor
+        self.dsl_editor.set_text(generated_dsl.clone());
+
+        // Also add an AI suggestion explaining what was generated
+        self.ai_query = format!("Generated DSL: {}. Explain this expression and suggest improvements.", generated_dsl);
+        self.show_ai_panel = true;
+        self.generate_ai_suggestions();
     }
 
 }

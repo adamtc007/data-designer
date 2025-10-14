@@ -687,6 +687,7 @@ dependencies = [
  "env_logger",
  "futures",
  "regex",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sqlx",
