@@ -1,4 +1,4 @@
-use egui::{Color32, Response, Ui, Widget};
+use egui::{Color32, Response, Ui, Widget, Pos2, Rect, Vec2};
 use std::collections::HashMap;
 
 /// Enhanced code editor with syntax highlighting for DSL
@@ -14,6 +14,10 @@ pub struct DslCodeEditor {
     pub syntax_errors: Vec<SyntaxError>,
     pub desired_rows: usize,
     pub font_size: f32,
+    // Autocomplete support
+    pub autocomplete_suggestions: Vec<String>,
+    pub show_autocomplete: bool,
+    pub selected_suggestion: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +84,9 @@ impl Default for DslCodeEditor {
             syntax_errors: Vec::new(),
             desired_rows: 10,
             font_size: 14.0,
+            autocomplete_suggestions: Vec::new(),
+            show_autocomplete: false,
+            selected_suggestion: 0,
         }
     }
 }
@@ -501,17 +508,26 @@ impl DslCodeEditor {
         }
     }
 
-    /// Render the editor with syntax highlighting - SIMPLIFIED VERSION
+    /// Render the editor with syntax highlighting - ENHANCED WITH AUTOCOMPLETE
     pub fn show(&mut self, ui: &mut Ui) -> Response {
         // Validate syntax in real-time
         self.validate_syntax();
 
-        ui.vertical(|ui| {
-            // Just show a clean text editor with syntax status
-            let response = ui.add(egui::TextEdit::multiline(&mut self.text)
+        let editor_response = ui.vertical(|ui| {
+            // Text editor
+            let text_edit_response = ui.add(egui::TextEdit::multiline(&mut self.text)
                 .desired_rows(self.desired_rows)
                 .code_editor()
                 .font(egui::FontId::monospace(self.font_size)));
+
+            // Track cursor position from the response
+            if text_edit_response.changed() {
+                // Update cursor position estimation based on text length changes
+                let new_len = self.text.len();
+                if new_len != self.cursor_position {
+                    self.cursor_position = new_len.min(self.cursor_position);
+                }
+            }
 
             // Simple status line
             ui.horizontal(|ui| {
@@ -526,10 +542,83 @@ impl DslCodeEditor {
                 } else {
                     ui.colored_label(egui::Color32::GRAY, "Enter DSL code...");
                 }
+
+                // Autocomplete status
+                if self.show_autocomplete {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::YELLOW,
+                        format!("💡 {} suggestions", self.autocomplete_suggestions.len()));
+                }
             });
 
-            response
-        }).response
+            text_edit_response
+        }).inner;
+
+        // Render autocomplete popup after the main editor
+        if self.show_autocomplete && !self.autocomplete_suggestions.is_empty() {
+            self.render_autocomplete_popup(ui, editor_response.rect);
+        }
+
+        editor_response
+    }
+
+    /// Render floating autocomplete popup
+    fn render_autocomplete_popup(&mut self, ui: &mut Ui, editor_rect: Rect) {
+        let cursor_pos = self.get_cursor_screen_position(ui, editor_rect);
+
+        // Position popup below cursor
+        let popup_pos = Pos2::new(
+            cursor_pos.x,
+            cursor_pos.y + ui.text_style_height(&egui::TextStyle::Monospace)
+        );
+
+        // Use fixed positioning relative to the editor
+        let popup_size = Vec2::new(200.0, 150.0);
+        let adjusted_pos = popup_pos; // Simplified - let egui handle bounds
+
+        egui::Window::new("autocomplete_popup")
+            .id(egui::Id::new("autocomplete_window"))
+            .title_bar(false)
+            .resizable(false)
+            .movable(false)
+            .current_pos(adjusted_pos)
+            .fixed_size(popup_size)
+            .frame(egui::Frame::popup(ui.style()))
+            .show(ui.ctx(), |ui| {
+                ui.set_min_height(150.0);
+                ui.vertical(|ui| {
+                    ui.label("💡 Suggestions:");
+                    ui.separator();
+
+                    egui::ScrollArea::vertical()
+                        .max_height(120.0)
+                        .show(ui, |ui| {
+                            for (i, suggestion) in self.autocomplete_suggestions.iter().enumerate() {
+                                let is_selected = i == self.selected_suggestion;
+
+                                let response = ui.selectable_label(is_selected, suggestion);
+
+                                if response.clicked() {
+                                    self.selected_suggestion = i;
+                                    // Apply suggestion (handled by parent)
+                                }
+
+                                if is_selected {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                            }
+                        });
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.small("↑↓ Navigate");
+                        ui.separator();
+                        ui.small("Enter Accept");
+                        ui.separator();
+                        ui.small("Esc Cancel");
+                    });
+                });
+            });
     }
 
     /// Enhanced version with syntax preview (kept for future use)
@@ -855,7 +944,7 @@ impl DslCodeEditor {
     }
 
     /// Helper to extract word at cursor position
-    fn get_word_at_position(&self, pos: usize) -> (usize, String) {
+    pub fn get_word_at_position(&self, pos: usize) -> (usize, String) {
         let chars: Vec<char> = self.text.chars().collect();
         if pos > chars.len() {
             return (pos, String::new());
@@ -875,6 +964,79 @@ impl DslCodeEditor {
 
         let word: String = chars[start..end].iter().collect();
         (start, word)
+    }
+
+    /// Set autocomplete suggestions and show popup
+    pub fn set_autocomplete_suggestions(&mut self, suggestions: Vec<String>) {
+        self.autocomplete_suggestions = suggestions;
+        self.show_autocomplete = !self.autocomplete_suggestions.is_empty();
+        self.selected_suggestion = 0;
+    }
+
+    /// Hide autocomplete popup
+    pub fn hide_autocomplete(&mut self) {
+        self.show_autocomplete = false;
+        self.autocomplete_suggestions.clear();
+        self.selected_suggestion = 0;
+    }
+
+    /// Navigate autocomplete suggestions
+    pub fn navigate_autocomplete(&mut self, direction: i32) {
+        if !self.show_autocomplete || self.autocomplete_suggestions.is_empty() {
+            return;
+        }
+
+        let len = self.autocomplete_suggestions.len();
+        if direction > 0 {
+            self.selected_suggestion = (self.selected_suggestion + 1) % len;
+        } else if direction < 0 {
+            self.selected_suggestion = if self.selected_suggestion == 0 {
+                len - 1
+            } else {
+                self.selected_suggestion - 1
+            };
+        }
+    }
+
+    /// Accept the currently selected autocomplete suggestion
+    pub fn accept_autocomplete(&mut self) -> Option<String> {
+        if !self.show_autocomplete || self.autocomplete_suggestions.is_empty() {
+            return None;
+        }
+
+        let suggestion = self.autocomplete_suggestions[self.selected_suggestion].clone();
+        self.hide_autocomplete();
+        Some(suggestion)
+    }
+
+    /// Calculate cursor screen position for autocomplete popup placement
+    fn get_cursor_screen_position(&self, ui: &Ui, text_rect: Rect) -> Pos2 {
+        let lines: Vec<&str> = self.text.lines().collect();
+        let chars: Vec<char> = self.text.chars().collect();
+
+        // Find line and column of cursor
+        let mut current_pos = 0;
+        let mut line_num = 0;
+        let mut col_num = 0;
+
+        for (line_idx, line) in lines.iter().enumerate() {
+            let line_end = current_pos + line.len();
+            if self.cursor_position <= line_end {
+                line_num = line_idx;
+                col_num = self.cursor_position - current_pos;
+                break;
+            }
+            current_pos = line_end + 1; // +1 for newline
+        }
+
+        // Calculate approximate screen position
+        let line_height = ui.text_style_height(&egui::TextStyle::Monospace);
+        let char_width = 8.0; // Approximate monospace character width
+
+        let x = text_rect.left() + (col_num as f32 * char_width);
+        let y = text_rect.top() + (line_num as f32 * line_height);
+
+        Pos2::new(x, y)
     }
 }
 

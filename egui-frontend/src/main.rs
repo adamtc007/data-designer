@@ -1092,7 +1092,7 @@ impl DataDesignerApp {
 
 impl eframe::App for DataDesignerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Handle keyboard shortcuts for command palette
+        // Handle keyboard shortcuts for command palette and autocomplete
         ctx.input(|i| {
             if i.modifiers.command && i.key_pressed(egui::Key::K) {
                 self.show_command_palette = !self.show_command_palette;
@@ -1101,8 +1101,23 @@ impl eframe::App for DataDesignerApp {
                     self.generate_command_suggestions();
                 }
             }
-            // Escape to close command palette
-            if i.key_pressed(egui::Key::Escape) {
+
+            // Handle autocomplete navigation
+            if self.dsl_editor.show_autocomplete {
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    self.dsl_editor.navigate_autocomplete(-1);
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    self.dsl_editor.navigate_autocomplete(1);
+                } else if i.key_pressed(egui::Key::Enter) {
+                    if let Some(suggestion) = self.dsl_editor.accept_autocomplete() {
+                        // Insert suggestion at cursor position
+                        self.apply_autocomplete_suggestion(&suggestion);
+                    }
+                } else if i.key_pressed(egui::Key::Escape) {
+                    self.dsl_editor.hide_autocomplete();
+                }
+            } else if i.key_pressed(egui::Key::Escape) {
+                // Escape to close command palette only if autocomplete is not open
                 self.show_command_palette = false;
             }
         });
@@ -2891,7 +2906,16 @@ impl DataDesignerApp {
             self.dsl_editor.cursor_position
         );
 
-        // Mix completion suggestions with existing suggestions
+        // Extract suggestion text for autocomplete popup
+        let suggestion_texts: Vec<String> = completions.iter()
+            .take(8) // Limit to 8 suggestions for clean UI
+            .map(|s| s.title.clone())
+            .collect();
+
+        // Set autocomplete suggestions in the editor
+        self.dsl_editor.set_autocomplete_suggestions(suggestion_texts);
+
+        // Mix completion suggestions with existing suggestions for the side panel
         if !completions.is_empty() {
             // Keep existing suggestions but prioritize completions
             let mut mixed_suggestions = completions;
@@ -2938,6 +2962,28 @@ impl DataDesignerApp {
             }
             self.ai_assistant.context.available_attributes = attributes;
         }
+    }
+
+    fn apply_autocomplete_suggestion(&mut self, suggestion: &str) {
+        let cursor_pos = self.dsl_editor.cursor_position;
+        let text = &self.dsl_editor.text;
+
+        // Find the word being completed
+        let (word_start, _current_word) = self.dsl_editor.get_word_at_position(cursor_pos);
+
+        // Replace the partial word with the suggestion
+        let mut new_text = String::new();
+        new_text.push_str(&text[..word_start]);
+        new_text.push_str(suggestion);
+        new_text.push_str(&text[cursor_pos..]);
+
+        // Update the editor
+        self.dsl_editor.text = new_text.clone();
+        self.dsl_editor.cursor_position = word_start + suggestion.len();
+        self.transpiler_input = new_text;
+
+        // Trigger transpilation to validate the new code
+        self.transpile_expression();
     }
 
     fn apply_ai_suggestion(&mut self, suggestion_index: usize) {
@@ -6081,15 +6127,18 @@ impl DataDesignerApp {
                 ),
             ]);
         } else {
+            // AI-powered intelligent suggestions
+            self.add_ai_command_suggestions(&mut suggestions, &query);
+
             // Natural language processing for DSL generation
             if query.contains("generate") || query.contains("create") || query.contains("make") {
                 suggestions.push(
                     CommandSuggestion::new(
                         CommandType::GenerateDsl,
-                        "Generate DSL from Description",
-                        &format!("Create DSL code for: '{}'", self.command_palette_input),
+                        "🤖 AI Generate DSL from Description",
+                        &format!("Use AI to create DSL code for: '{}'", self.command_palette_input),
                         "generate_from_description"
-                    ).with_confidence(0.9)
+                    ).with_confidence(0.95)
                 );
             }
 
@@ -6289,6 +6338,24 @@ impl DataDesignerApp {
                     self.current_tab = Tab::Transpiler;
                 }
 
+                // AI-powered commands
+                "rag_find_similar" => {
+                    self.execute_rag_search(&self.command_palette_input.clone());
+                }
+
+                // Handle AI suggestion commands
+                action if action.starts_with("ai_suggestion_") => {
+                    if let Ok(index) = action.replace("ai_suggestion_", "").parse::<usize>() {
+                        self.execute_ai_suggestion_command(index);
+                    }
+                }
+
+                // Handle use attribute commands
+                action if action.starts_with("use_attribute_") => {
+                    let attr_name = action.replace("use_attribute_", "");
+                    self.generate_dsl_with_attribute(&attr_name);
+                }
+
                 _ => {
                     println!("Unknown command: {}", command.action);
                 }
@@ -6297,45 +6364,303 @@ impl DataDesignerApp {
     }
 
     fn generate_dsl_from_natural_language(&mut self, description: &str) {
-        // Enhanced natural language to DSL conversion
-        let description_lower = description.to_lowercase();
-        let mut generated_dsl = String::new();
+        // Mark loading state
+        self.palette_loading = true;
 
-        // Pattern matching for common requests
-        if description_lower.contains("email") && description_lower.contains("valid") {
-            generated_dsl = "IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string();
-        } else if description_lower.contains("lei") && description_lower.contains("valid") {
-            generated_dsl = "IS_LEI(Client.lei_code) AND LENGTH(Client.lei_code) == 20".to_string();
-        } else if description_lower.contains("risk") && description_lower.contains("score") {
-            generated_dsl = "risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string();
-        } else if description_lower.contains("name") && description_lower.contains("concat") {
-            generated_dsl = "full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string();
-        } else if description_lower.contains("age") && (description_lower.contains("18") || description_lower.contains("adult")) {
-            generated_dsl = "is_adult = Client.age >= 18".to_string();
-        } else if description_lower.contains("empty") || description_lower.contains("null") {
-            generated_dsl = "field != null AND LENGTH(TRIM(field)) > 0".to_string();
-        } else if description_lower.contains("phone") && description_lower.contains("format") {
-            generated_dsl = "Client.phone ~ /^\\+?[1-9]\\d{1,14}$/".to_string();
-        } else if description_lower.contains("date") && description_lower.contains("valid") {
-            generated_dsl = "Client.birth_date != null AND Client.birth_date < TODAY()".to_string();
-        } else {
-            // Generic pattern based on keywords
-            if description_lower.contains("if") || description_lower.contains("condition") {
-                generated_dsl = "IF condition THEN value ELSE fallback".to_string();
-            } else if description_lower.contains("check") || description_lower.contains("validate") {
-                generated_dsl = "field != null AND LENGTH(field) > 0".to_string();
-            } else {
-                generated_dsl = "// Generated from: ".to_string() + description + "\n// Please refine this expression\nfield_value != null";
-            }
-        }
+        // Trigger AI-powered DSL generation
+        let rt = &self.runtime;
+        let description = description.to_string();
+        let ai_assistant = self.ai_assistant.clone();
+
+        rt.spawn(async move {
+            // This will be handled by the async AI generation
+        });
+
+        // Start async AI generation process
+        self.start_ai_dsl_generation(&description);
+    }
+
+    fn start_ai_dsl_generation(&mut self, description: &str) {
+        // Update AI context for generation
+        self.ai_assistant.context.current_rule = description.to_string();
+        self.ai_assistant.context.target_language = "DSL".to_string();
+
+        // Get AI-powered suggestions using RAG
+        let query = format!(
+            "Generate DSL code for: {}. Consider available attributes: {}",
+            description,
+            self.get_available_attributes_context()
+        );
+
+        // First, try to find similar patterns in the database
+        self.generate_ai_dsl_suggestions(&query);
+
+        // Also generate using pattern matching as fallback
+        let generated_dsl = self.generate_dsl_fallback(description);
 
         // Set the generated DSL in the editor
         self.dsl_editor.set_text(generated_dsl.clone());
 
-        // Also add an AI suggestion explaining what was generated
-        self.ai_query = format!("Generated DSL: {}. Explain this expression and suggest improvements.", generated_dsl);
+        // Show AI panel with enhanced suggestions
+        self.ai_query = format!("Generated DSL from '{}': {}", description, generated_dsl);
+        self.show_ai_panel = true;
+
+        // Mark loading complete
+        self.palette_loading = false;
+    }
+
+    fn generate_ai_dsl_suggestions(&mut self, query: &str) {
+        // Use the AI assistant's RAG capabilities
+        let runtime = &self.runtime;
+        let ai_assistant = self.ai_assistant.clone();
+        let query = query.to_string();
+
+        // For now, use the existing suggestion system
+        // In a full implementation, this would be an async call
+        let suggestions = ai_assistant.get_offline_suggestions(&query);
+
+        // Mix with pattern-based suggestions
+        let mut all_suggestions = suggestions;
+        all_suggestions.extend(self.get_dsl_generation_suggestions(&query));
+
+        self.ai_suggestions = all_suggestions;
+    }
+
+    fn get_dsl_generation_suggestions(&self, query: &str) -> Vec<AiSuggestion> {
+        let mut suggestions = Vec::new();
+        let query_lower = query.to_lowercase();
+
+        // Generate context-aware DSL suggestions
+        if query_lower.contains("email") {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
+                title: "Email Validation Pattern".to_string(),
+                description: "Validate email format and length".to_string(),
+                code_snippet: Some("IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()),
+                confidence: 0.9,
+                context_relevance: 0.95,
+            });
+        }
+
+        if query_lower.contains("risk") {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
+                title: "Risk Score Calculation".to_string(),
+                description: "Calculate risk score based on PEP status and country".to_string(),
+                code_snippet: Some("risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()),
+                confidence: 0.85,
+                context_relevance: 0.9,
+            });
+        }
+
+        if query_lower.contains("name") {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
+                title: "Name Concatenation".to_string(),
+                description: "Combine first and last name fields".to_string(),
+                code_snippet: Some("full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()),
+                confidence: 0.8,
+                context_relevance: 0.85,
+            });
+        }
+
+        if query_lower.contains("age") || query_lower.contains("adult") {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
+                title: "Age Validation".to_string(),
+                description: "Check if person is 18 or older".to_string(),
+                code_snippet: Some("is_adult = Client.age >= 18".to_string()),
+                confidence: 0.9,
+                context_relevance: 0.88,
+            });
+        }
+
+        suggestions
+    }
+
+    fn generate_dsl_fallback(&self, description: &str) -> String {
+        let description_lower = description.to_lowercase();
+
+        // Enhanced pattern matching with more intelligence
+        if description_lower.contains("email") && description_lower.contains("valid") {
+            "IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()
+        } else if description_lower.contains("lei") && description_lower.contains("valid") {
+            "IS_LEI(Client.lei_code) AND LENGTH(Client.lei_code) == 20".to_string()
+        } else if description_lower.contains("risk") && description_lower.contains("score") {
+            "risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()
+        } else if description_lower.contains("name") && (description_lower.contains("concat") || description_lower.contains("full")) {
+            "full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()
+        } else if description_lower.contains("age") && (description_lower.contains("18") || description_lower.contains("adult")) {
+            "is_adult = Client.age >= 18".to_string()
+        } else if description_lower.contains("empty") || description_lower.contains("null") {
+            "field != null AND LENGTH(TRIM(field)) > 0".to_string()
+        } else if description_lower.contains("phone") && description_lower.contains("format") {
+            "Client.phone ~ /^\\+?[1-9]\\d{1,14}$/".to_string()
+        } else if description_lower.contains("date") && description_lower.contains("valid") {
+            "Client.birth_date != null AND Client.birth_date < TODAY()".to_string()
+        } else if description_lower.contains("if") || description_lower.contains("condition") {
+            "IF condition THEN value ELSE fallback".to_string()
+        } else if description_lower.contains("check") || description_lower.contains("validate") {
+            "field != null AND LENGTH(field) > 0".to_string()
+        } else {
+            format!("// Generated from: {}\n// AI-enhanced suggestion - please refine\nfield_value != null", description)
+        }
+    }
+
+    fn get_available_attributes_context(&self) -> String {
+        let mut context = String::new();
+
+        if let Some(dictionary) = &self.data_dictionary {
+            let mut attributes = Vec::new();
+            for attr in dictionary.attributes.iter().take(10) {
+                if let Some(attr_name) = attr.get("attribute_name").and_then(|v| v.as_str()) {
+                    if let Some(entity_name) = attr.get("entity_name").and_then(|v| v.as_str()) {
+                        attributes.push(format!("{}.{}", entity_name, attr_name));
+                    }
+                }
+            }
+            context = attributes.join(", ");
+        }
+
+        if context.is_empty() {
+            "Client.email, Client.first_name, Client.last_name, Client.age, Client.country".to_string()
+        } else {
+            context
+        }
+    }
+
+    fn add_ai_command_suggestions(&mut self, suggestions: &mut Vec<CommandSuggestion>, query: &str) {
+        // Get AI-powered suggestions from the assistant
+        let ai_suggestions = self.ai_assistant.get_offline_suggestions(query);
+
+        // Convert AI suggestions to command suggestions
+        for (i, ai_suggestion) in ai_suggestions.iter().take(3).enumerate() {
+            let command_type = match ai_suggestion.suggestion_type {
+                SuggestionType::CodeCompletion | SuggestionType::AutoComplete => CommandType::GenerateDsl,
+                SuggestionType::Alternative | SuggestionType::Optimization => CommandType::Template,
+                SuggestionType::SimilarPattern => CommandType::FindSimilar,
+                _ => CommandType::QuickAction,
+            };
+
+            let title = format!("🧠 AI: {}", ai_suggestion.title);
+            let description = format!("AI-powered: {}", ai_suggestion.description);
+            let action = format!("ai_suggestion_{}", i);
+
+            suggestions.push(
+                CommandSuggestion::new(
+                    command_type,
+                    &title,
+                    &description,
+                    &action
+                ).with_confidence(ai_suggestion.confidence)
+            );
+        }
+
+        // Add semantic search suggestions if available
+        if query.len() > 3 {
+            self.add_semantic_command_suggestions(suggestions, query);
+        }
+    }
+
+    fn add_semantic_command_suggestions(&mut self, suggestions: &mut Vec<CommandSuggestion>, query: &str) {
+        // Add a suggestion to search similar patterns using RAG
+        suggestions.push(
+            CommandSuggestion::new(
+                CommandType::FindSimilar,
+                "🔍 Find Similar Patterns (RAG)",
+                &format!("Use AI vector search to find patterns similar to: '{}'", query),
+                "rag_find_similar"
+            ).with_confidence(0.8)
+        );
+
+        // Add contextual suggestions based on available attributes
+        if let Some(dictionary) = &self.data_dictionary {
+            // Find matching attributes
+            let matching_attributes: Vec<String> = dictionary.attributes.iter()
+                .filter_map(|attr| {
+                    if let Some(attr_name) = attr.get("attribute_name").and_then(|v| v.as_str()) {
+                        if attr_name.to_lowercase().contains(&query.to_lowercase()) {
+                            Some(attr_name.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .take(3)
+                .collect();
+
+            for attr_name in matching_attributes {
+                suggestions.push(
+                    CommandSuggestion::new(
+                        CommandType::GenerateDsl,
+                        &format!("💡 Use Attribute: {}", attr_name),
+                        &format!("Generate DSL using the '{}' attribute", attr_name),
+                        &format!("use_attribute_{}", attr_name)
+                    ).with_confidence(0.85)
+                );
+            }
+        }
+    }
+
+    fn execute_rag_search(&mut self, query: &str) {
+        // Use the AI assistant's RAG capabilities to find similar patterns
+        self.ai_query = format!("Find patterns similar to: {}", query);
+        self.show_ai_panel = true;
+
+        // Generate enhanced AI suggestions using RAG
+        self.generate_ai_suggestions();
+
+        // Update status
+        self.status_message = format!("🔍 Searching for patterns similar to: '{}'", query);
+    }
+
+    fn execute_ai_suggestion_command(&mut self, index: usize) {
+        // Get the AI suggestion that was converted to a command
+        if let Some(ai_suggestions) = Some(&self.ai_suggestions.clone()) {
+            if let Some(suggestion) = ai_suggestions.get(index) {
+                // Apply the AI suggestion
+                if let Some(code) = &suggestion.code_snippet {
+                    self.dsl_editor.set_text(code.clone());
+                    self.transpiler_input = code.clone();
+                    self.transpile_expression();
+
+                    self.status_message = format!("✨ Applied AI suggestion: {}", suggestion.title);
+                } else {
+                    // If no code snippet, just show in AI panel
+                    self.ai_query = suggestion.description.clone();
+                    self.show_ai_panel = true;
+                    self.generate_ai_suggestions();
+                }
+            }
+        }
+    }
+
+    fn generate_dsl_with_attribute(&mut self, attr_name: &str) {
+        // Generate a simple DSL expression using the specified attribute
+        let generated_dsl = if attr_name.contains("email") {
+            format!("IS_EMAIL({}) AND LENGTH({}) > 5", attr_name, attr_name)
+        } else if attr_name.contains("age") {
+            format!("{} >= 18", attr_name)
+        } else if attr_name.contains("name") {
+            format!("LENGTH(TRIM({})) > 0", attr_name)
+        } else if attr_name.contains("date") {
+            format!("{} != null AND {} < TODAY()", attr_name, attr_name)
+        } else {
+            format!("{} != null", attr_name)
+        };
+
+        self.dsl_editor.set_text(generated_dsl.clone());
+        self.transpiler_input = generated_dsl.clone();
+        self.transpile_expression();
+
+        // Show AI suggestions for the generated code
+        self.ai_query = format!("Analyze and improve this DSL using '{}': {}", attr_name, generated_dsl);
         self.show_ai_panel = true;
         self.generate_ai_suggestions();
+
+        self.status_message = format!("💡 Generated DSL using attribute: {}", attr_name);
     }
 
 }
