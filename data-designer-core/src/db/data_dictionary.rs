@@ -43,7 +43,7 @@ impl DataDictionaryOperations {
     ) -> Result<DataDictionaryResponse, String> {
         let base_query = r#"
             SELECT attribute_name, full_path, data_type, description,
-                   attribute_type, entity_name, is_key, is_nullable
+                   attribute_type, entity_name
             FROM mv_data_dictionary
         "#;
 
@@ -87,10 +87,8 @@ impl DataDictionaryOperations {
                 "attribute_type": attribute_type,
                 "entity_name": row.try_get::<&str, _>("entity_name")
                     .map_err(|e| format!("Failed to get entity_name: {}", e))?,
-                "is_key": row.try_get::<bool, _>("is_key")
-                    .map_err(|e| format!("Failed to get is_key: {}", e))?,
-                "is_nullable": row.try_get::<bool, _>("is_nullable")
-                    .map_err(|e| format!("Failed to get is_nullable: {}", e))?
+                "is_key": false,
+                "is_nullable": true
             });
             attributes.push(attr);
         }

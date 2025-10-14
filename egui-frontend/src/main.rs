@@ -71,6 +71,14 @@ struct DataDesignerApp {
     rule_result: Option<String>,
     rule_error: Option<String>,
 
+    // Syntax highlighting
+    syntax_highlighter: SyntaxHighlighter,
+
+    // Autocomplete
+    show_autocomplete: bool,
+    autocomplete_suggestions: Vec<String>,
+    autocomplete_position: usize,
+
     // UI State
     show_cbu_form: bool,
     cbu_form: CbuForm,
@@ -98,6 +106,264 @@ struct CbuForm {
     business_type: String,
 }
 
+// Syntax highlighting for DSL
+#[derive(Debug, Clone)]
+struct SyntaxToken {
+    start: usize,
+    end: usize,
+    token_type: TokenType,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TokenType {
+    Keyword,      // IF, THEN, ELSE, AND, OR, NOT
+    Function,     // CONCAT, UPPER, ABS, etc.
+    Operator,     // +, -, *, /, =, >, <, etc.
+    String,       // "text", 'text'
+    Number,       // 123, 45.67
+    Boolean,      // true, false
+    Identifier,   // variable names
+    Comment,      // // comments
+    Regex,        // /pattern/
+    Delimiter,    // (, ), [, ], {, }
+}
+
+struct SyntaxHighlighter {
+    keywords: Vec<&'static str>,
+    functions: Vec<&'static str>,
+    operators: Vec<&'static str>,
+}
+
+impl SyntaxHighlighter {
+    fn new() -> Self {
+        Self {
+            keywords: vec![
+                "IF", "THEN", "ELSE", "WHEN", "AND", "OR", "NOT", "IN", "NOT_IN",
+                "MATCHES", "NOT_MATCHES", "CONTAINS", "STARTS_WITH", "ENDS_WITH",
+                "true", "false", "null"
+            ],
+            functions: vec![
+                "CONCAT", "SUBSTRING", "UPPER", "LOWER", "LENGTH", "TRIM",
+                "ABS", "ROUND", "FLOOR", "CEIL", "MIN", "MAX", "SUM", "AVG", "COUNT",
+                "HAS", "IS_NULL", "IS_EMPTY", "TO_STRING", "TO_NUMBER", "TO_BOOLEAN",
+                "FIRST", "LAST", "GET", "LOOKUP"
+            ],
+            operators: vec![
+                "+", "-", "*", "/", "%", "**", "&", "=", "!=", "<>", "<", "<=", ">", ">=",
+                "&&", "||", "==", "MATCHES", "CONTAINS"
+            ],
+        }
+    }
+
+    fn tokenize(&self, text: &str) -> Vec<SyntaxToken> {
+        let mut tokens = Vec::new();
+        let mut chars = text.char_indices().peekable();
+
+        while let Some((start, ch)) = chars.next() {
+            match ch {
+                // String literals
+                '"' | '\'' => {
+                    let quote = ch;
+                    let mut end = start + 1;
+                    let mut escaped = false;
+
+                    while let Some((pos, ch)) = chars.next() {
+                        end = pos + ch.len_utf8();
+                        if !escaped && ch == quote {
+                            break;
+                        }
+                        escaped = ch == '\\' && !escaped;
+                    }
+
+                    tokens.push(SyntaxToken {
+                        start,
+                        end,
+                        token_type: TokenType::String,
+                    });
+                }
+
+                // Regex literals
+                '/' => {
+                    if let Some((_, next_ch)) = chars.peek() {
+                        if *next_ch != '/' && *next_ch != '=' && *next_ch != '*' {
+                            // Likely a regex
+                            let mut end = start + 1;
+                            while let Some((pos, ch)) = chars.next() {
+                                end = pos + ch.len_utf8();
+                                if ch == '/' {
+                                    break;
+                                }
+                            }
+
+                            tokens.push(SyntaxToken {
+                                start,
+                                end,
+                                token_type: TokenType::Regex,
+                            });
+                            continue;
+                        }
+                    }
+
+                    // Regular operator
+                    tokens.push(SyntaxToken {
+                        start,
+                        end: start + 1,
+                        token_type: TokenType::Operator,
+                    });
+                }
+
+                // Numbers
+                '0'..='9' => {
+                    let mut end = start;
+                    let mut has_dot = false;
+
+                    while let Some((pos, ch)) = chars.peek() {
+                        if ch.is_ascii_digit() {
+                            end = *pos + ch.len_utf8();
+                            chars.next();
+                        } else if *ch == '.' && !has_dot {
+                            has_dot = true;
+                            end = *pos + ch.len_utf8();
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    tokens.push(SyntaxToken {
+                        start,
+                        end,
+                        token_type: TokenType::Number,
+                    });
+                }
+
+                // Identifiers, keywords, functions
+                ch if ch.is_alphabetic() || ch == '_' => {
+                    let mut end = start;
+
+                    while let Some((pos, ch)) = chars.peek() {
+                        if ch.is_alphanumeric() || *ch == '_' || *ch == '.' {
+                            end = *pos + ch.len_utf8();
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let word = &text[start..end];
+                    let token_type = if self.keywords.contains(&word.to_uppercase().as_str()) {
+                        TokenType::Keyword
+                    } else if self.functions.contains(&word.to_uppercase().as_str()) {
+                        TokenType::Function
+                    } else {
+                        TokenType::Identifier
+                    };
+
+                    tokens.push(SyntaxToken {
+                        start,
+                        end,
+                        token_type,
+                    });
+                }
+
+                // Operators and delimiters
+                '+' | '-' | '*' | '%' | '=' | '!' | '<' | '>' | '&' | '|' => {
+                    let mut end = start + ch.len_utf8();
+
+                    // Check for multi-character operators
+                    if let Some((pos, next_ch)) = chars.peek() {
+                        let two_char = format!("{}{}", ch, next_ch);
+                        if self.operators.contains(&two_char.as_str()) {
+                            end = *pos + next_ch.len_utf8();
+                            chars.next();
+                        }
+                    }
+
+                    tokens.push(SyntaxToken {
+                        start,
+                        end,
+                        token_type: TokenType::Operator,
+                    });
+                }
+
+                // Delimiters
+                '(' | ')' | '[' | ']' | '{' | '}' | ',' => {
+                    tokens.push(SyntaxToken {
+                        start,
+                        end: start + ch.len_utf8(),
+                        token_type: TokenType::Delimiter,
+                    });
+                }
+
+                // Skip whitespace
+                _ if ch.is_whitespace() => continue,
+
+                // Everything else as identifier for now
+                _ => {
+                    tokens.push(SyntaxToken {
+                        start,
+                        end: start + ch.len_utf8(),
+                        token_type: TokenType::Identifier,
+                    });
+                }
+            }
+        }
+
+        tokens
+    }
+
+    fn get_color(&self, token_type: TokenType) -> egui::Color32 {
+        match token_type {
+            TokenType::Keyword => egui::Color32::from_rgb(197, 134, 192),    // Purple
+            TokenType::Function => egui::Color32::from_rgb(78, 201, 176),    // Teal
+            TokenType::Operator => egui::Color32::from_rgb(86, 156, 214),    // Blue
+            TokenType::String => egui::Color32::from_rgb(206, 145, 120),     // Orange
+            TokenType::Number => egui::Color32::from_rgb(181, 206, 168),     // Green
+            TokenType::Boolean => egui::Color32::from_rgb(86, 156, 214),     // Blue
+            TokenType::Identifier => egui::Color32::from_rgb(220, 220, 170), // Yellow
+            TokenType::Comment => egui::Color32::from_rgb(106, 153, 85),     // Dark Green
+            TokenType::Regex => egui::Color32::from_rgb(215, 186, 125),      // Gold
+            TokenType::Delimiter => egui::Color32::from_rgb(128, 128, 128),  // Gray
+        }
+    }
+
+    fn get_autocomplete_suggestions(&self, partial_word: &str) -> Vec<String> {
+        let mut suggestions = Vec::new();
+        let partial_upper = partial_word.to_uppercase();
+
+        // Add matching keywords
+        for &keyword in &self.keywords {
+            if keyword.starts_with(&partial_upper) {
+                suggestions.push(keyword.to_string());
+            }
+        }
+
+        // Add matching functions
+        for &function in &self.functions {
+            if function.starts_with(&partial_upper) {
+                suggestions.push(format!("{}()", function));
+            }
+        }
+
+        // Add common attribute suggestions
+        let common_attributes = vec![
+            "age", "balance", "country", "email", "name", "id", "status",
+            "amount", "date", "type", "value", "score", "rating", "level"
+        ];
+
+        for attr in common_attributes {
+            if attr.to_uppercase().starts_with(&partial_upper) {
+                suggestions.push(attr.to_string());
+            }
+        }
+
+        suggestions.sort();
+        suggestions.dedup();
+        suggestions.truncate(10); // Limit to 10 suggestions
+        suggestions
+    }
+}
+
 impl DataDesignerApp {
     fn new(db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
         let mut app = Self {
@@ -114,6 +380,10 @@ impl DataDesignerApp {
             test_context: String::from("{\n  \"age\": 25,\n  \"country\": \"USA\",\n  \"balance\": 50000\n}"),
             rule_result: None,
             rule_error: None,
+            syntax_highlighter: SyntaxHighlighter::new(),
+            show_autocomplete: false,
+            autocomplete_suggestions: Vec::new(),
+            autocomplete_position: 0,
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -544,11 +814,12 @@ impl DataDesignerApp {
                 }
             });
 
-            // Rule input with syntax highlighting placeholder
-            ui.add_sized([ui.available_width(), 80.0],
-                egui::TextEdit::multiline(&mut self.rule_input)
-                    .hint_text("Enter your rule DSL here... e.g., age > 18 AND country = \"USA\"")
-                    .font(egui::TextStyle::Monospace));
+            // Rule input with syntax highlighting
+            let mut rule_input = self.rule_input.clone();
+            let response = self.show_highlighted_text_edit(ui, &mut rule_input, [ui.available_width(), 120.0]);
+            if response.changed() {
+                self.rule_input = rule_input;
+            }
 
             ui.horizontal(|ui| {
                 ui.label("Test Context (JSON):");
@@ -569,6 +840,9 @@ impl DataDesignerApp {
                 }
                 if ui.button("📊 Parse AST").clicked() {
                     self.parse_ast_only();
+                }
+                if ui.button("🔍 Validate Syntax").clicked() {
+                    self.validate_syntax_only();
                 }
                 if ui.button("💾 Save Rule").clicked() {
                     self.status_message = "Feature coming soon: Save to Database".to_string();
@@ -742,6 +1016,24 @@ impl DataDesignerApp {
         }
     }
 
+    fn validate_syntax_only(&mut self) {
+        self.rule_result = None;
+        self.rule_error = None;
+
+        match parser::parse_rule(&self.rule_input) {
+            Ok((remaining, _ast)) => {
+                if remaining.trim().is_empty() {
+                    self.rule_result = Some("✅ Syntax is valid!".to_string());
+                } else {
+                    self.rule_error = Some(format!("⚠️ Unexpected remaining input: '{}'", remaining));
+                }
+            },
+            Err(e) => {
+                self.rule_error = Some(format!("❌ Syntax Error: {:?}", e));
+            }
+        }
+    }
+
     fn search_attributes(&mut self) {
         if self.attribute_search.len() >= 2 {
             if let Some(ref _pool) = self.db_pool {
@@ -764,5 +1056,53 @@ impl DataDesignerApp {
         } else if self.attribute_search.is_empty() {
             self.load_data_dictionary();
         }
+    }
+
+    fn show_highlighted_text_edit(&mut self, ui: &mut egui::Ui, text: &mut String, size: [f32; 2]) -> egui::Response {
+        // For now, use a simple approach with colored text display
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                // Show syntax highlighted preview
+                if !text.is_empty() {
+                    ui.label("📖 Syntax Highlighted Preview:");
+                    ui.separator();
+
+                    let tokens = self.syntax_highlighter.tokenize(text);
+
+                    ui.horizontal_wrapped(|ui| {
+                        let mut last_end = 0;
+
+                        for token in tokens {
+                            // Add any whitespace between tokens
+                            if token.start > last_end {
+                                let whitespace = &text[last_end..token.start];
+                                if !whitespace.trim().is_empty() {
+                                    ui.label(whitespace);
+                                }
+                            }
+
+                            // Add the colored token
+                            let token_text = &text[token.start..token.end];
+                            let color = self.syntax_highlighter.get_color(token.token_type);
+                            ui.label(egui::RichText::new(token_text).color(color).monospace());
+
+                            last_end = token.end;
+                        }
+
+                        // Add any remaining text
+                        if last_end < text.len() {
+                            ui.label(&text[last_end..]);
+                        }
+                    });
+
+                    ui.separator();
+                }
+
+                // Regular text editor
+                ui.add_sized(size, egui::TextEdit::multiline(text)
+                    .hint_text("Enter your DSL code here...")
+                    .font(egui::TextStyle::Monospace))
+            }).inner
+        }).inner
     }
 }
