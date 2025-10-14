@@ -156,6 +156,7 @@ struct DataDesignerApp {
     cbu_mandate_structure: Vec<CbuInvestmentMandateStructure>,
     cbu_member_roles: Vec<CbuMemberInvestmentRole>,
     taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
+    selected_mandate: Option<String>, // Selected mandate ID for drill-down
 
     // Onboarding Requests - CBU + Product Bundle combinations
     onboarding_requests: Vec<OnboardingRequest>,
@@ -876,6 +877,7 @@ impl DataDesignerApp {
             cbu_mandate_structure: Vec::new(),
             cbu_member_roles: Vec::new(),
             taxonomy_hierarchy: Vec::new(),
+            selected_mandate: None,
 
             // Onboarding Requests
             onboarding_requests: Vec::new(),
@@ -3454,66 +3456,165 @@ impl DataDesignerApp {
             if self.cbu_mandate_structure.is_empty() {
                 ui.label("No CBU mandate structure loaded. Click refresh to load data.");
             } else {
-                for structure in &self.cbu_mandate_structure {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong(&structure.cbu_name);
-                            ui.label(format!("({})", structure.cbu_id));
-                        });
+                // Back button when viewing a specific mandate
+                if let Some(ref selected) = self.selected_mandate {
+                    let selected_clone = selected.clone();
+                    ui.horizontal(|ui| {
+                        if ui.button("← Back to All Mandates").clicked() {
+                            self.selected_mandate = None;
+                        }
+                        ui.label(format!("Viewing mandate: {}", selected_clone));
+                    });
+                    ui.separator();
+                }
 
-                        if let Some(mandate_id) = &structure.mandate_id {
-                            ui.horizontal(|ui| {
-                                ui.label("📋 Mandate:");
-                                ui.strong(mandate_id);
+                match &self.selected_mandate {
+                    None => {
+                        // Show mandate list - clickable cards
+                        ui.label("Click on a mandate to view detailed information:");
+                        ui.add_space(5.0);
+
+                        for structure in &self.cbu_mandate_structure {
+                            if let Some(mandate_id) = &structure.mandate_id {
+                                // Make each mandate a clickable button with group styling
+                                ui.group(|ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.strong(&structure.cbu_name);
+                                                ui.label(format!("({})", structure.cbu_id));
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("📋");
+                                                ui.strong(mandate_id);
+                                            });
+                                            if let Some(asset_owner) = &structure.asset_owner_name {
+                                                ui.label(format!("💰 {}", asset_owner));
+                                            }
+                                        });
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            // Make this a clickable button instead of just a label
+                                            if ui.button("📋 View Details").clicked() {
+                                                self.selected_mandate = Some(mandate_id.clone());
+                                            }
+                                        });
+                                    });
+                                });
+                            }
+                        }
+                    }
+                    Some(selected_mandate_id) => {
+                        // Show detailed view for selected mandate
+                        if let Some(structure) = self.cbu_mandate_structure.iter()
+                            .find(|s| s.mandate_id.as_ref() == Some(selected_mandate_id)) {
+
+                            ui.heading(format!("📋 Mandate Details: {}", selected_mandate_id));
+                            ui.separator();
+
+                            // Detailed mandate information
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("🏢 Business Unit Information");
+                                    ui.horizontal(|ui| {
+                                        ui.label("CBU Name:");
+                                        ui.strong(&structure.cbu_name);
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("CBU ID:");
+                                        ui.strong(&structure.cbu_id);
+                                    });
+                                });
                             });
 
-                            if let Some(asset_owner) = &structure.asset_owner_name {
-                                ui.horizontal(|ui| {
-                                    ui.label("💰 Asset Owner:");
-                                    ui.label(asset_owner);
-                                });
-                            }
+                            ui.add_space(10.0);
 
-                            if let Some(investment_manager) = &structure.investment_manager_name {
-                                ui.horizontal(|ui| {
-                                    ui.label("📊 Investment Manager:");
-                                    ui.label(investment_manager);
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("👥 Parties");
+                                    if let Some(asset_owner) = &structure.asset_owner_name {
+                                        ui.horizontal(|ui| {
+                                            ui.label("💰 Asset Owner:");
+                                            ui.strong(asset_owner);
+                                        });
+                                    }
+                                    if let Some(investment_manager) = &structure.investment_manager_name {
+                                        ui.horizontal(|ui| {
+                                            ui.label("📊 Investment Manager:");
+                                            ui.strong(investment_manager);
+                                        });
+                                    }
                                 });
-                            }
+                            });
 
-                            if let Some(currency) = &structure.base_currency {
-                                ui.horizontal(|ui| {
-                                    ui.label("💱 Currency:");
-                                    ui.label(currency);
-                                });
-                            }
+                            ui.add_space(10.0);
 
-                            if let Some(instruments) = structure.total_instruments {
-                                ui.horizontal(|ui| {
-                                    ui.label("🎪 Instruments:");
-                                    ui.label(format!("{}", instruments));
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("📊 Investment Details");
+                                    if let Some(currency) = &structure.base_currency {
+                                        ui.horizontal(|ui| {
+                                            ui.label("💱 Base Currency:");
+                                            ui.strong(currency);
+                                        });
+                                    }
+                                    if let Some(instruments) = structure.total_instruments {
+                                        ui.horizontal(|ui| {
+                                            ui.label("🎪 Total Instruments:");
+                                            ui.strong(&format!("{}", instruments));
+                                        });
+                                    }
+                                    if let Some(families) = &structure.families {
+                                        ui.horizontal(|ui| {
+                                            ui.label("📁 Instrument Families:");
+                                            ui.strong(families);
+                                        });
+                                    }
+                                    if let Some(exposure) = structure.total_exposure_pct {
+                                        ui.horizontal(|ui| {
+                                            ui.label("📈 Total Exposure:");
+                                            let exposure_value = exposure.to_string().parse::<f64>().unwrap_or(0.0);
+                                            ui.strong(&format!("{:.1}%", exposure_value));
+                                        });
+                                    }
                                 });
-                            }
+                            });
 
-                            if let Some(families) = &structure.families {
-                                ui.horizontal(|ui| {
-                                    ui.label("📁 Families:");
-                                    ui.label(families);
-                                });
-                            }
+                            // Show related CBU member roles for this mandate
+                            ui.add_space(10.0);
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("👥 Related Member Roles");
+                                    let related_roles: Vec<_> = self.cbu_member_roles.iter()
+                                        .filter(|role| role.mandate_id.as_ref() == Some(selected_mandate_id))
+                                        .collect();
 
-                            if let Some(exposure) = structure.total_exposure_pct {
-                                ui.horizontal(|ui| {
-                                    ui.label("📈 Total Exposure:");
-                                    // Handle rust_decimal::Decimal properly
-                                    let exposure_value = exposure.to_string().parse::<f64>().unwrap_or(0.0);
-                                    ui.label(format!("{:.1}%", exposure_value));
+                                    if related_roles.is_empty() {
+                                        ui.label("No specific member roles found for this mandate.");
+                                    } else {
+                                        for role in related_roles {
+                                            ui.group(|ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label("🎭");
+                                                    ui.strong(&role.role_name);
+                                                    ui.label(format!("({})", role.entity_name));
+                                                });
+                                                ui.label(format!("Responsibility: {}", role.investment_responsibility));
+                                                ui.horizontal(|ui| {
+                                                    if role.has_trading_authority.unwrap_or(false) {
+                                                        ui.colored_label(egui::Color32::GREEN, "🔄 Trading");
+                                                    }
+                                                    if role.has_settlement_authority.unwrap_or(false) {
+                                                        ui.colored_label(egui::Color32::BLUE, "💱 Settlement");
+                                                    }
+                                                });
+                                            });
+                                        }
+                                    }
                                 });
-                            }
-                        } else {
-                            ui.colored_label(egui::Color32::GRAY, "No mandate assigned");
+                            });
                         }
-                    });
+                    }
                 }
             }
         });
@@ -3797,20 +3898,34 @@ impl DataDesignerApp {
                 .await
             }) {
                 Ok(rows) => {
-                    self.cbu_mandate_structure = rows.into_iter().map(|row| CbuInvestmentMandateStructure {
-                        cbu_id: row.get("cbu_id"),
-                        cbu_name: row.get("cbu_name"),
-                        mandate_id: row.get("mandate_id"),
-                        asset_owner_name: row.get("asset_owner_name"),
-                        investment_manager_name: row.get("investment_manager_name"),
-                        base_currency: row.get("base_currency"),
-                        total_instruments: row.get("total_instruments"),
-                        families: row.get("families"),
-                        total_exposure_pct: row.get("total_exposure_pct"),
-                    }).collect();
+                    // Try to map rows and catch any conversion errors
+                    let mut structures = Vec::new();
+                    for row in rows {
+                        match (|| -> Result<CbuInvestmentMandateStructure, Box<dyn std::error::Error>> {
+                            Ok(CbuInvestmentMandateStructure {
+                                cbu_id: row.try_get("cbu_id")?,
+                                cbu_name: row.try_get("cbu_name")?,
+                                mandate_id: row.try_get("mandate_id").ok(),
+                                asset_owner_name: row.try_get("asset_owner_name").ok(),
+                                investment_manager_name: row.try_get("investment_manager_name").ok(),
+                                base_currency: row.try_get("base_currency").ok(),
+                                total_instruments: row.try_get("total_instruments").ok(),
+                                families: row.try_get("families").ok(),
+                                total_exposure_pct: row.try_get("total_exposure_pct").ok(),
+                            })
+                        })() {
+                            Ok(structure) => structures.push(structure),
+                            Err(e) => {
+                                eprintln!("Error converting row to CbuInvestmentMandateStructure: {}", e);
+                                self.status_message = format!("Data conversion error: {}", e);
+                            }
+                        }
+                    }
+                    self.cbu_mandate_structure = structures;
                     self.status_message = format!("Loaded {} CBU mandate structures", self.cbu_mandate_structure.len());
                 }
                 Err(e) => {
+                    eprintln!("Database query error for CBU mandate structure: {}", e);
                     self.status_message = format!("Database error, loading mock investment mandates: {}", e);
                     self.load_mock_investment_mandates();
                 }
@@ -3826,21 +3941,33 @@ impl DataDesignerApp {
                 .await
             }) {
                 Ok(rows) => {
-                    self.cbu_member_roles = rows.into_iter().map(|row| CbuMemberInvestmentRole {
-                        cbu_id: row.get("cbu_id"),
-                        cbu_name: row.get("cbu_name"),
-                        entity_name: row.get("entity_name"),
-                        entity_lei: row.get("entity_lei"),
-                        role_name: row.get("role_name"),
-                        role_code: row.get("role_code"),
-                        investment_responsibility: row.get("investment_responsibility"),
-                        mandate_id: row.get("mandate_id"),
-                        has_trading_authority: row.get("has_trading_authority"),
-                        has_settlement_authority: row.get("has_settlement_authority"),
-                    }).collect();
+                    // Try to map rows and catch any conversion errors
+                    let mut roles = Vec::new();
+                    for row in rows {
+                        match (|| -> Result<CbuMemberInvestmentRole, Box<dyn std::error::Error>> {
+                            Ok(CbuMemberInvestmentRole {
+                                cbu_id: row.try_get("cbu_id")?,
+                                cbu_name: row.try_get("cbu_name")?,
+                                entity_name: row.try_get("entity_name")?,
+                                entity_lei: row.try_get("entity_lei").ok(),
+                                role_name: row.try_get("role_name")?,
+                                role_code: row.try_get("role_code")?,
+                                investment_responsibility: row.try_get("investment_responsibility")?,
+                                mandate_id: row.try_get("mandate_id").ok(),
+                                has_trading_authority: row.try_get("has_trading_authority").ok(),
+                                has_settlement_authority: row.try_get("has_settlement_authority").ok(),
+                            })
+                        })() {
+                            Ok(role) => roles.push(role),
+                            Err(e) => {
+                                eprintln!("Error converting row to CbuMemberInvestmentRole: {}", e);
+                            }
+                        }
+                    }
+                    self.cbu_member_roles = roles;
                 }
                 Err(e) => {
-                    eprintln!("Error loading CBU member roles: {}", e);
+                    eprintln!("Database query error for CBU member roles: {}", e);
                 }
             }
         } else {
