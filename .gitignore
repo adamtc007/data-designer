@@ -39,6 +39,14 @@ desktop.ini
 dev_db.sqlite
 *.dSYM/
 
+# Test artifacts
+test-results.xml
+coverage/
+.nyc_output/
+
+# Old Tauri web stack (removed)
+src-tauri/
+
 # Large files (if any)
 *.zip
 *.tar.gz

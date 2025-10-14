@@ -43,7 +43,7 @@ impl DataDictionaryOperations {
     ) -> Result<DataDictionaryResponse, String> {
         let base_query = r#"
             SELECT attribute_name, full_path, data_type, description,
-                   attribute_type, entity_name
+                   attribute_type, entity_name, required
             FROM mv_data_dictionary
         "#;
 
@@ -88,7 +88,8 @@ impl DataDictionaryOperations {
                 "entity_name": row.try_get::<&str, _>("entity_name")
                     .map_err(|e| format!("Failed to get entity_name: {}", e))?,
                 "is_key": false,
-                "is_nullable": true
+                "is_nullable": !row.try_get::<bool, _>("required")
+                    .unwrap_or(true)
             });
             attributes.push(attr);
         }
