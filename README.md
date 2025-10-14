@@ -113,19 +113,14 @@ export DATABASE_URL="postgres://$(whoami)@localhost/data_designer"
 git clone https://github.com/yourusername/data-designer.git
 cd data-designer
 
-# Install dependencies
-npm install
-
-# Build the Language Server
-cd dsl-lsp
+# Build and run the pure Rust application
 cargo build --release
-cd ..
 
-# Run development version
-npm run tauri dev
+# Run the native egui desktop app
+cargo run --release
 
-# Build for production
-npm run tauri build
+# Or run from the frontend directory
+cd egui-frontend && cargo run --release
 ```
 
 ## 🤖 AI Assistant
@@ -147,7 +142,7 @@ export ANTHROPIC_API_KEY="your-key-here"  # For Claude
 # or
 export OPENAI_API_KEY="your-key-here"     # For GPT-4
 
-npm run tauri dev
+cargo run --release
 ```
 
 #### Option 2: Manual Configuration
@@ -215,7 +210,7 @@ start src/ide.html  # Windows
 
 2. **Launch the Tauri App:**
 ```bash
-npm run tauri dev
+cargo run --release
 ```
 
 ### Example DSL Rules
@@ -398,7 +393,7 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ## 🙏 Acknowledgments
 
-- Built with [Tauri](https://tauri.app/) for cross-platform desktop apps
+- Built with pure Rust egui for native cross-platform desktop performance
 - [tower-lsp](https://github.com/tower-lsp/tower-lsp) for Language Server Protocol
 - [nom](https://github.com/Geal/nom) for parser combinators
 - [Monaco Editor](https://microsoft.github.io/monaco-editor/) for web-based editing
