@@ -4,7 +4,7 @@ use financial_taxonomy_grpc_server::{
     GetProductsRequest, GetProductOptionsRequest, GetServicesRequest,
     GetCbuMandateStructureRequest, GetCbuMemberRolesRequest,
     GetTaxonomyHierarchyRequest, GetAiSuggestionsRequest,
-    HealthCheckRequest, AiProvider,
+    HealthCheckRequest, GetApiKeyRequest, ListApiKeysRequest,
 };
 use tonic::transport::Channel;
 
@@ -405,4 +405,43 @@ async fn test_end_to_end_data_flow() {
 
     println!("🎉 End-to-end test completed successfully!");
     println!("Data flow verified: Database → gRPC Server → Client ✅");
+}
+
+#[tokio::test]
+async fn test_keychain_integration() {
+    let mut client = create_grpc_client().await.expect("Failed to connect to gRPC server");
+
+    println!("🔑 Testing keychain integration...");
+
+    // Test listing stored API keys
+    let list_request = ListApiKeysRequest {
+        client_id: "test-client".to_string(),
+    };
+    let list_response = client.list_api_keys(list_request).await.expect("Failed to list API keys");
+    let list_result = list_response.into_inner();
+
+    println!("✅ Listed API keys: {:?}", list_result.providers);
+    println!("Message: {}", list_result.message);
+
+    // Test retrieving Anthropic API key (should exist from previous storage)
+    let get_request = GetApiKeyRequest {
+        provider: "anthropic".to_string(),
+        client_id: "test-client".to_string(),
+    };
+    let get_response = client.get_api_key(get_request).await.expect("Failed to get Anthropic API key");
+    let get_result = get_response.into_inner();
+
+    println!("✅ Anthropic API key check:");
+    println!("  - Success: {}", get_result.success);
+    println!("  - Key exists: {}", get_result.key_exists);
+    println!("  - Message: {}", get_result.message);
+
+    if get_result.key_exists {
+        println!("  - Key retrieved: {}***", &get_result.api_key[..std::cmp::min(8, get_result.api_key.len())]);
+        assert!(!get_result.api_key.is_empty(), "API key should not be empty");
+        assert!(get_result.api_key.len() > 10, "API key should be substantial length");
+        println!("🎉 Keychain integration successful - previously stored Anthropic key accessible!");
+    } else {
+        println!("⚠️  No Anthropic API key found in keychain");
+    }
 }
