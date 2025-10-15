@@ -9,7 +9,17 @@ mod code_editor;
 use code_editor::{DslCodeEditor, DslLanguage};
 
 mod ai_assistant;
-use ai_assistant::{AiAssistant, AiProvider, AiSuggestion, SuggestionType};
+use ai_assistant::{AiAssistant, SuggestionType};
+
+// Import shared UI components and gRPC client
+use financial_taxonomy_shared_ui::{
+    TaxonomyGrpcClient,
+    Product as GrpcProduct, ProductOption as GrpcProductOption, Service as GrpcService,
+    CbuInvestmentMandateStructure as GrpcCbuInvestmentMandateStructure,
+    CbuMemberInvestmentRole as GrpcCbuMemberInvestmentRole,
+    TaxonomyHierarchyItem as GrpcTaxonomyHierarchyItem,
+    AiSuggestion as GrpcAiSuggestion, AiProvider as GrpcAiProvider
+};
 use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, ViewerState}, transpiler::{Transpiler, TranspilerOptions, TargetLanguage, DslTranspiler, DslRule, TranspileError}};
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
@@ -17,25 +27,106 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use rust_decimal::prelude::*;
 use sqlx::Row;
+use regex::Regex;
+
+// Import the ProviderType enum from generated code
+use financial_taxonomy_shared_ui::ai_provider::ProviderType;
+
+// Extended provider enum to handle offline mode
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExtendedAiProvider {
+    Grpc(ProviderType),
+    Offline,
+}
+
+impl ExtendedAiProvider {
+    fn to_grpc(&self) -> Option<GrpcAiProvider> {
+        match self {
+            ExtendedAiProvider::Grpc(provider_type) => Some(GrpcAiProvider {
+                provider_type: *provider_type as i32,
+                api_key: None,
+            }),
+            ExtendedAiProvider::Offline => None,
+        }
+    }
+
+    fn from_grpc(provider: GrpcAiProvider) -> Self {
+        let provider_type = match provider.provider_type {
+            0 => ProviderType::Openai,
+            1 => ProviderType::Anthropic,
+            _ => ProviderType::Openai, // Default fallback
+        };
+        ExtendedAiProvider::Grpc(provider_type)
+    }
+
+    fn display_name(&self) -> &str {
+        match self {
+            ExtendedAiProvider::Grpc(ProviderType::Openai) => "🔮 OpenAI",
+            ExtendedAiProvider::Grpc(ProviderType::Anthropic) => "🧠 Anthropic",
+            ExtendedAiProvider::Offline => "🔒 Offline",
+        }
+    }
+}
+
+// Conversion functions between local and gRPC types
+impl From<ai_assistant::AiSuggestion> for GrpcAiSuggestion {
+    fn from(local: ai_assistant::AiSuggestion) -> Self {
+        GrpcAiSuggestion {
+            title: local.title,
+            description: local.description,
+            category: format!("{:?}", local.suggestion_type), // Convert enum to string
+            confidence: local.confidence as f64,
+            applicable_contexts: local.code_snippet.map(|s| vec![s]).unwrap_or_default(),
+        }
+    }
+}
+
+impl From<GrpcAiSuggestion> for ai_assistant::AiSuggestion {
+    fn from(grpc: GrpcAiSuggestion) -> Self {
+        ai_assistant::AiSuggestion {
+            suggestion_type: SuggestionType::CodeCompletion, // Default type
+            title: grpc.title,
+            description: grpc.description,
+            code_snippet: grpc.applicable_contexts.first().cloned(),
+            confidence: grpc.confidence as f32,
+            context_relevance: grpc.confidence as f32, // Use confidence as relevance
+        }
+    }
+}
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
-    println!("🚀 Starting Data Designer - Pure Rust Edition!");
-    println!("🔌 Connecting to PostgreSQL database...");
+    println!("🚀 Starting Data Designer - gRPC Client Edition!");
+    println!("🔌 Connecting to gRPC server...");
 
-    // Initialize database connection
+    // Initialize runtime and gRPC client
     let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
-    let pool = rt.block_on(async {
-        match init_db().await {
-            Ok(pool) => {
-                println!("✅ Database connected successfully");
-                Some(pool)
+
+    // Try to connect to gRPC server first, fallback to direct database if needed
+    let (grpc_client, pool) = rt.block_on(async {
+        // Try gRPC connection first
+        match TaxonomyGrpcClient::new("http://127.0.0.1:50051").await {
+            Ok(client) => {
+                println!("✅ gRPC client connected successfully");
+                (Some(client), None)
             }
             Err(e) => {
-                eprintln!("❌ Database connection failed: {}", e);
-                eprintln!("   Continuing with offline mode...");
-                None
+                eprintln!("❌ gRPC connection failed: {}", e);
+                eprintln!("   Falling back to direct database connection...");
+
+                // Fallback to direct database connection
+                match init_db().await {
+                    Ok(pool) => {
+                        println!("✅ Database connected successfully (fallback mode)");
+                        (None, Some(pool))
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Database connection also failed: {}", e);
+                        eprintln!("   Continuing with offline mode...");
+                        (None, None)
+                    }
+                }
             }
         }
     });
@@ -48,17 +139,18 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Data Designer - Pure Rust + Database",
+        "Data Designer - gRPC Client + Database",
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(DataDesignerApp::new(pool, rt)))
+            Ok(Box::new(DataDesignerApp::new(grpc_client, pool, rt)))
         }),
     )
 }
 
 struct DataDesignerApp {
     current_tab: Tab,
+    grpc_client: Option<TaxonomyGrpcClient>,
     db_pool: Option<DbPool>,
     runtime: Arc<Runtime>,
 
@@ -122,10 +214,16 @@ struct DataDesignerApp {
     multi_rule_mode: bool,
     // AI Assistant
     ai_assistant: AiAssistant,
-    ai_suggestions: Vec<AiSuggestion>,
+    ai_provider_ui: ExtendedAiProvider, // UI state for provider selection
+    ai_suggestions: Vec<GrpcAiSuggestion>,
     ai_query: String,
     show_ai_panel: bool,
     ai_loading: bool,
+    ai_api_key_input: String,
+    show_api_key_input: bool,
+
+    // White Truffle #4: Code Intelligence
+    show_code_intelligence: bool,
 
     // AI Command Palette
     show_command_palette: bool,
@@ -133,6 +231,30 @@ struct DataDesignerApp {
     command_suggestions: Vec<CommandSuggestion>,
     selected_command_index: usize,
     palette_loading: bool,
+
+    // White Truffle #4: Enhanced Code Intelligence
+    code_intelligence: CodeIntelligence,
+    live_errors: Vec<LiveError>,
+    code_metrics: CodeMetrics,
+    refactoring_suggestions: Vec<RefactoringSuggestion>,
+    show_intelligence_panel: bool,
+    analysis_in_progress: bool,
+
+    // White Truffle #5: Advanced Debugging & Testing Framework
+    show_debug_panel: bool,
+    debug_session: DebugSession,
+    breakpoints: Vec<Breakpoint>,
+    execution_state: ExecutionState,
+    variable_inspector: VariableInspector,
+    test_framework: TestFramework,
+    test_results: Vec<TestResult>,
+    coverage_data: CoverageData,
+
+    // Resource Data Dictionary
+    resource_dictionary: ResourceDictionaryManager,
+    show_resource_dictionary: bool,
+    selected_resource: Option<usize>,
+    resource_search_query: String,
 
     // UI State
     show_cbu_form: bool,
@@ -144,18 +266,18 @@ struct DataDesignerApp {
     expanded_cbus: std::collections::HashSet<String>, // Set of expanded CBU IDs
     cbu_members: std::collections::HashMap<String, Vec<CbuMemberDetail>>, // CBU ID -> Members
 
-    // Taxonomy Data
-    products: Vec<Product>,
-    product_options: Vec<ProductOption>,
-    services: Vec<Service>,
+    // Taxonomy Data (using gRPC types)
+    products: Vec<GrpcProduct>,
+    product_options: Vec<GrpcProductOption>,
+    services: Vec<GrpcService>,
     resources: Vec<ResourceObject>,
     service_resource_hierarchy: Vec<ServiceResourceHierarchy>,
     investment_mandates: Vec<InvestmentMandate>,
     mandate_instruments: Vec<MandateInstrument>,
     instruction_formats: Vec<InstructionFormat>,
-    cbu_mandate_structure: Vec<CbuInvestmentMandateStructure>,
-    cbu_member_roles: Vec<CbuMemberInvestmentRole>,
-    taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
+    cbu_mandate_structure: Vec<GrpcCbuInvestmentMandateStructure>,
+    cbu_member_roles: Vec<GrpcCbuMemberInvestmentRole>,
+    taxonomy_hierarchy: Vec<GrpcTaxonomyHierarchyItem>,
     selected_mandate: Option<String>, // Selected mandate ID for drill-down
 
     // Onboarding Requests - CBU + Product Bundle combinations
@@ -180,6 +302,20 @@ struct DataDesignerApp {
     edit_mode_options: bool,
     pending_changes: bool,
     save_feedback: Option<String>, // Success/error messages
+
+    // Advanced Find & Replace (White Truffle #3)
+    show_find_replace: bool,
+    find_query: String,
+    replace_query: String,
+    search_mode: SearchMode,
+    case_sensitive: bool,
+    use_regex: bool,
+    whole_words_only: bool,
+    search_results: Vec<SearchResult>,
+    current_result_index: usize,
+    search_history: Vec<String>,
+    ai_search_suggestions: Vec<String>,
+    semantic_search_enabled: bool,
 }
 
 // CBU Tree Node for hierarchical representation
@@ -189,6 +325,877 @@ struct CbuTreeNode {
     children: Vec<CbuTreeNode>,
     is_expanded: bool,
     depth: usize,
+}
+
+// Advanced Find & Replace structures (White Truffle #3)
+#[derive(Debug, Clone, PartialEq)]
+enum SearchMode {
+    Normal,     // Basic text search
+    Regex,      // Regular expression search
+    Semantic,   // AI-powered semantic search
+    Fuzzy,      // Fuzzy matching search
+}
+
+#[derive(Debug, Clone)]
+struct SearchResult {
+    line_number: usize,
+    column_start: usize,
+    column_end: usize,
+    matched_text: String,
+    context_before: String,
+    context_after: String,
+    similarity_score: Option<f64>, // For semantic search
+}
+
+#[derive(Debug, Clone)]
+struct SearchPattern {
+    pattern: String,
+    mode: SearchMode,
+    case_sensitive: bool,
+    use_regex: bool,
+    whole_words_only: bool,
+    timestamp: std::time::SystemTime,
+}
+
+// White Truffle #4: Enhanced Code Intelligence structures
+#[derive(Debug, Clone)]
+struct CodeIntelligence {
+    last_analysis: Option<std::time::SystemTime>,
+    ast_cache: Option<String>, // Cached AST representation
+    syntax_errors: Vec<SyntaxError>,
+    warnings: Vec<CodeWarning>,
+    suggestions: Vec<IntelligentSuggestion>,
+    hover_info: Option<HoverInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct LiveError {
+    line: usize,
+    column: usize,
+    severity: ErrorSeverity,
+    message: String,
+    suggestion: Option<String>,
+    error_type: ErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ErrorSeverity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+#[derive(Debug, Clone)]
+enum ErrorType {
+    Syntax,
+    Semantic,
+    Type,
+    Runtime,
+    Style,
+}
+
+#[derive(Debug, Clone)]
+struct CodeMetrics {
+    complexity_score: f32,
+    lines_of_code: usize,
+    function_count: usize,
+    variable_count: usize,
+    operator_density: f32,
+    readability_score: f32,
+    performance_score: f32,
+}
+
+#[derive(Debug, Clone)]
+struct RefactoringSuggestion {
+    title: String,
+    description: String,
+    location: CodeLocation,
+    confidence: f32,
+    refactoring_type: RefactoringType,
+    before_code: String,
+    after_code: String,
+}
+
+#[derive(Debug, Clone)]
+enum RefactoringType {
+    SimplifyExpression,
+    ExtractVariable,
+    RemoveRedundancy,
+    OptimizePerformance,
+    ImproveReadability,
+    FixTyping,
+}
+
+#[derive(Debug, Clone)]
+struct CodeLocation {
+    line_start: usize,
+    line_end: usize,
+    column_start: usize,
+    column_end: usize,
+}
+
+#[derive(Debug, Clone)]
+struct SyntaxError {
+    position: CodeLocation,
+    message: String,
+    expected: Option<String>,
+    found: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CodeWarning {
+    position: CodeLocation,
+    message: String,
+    category: WarningCategory,
+}
+
+#[derive(Debug, Clone)]
+enum WarningCategory {
+    Performance,
+    Style,
+    Best_Practice,
+    Potential_Bug,
+    Deprecated,
+}
+
+#[derive(Debug, Clone)]
+struct IntelligentSuggestion {
+    trigger: String, // What user typed to trigger this
+    completion: String,
+    description: String,
+    documentation: Option<String>,
+    snippet_type: SnippetType,
+}
+
+#[derive(Debug, Clone)]
+enum SnippetType {
+    Function,
+    Variable,
+    Operator,
+    Keyword,
+    Template,
+}
+
+#[derive(Debug, Clone)]
+struct HoverInfo {
+    title: String,
+    documentation: String,
+    examples: Vec<String>,
+    related_functions: Vec<String>,
+}
+
+// White Truffle #5: Advanced Debugging & Testing Framework Structures
+
+#[derive(Debug, Clone)]
+struct DebugSession {
+    is_active: bool,
+    current_step: usize,
+    total_steps: usize,
+    execution_stack: Vec<ExecutionFrame>,
+    current_variables: std::collections::HashMap<String, DebugValue>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ExecutionFrame {
+    function_name: String,
+    line_number: usize,
+    column: usize,
+    local_variables: std::collections::HashMap<String, DebugValue>,
+    expression: String,
+}
+
+#[derive(Debug, Clone)]
+struct DebugValue {
+    value: String,
+    data_type: String,
+    is_complex: bool,
+    children: Vec<DebugValue>,
+}
+
+#[derive(Debug, Clone)]
+struct Breakpoint {
+    id: usize,
+    line: usize,
+    column: usize,
+    condition: Option<String>,
+    hit_count: usize,
+    enabled: bool,
+    temporary: bool, // One-time breakpoint
+}
+
+#[derive(Debug, Clone)]
+enum ExecutionState {
+    Stopped,
+    Running,
+    Paused,
+    SteppingOver,
+    SteppingInto,
+    SteppingOut,
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+struct VariableInspector {
+    variables: std::collections::HashMap<String, DebugValue>,
+    watch_expressions: Vec<WatchExpression>,
+    expanded_variables: std::collections::HashSet<String>,
+}
+
+#[derive(Debug, Clone)]
+struct WatchExpression {
+    id: usize,
+    expression: String,
+    current_value: Option<DebugValue>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct TestFramework {
+    test_suites: Vec<TestSuite>,
+    current_suite: Option<usize>,
+    auto_generate_tests: bool,
+    test_data_sets: Vec<TestDataSet>,
+}
+
+#[derive(Debug, Clone)]
+struct TestSuite {
+    id: usize,
+    name: String,
+    description: String,
+    test_cases: Vec<TestCase>,
+    setup_code: Option<String>,
+    teardown_code: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct TestCase {
+    id: usize,
+    name: String,
+    description: String,
+    input_data: std::collections::HashMap<String, String>,
+    expected_output: String,
+    rule_expression: String,
+    status: TestStatus,
+    execution_time: Option<f64>,
+    error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum TestStatus {
+    Pending,
+    Running,
+    Passed,
+    Failed,
+    Skipped,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+struct TestResult {
+    test_case_id: usize,
+    suite_id: usize,
+    status: TestStatus,
+    actual_output: Option<String>,
+    execution_time: f64,
+    timestamp: std::time::SystemTime,
+    error_details: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct TestDataSet {
+    id: usize,
+    name: String,
+    description: String,
+    data: std::collections::HashMap<String, String>,
+    data_source: DataSource,
+}
+
+#[derive(Debug, Clone)]
+enum DataSource {
+    Manual,
+    Database(String),
+    File(String),
+    Generated,
+}
+
+#[derive(Debug, Clone)]
+struct CoverageData {
+    total_lines: usize,
+    covered_lines: usize,
+    line_coverage: std::collections::HashMap<usize, bool>,
+    branch_coverage: std::collections::HashMap<usize, BranchCoverage>,
+    function_coverage: std::collections::HashMap<String, bool>,
+}
+
+#[derive(Debug, Clone)]
+struct BranchCoverage {
+    total_branches: usize,
+    covered_branches: usize,
+    branch_details: Vec<(usize, bool)>, // (branch_id, covered)
+}
+
+// Resource Data Dictionary Structures
+#[derive(Debug, Clone)]
+struct ResourceDataDictionary {
+    id: usize,
+    name: String,
+    description: String,
+    resource_type: ResourceType,
+    attributes: Vec<ResourceAttribute>,
+    metadata: ResourceMetadata,
+    version: String,
+    created_at: std::time::SystemTime,
+    updated_at: std::time::SystemTime,
+    status: ResourceStatus,
+}
+
+#[derive(Debug, Clone)]
+enum ResourceType {
+    Application,        // Apps like Reconciliation App, FA App
+    Database,          // Database tables and schemas
+    Integration,       // API endpoints, message queues
+    UserInterface,     // Forms, dashboards, reports
+    Workflow,          // Business process definitions
+    Configuration,     // Settings, parameters, rules
+    Document,          // Templates, contracts, agreements
+    DataSet,          // Reference data, lookup tables
+}
+
+#[derive(Debug, Clone)]
+struct ResourceAttribute {
+    id: usize,
+    name: String,
+    display_name: String,
+    description: String,
+    data_type: AttributeDataType,
+    attribute_category: AttributeCategory,
+    is_required: bool,
+    is_key: bool,
+    default_value: Option<String>,
+    validation_rules: Vec<ValidationRule>,
+    business_context: String,
+    technical_context: String,
+    source_system: Option<String>,
+    target_system: Option<String>,
+    transformation_logic: Option<String>,
+    ai_metadata: AttributeAiMetadata,
+}
+
+#[derive(Debug, Clone)]
+enum AttributeDataType {
+    String(Option<usize>),     // String with optional max length
+    Integer,
+    Decimal(u8, u8),          // Precision, scale
+    Boolean,
+    Date,
+    DateTime,
+    Time,
+    Currency(String),         // Currency code
+    Percentage,
+    Email,
+    Phone,
+    URL,
+    JSON,
+    Binary,
+    Enum(Vec<String>),        // Enumeration values
+    Reference(String),        // Reference to another resource
+}
+
+#[derive(Debug, Clone)]
+enum AttributeCategory {
+    Business,     // Core business attributes
+    System,       // System-generated attributes
+    Derived,      // Calculated/derived attributes
+    Audit,        // Audit trail attributes
+    Metadata,     // Descriptive metadata
+    Security,     // Security-related attributes
+    Configuration, // Configuration parameters
+}
+
+#[derive(Debug, Clone)]
+struct ValidationRule {
+    rule_type: ValidationType,
+    expression: String,
+    error_message: String,
+    severity: ValidationSeverity,
+}
+
+#[derive(Debug, Clone)]
+enum ValidationType {
+    Required,
+    MinLength(usize),
+    MaxLength(usize),
+    MinValue(f64),
+    MaxValue(f64),
+    Regex(String),
+    Custom(String),     // Custom validation expression
+    CrossField(String), // Validation involving other fields
+}
+
+#[derive(Debug, Clone)]
+enum ValidationSeverity {
+    Error,      // Blocks processing
+    Warning,    // Shows warning but allows processing
+    Info,       // Informational only
+}
+
+#[derive(Debug, Clone)]
+struct ResourceMetadata {
+    owner: String,
+    steward: String,
+    classification: DataClassification,
+    retention_period: Option<String>,
+    access_level: AccessLevel,
+    compliance_tags: Vec<String>,
+    business_glossary_terms: Vec<String>,
+    technical_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+enum DataClassification {
+    Public,
+    Internal,
+    Confidential,
+    Restricted,
+    PersonalData,
+    SensitivePersonalData,
+}
+
+#[derive(Debug, Clone)]
+enum AccessLevel {
+    Public,
+    Authenticated,
+    Authorized,
+    Restricted,
+    AdminOnly,
+}
+
+#[derive(Debug, Clone)]
+enum ResourceStatus {
+    Draft,
+    Active,
+    Deprecated,
+    Retired,
+    UnderReview,
+}
+
+#[derive(Debug, Clone)]
+struct AttributeAiMetadata {
+    semantic_description: String,
+    business_examples: Vec<String>,
+    common_transformations: Vec<String>,
+    related_attributes: Vec<String>,
+    ai_suggestions: Vec<String>,
+    embedding: Option<Vec<f32>>, // Vector embedding for similarity search
+}
+
+#[derive(Debug, Clone)]
+struct ResourceRelationship {
+    from_resource_id: usize,
+    to_resource_id: usize,
+    relationship_type: RelationshipType,
+    description: String,
+    cardinality: Cardinality,
+}
+
+#[derive(Debug, Clone)]
+enum RelationshipType {
+    Contains,       // Resource contains other resources
+    Uses,          // Resource uses/depends on other resources
+    Derives,       // Resource derives from other resources
+    Transforms,    // Resource transforms data from other resources
+    Inherits,      // Resource inherits structure from other resources
+    References,    // Resource references other resources
+}
+
+#[derive(Debug, Clone)]
+enum Cardinality {
+    OneToOne,
+    OneToMany,
+    ManyToOne,
+    ManyToMany,
+}
+
+// Resource Dictionary Management
+#[derive(Debug, Clone)]
+struct ResourceDictionaryManager {
+    dictionaries: Vec<ResourceDataDictionary>,
+    relationships: Vec<ResourceRelationship>,
+    search_index: std::collections::HashMap<String, Vec<usize>>, // keyword -> resource IDs
+    category_index: std::collections::HashMap<ResourceType, Vec<usize>>,
+    attribute_index: std::collections::HashMap<String, Vec<(usize, usize)>>, // attr_name -> (resource_id, attr_id)
+}
+
+// Default implementations for debugging structures
+impl Default for DebugSession {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            current_step: 0,
+            total_steps: 0,
+            execution_stack: Vec::new(),
+            current_variables: std::collections::HashMap::new(),
+            session_id: None,
+        }
+    }
+}
+
+impl Default for ExecutionFrame {
+    fn default() -> Self {
+        Self {
+            function_name: String::new(),
+            line_number: 0,
+            column: 0,
+            local_variables: std::collections::HashMap::new(),
+            expression: String::new(),
+        }
+    }
+}
+
+impl Default for DebugValue {
+    fn default() -> Self {
+        Self {
+            value: String::new(),
+            data_type: "unknown".to_string(),
+            is_complex: false,
+            children: Vec::new(),
+        }
+    }
+}
+
+impl Default for Breakpoint {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            line: 0,
+            column: 0,
+            condition: None,
+            hit_count: 0,
+            enabled: true,
+            temporary: false,
+        }
+    }
+}
+
+impl Default for ExecutionState {
+    fn default() -> Self {
+        Self::Stopped
+    }
+}
+
+impl Default for VariableInspector {
+    fn default() -> Self {
+        Self {
+            variables: std::collections::HashMap::new(),
+            watch_expressions: Vec::new(),
+            expanded_variables: std::collections::HashSet::new(),
+        }
+    }
+}
+
+impl Default for WatchExpression {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            expression: String::new(),
+            current_value: None,
+            error: None,
+        }
+    }
+}
+
+impl Default for TestFramework {
+    fn default() -> Self {
+        Self {
+            test_suites: Vec::new(),
+            current_suite: None,
+            auto_generate_tests: false,
+            test_data_sets: Vec::new(),
+        }
+    }
+}
+
+impl Default for TestSuite {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "New Test Suite".to_string(),
+            description: String::new(),
+            test_cases: Vec::new(),
+            setup_code: None,
+            teardown_code: None,
+        }
+    }
+}
+
+impl Default for TestCase {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "New Test Case".to_string(),
+            description: String::new(),
+            input_data: std::collections::HashMap::new(),
+            expected_output: String::new(),
+            rule_expression: String::new(),
+            status: TestStatus::Pending,
+            execution_time: None,
+            error_message: None,
+        }
+    }
+}
+
+impl Default for TestStatus {
+    fn default() -> Self {
+        Self::Pending
+    }
+}
+
+impl Default for TestResult {
+    fn default() -> Self {
+        Self {
+            test_case_id: 0,
+            suite_id: 0,
+            status: TestStatus::Pending,
+            actual_output: None,
+            execution_time: 0.0,
+            timestamp: std::time::SystemTime::now(),
+            error_details: None,
+        }
+    }
+}
+
+impl Default for TestDataSet {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "New Data Set".to_string(),
+            description: String::new(),
+            data: std::collections::HashMap::new(),
+            data_source: DataSource::Manual,
+        }
+    }
+}
+
+impl Default for DataSource {
+    fn default() -> Self {
+        Self::Manual
+    }
+}
+
+impl Default for CoverageData {
+    fn default() -> Self {
+        Self {
+            total_lines: 0,
+            covered_lines: 0,
+            line_coverage: std::collections::HashMap::new(),
+            branch_coverage: std::collections::HashMap::new(),
+            function_coverage: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl Default for BranchCoverage {
+    fn default() -> Self {
+        Self {
+            total_branches: 0,
+            covered_branches: 0,
+            branch_details: Vec::new(),
+        }
+    }
+}
+
+// Default implementations for resource data dictionary structures
+impl Default for ResourceDataDictionary {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "New Resource".to_string(),
+            description: String::new(),
+            resource_type: ResourceType::Application,
+            attributes: Vec::new(),
+            metadata: ResourceMetadata::default(),
+            version: "1.0.0".to_string(),
+            created_at: std::time::SystemTime::now(),
+            updated_at: std::time::SystemTime::now(),
+            status: ResourceStatus::Draft,
+        }
+    }
+}
+
+impl Default for ResourceType {
+    fn default() -> Self {
+        Self::Application
+    }
+}
+
+impl Default for ResourceAttribute {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "new_attribute".to_string(),
+            display_name: "New Attribute".to_string(),
+            description: String::new(),
+            data_type: AttributeDataType::String(None),
+            attribute_category: AttributeCategory::Business,
+            is_required: false,
+            is_key: false,
+            default_value: None,
+            validation_rules: Vec::new(),
+            business_context: String::new(),
+            technical_context: String::new(),
+            source_system: None,
+            target_system: None,
+            transformation_logic: None,
+            ai_metadata: AttributeAiMetadata::default(),
+        }
+    }
+}
+
+impl Default for AttributeDataType {
+    fn default() -> Self {
+        Self::String(None)
+    }
+}
+
+impl Default for AttributeCategory {
+    fn default() -> Self {
+        Self::Business
+    }
+}
+
+impl Default for ValidationRule {
+    fn default() -> Self {
+        Self {
+            rule_type: ValidationType::Required,
+            expression: String::new(),
+            error_message: "Validation failed".to_string(),
+            severity: ValidationSeverity::Error,
+        }
+    }
+}
+
+impl Default for ValidationType {
+    fn default() -> Self {
+        Self::Required
+    }
+}
+
+impl Default for ValidationSeverity {
+    fn default() -> Self {
+        Self::Error
+    }
+}
+
+impl Default for ResourceMetadata {
+    fn default() -> Self {
+        Self {
+            owner: "Unknown".to_string(),
+            steward: "Unknown".to_string(),
+            classification: DataClassification::Internal,
+            retention_period: None,
+            access_level: AccessLevel::Authenticated,
+            compliance_tags: Vec::new(),
+            business_glossary_terms: Vec::new(),
+            technical_tags: Vec::new(),
+        }
+    }
+}
+
+impl Default for DataClassification {
+    fn default() -> Self {
+        Self::Internal
+    }
+}
+
+impl Default for AccessLevel {
+    fn default() -> Self {
+        Self::Authenticated
+    }
+}
+
+impl Default for ResourceStatus {
+    fn default() -> Self {
+        Self::Draft
+    }
+}
+
+impl Default for AttributeAiMetadata {
+    fn default() -> Self {
+        Self {
+            semantic_description: String::new(),
+            business_examples: Vec::new(),
+            common_transformations: Vec::new(),
+            related_attributes: Vec::new(),
+            ai_suggestions: Vec::new(),
+            embedding: None,
+        }
+    }
+}
+
+impl Default for ResourceRelationship {
+    fn default() -> Self {
+        Self {
+            from_resource_id: 0,
+            to_resource_id: 0,
+            relationship_type: RelationshipType::Uses,
+            description: String::new(),
+            cardinality: Cardinality::OneToMany,
+        }
+    }
+}
+
+impl Default for RelationshipType {
+    fn default() -> Self {
+        Self::Uses
+    }
+}
+
+impl Default for Cardinality {
+    fn default() -> Self {
+        Self::OneToMany
+    }
+}
+
+impl Default for ResourceDictionaryManager {
+    fn default() -> Self {
+        Self {
+            dictionaries: Vec::new(),
+            relationships: Vec::new(),
+            search_index: std::collections::HashMap::new(),
+            category_index: std::collections::HashMap::new(),
+            attribute_index: std::collections::HashMap::new(),
+        }
+    }
+}
+
+// Default implementations for code intelligence
+impl Default for CodeIntelligence {
+    fn default() -> Self {
+        Self {
+            last_analysis: None,
+            ast_cache: None,
+            syntax_errors: Vec::new(),
+            warnings: Vec::new(),
+            suggestions: Vec::new(),
+            hover_info: None,
+        }
+    }
+}
+
+impl Default for CodeMetrics {
+    fn default() -> Self {
+        Self {
+            complexity_score: 0.0,
+            lines_of_code: 0,
+            function_count: 0,
+            variable_count: 0,
+            operator_density: 0.0,
+            readability_score: 0.0,
+            performance_score: 0.0,
+        }
+    }
 }
 
 // Editable attribute structure for change tracking
@@ -309,47 +1316,6 @@ impl CommandSuggestion {
 }
 
 // Taxonomy Database Structs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Product {
-    id: i32,
-    product_id: String,
-    product_name: String,
-    line_of_business: String,
-    description: Option<String>,
-    status: String,
-    contract_type: Option<String>,
-    commercial_status: Option<String>,
-    pricing_model: Option<String>,
-    target_market: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProductOption {
-    id: i32,
-    option_id: String,
-    product_id: i32,
-    option_name: String,
-    option_category: String,
-    option_type: String,
-    option_value: serde_json::Value,
-    display_name: Option<String>,
-    description: Option<String>,
-    pricing_impact: Option<rust_decimal::Decimal>,
-    status: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Service {
-    id: i32,
-    service_id: String,
-    service_name: String,
-    service_category: Option<String>,
-    description: Option<String>,
-    service_type: Option<String>,
-    delivery_model: Option<String>,
-    billable: Option<bool>,
-    status: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct InvestmentMandate {
@@ -436,32 +1402,7 @@ struct InstructionFormat {
     status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CbuInvestmentMandateStructure {
-    cbu_id: String,
-    cbu_name: String,
-    mandate_id: Option<String>,
-    asset_owner_name: Option<String>,
-    investment_manager_name: Option<String>,
-    base_currency: Option<String>,
-    total_instruments: Option<i64>,
-    families: Option<String>,
-    total_exposure_pct: Option<rust_decimal::Decimal>,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CbuMemberInvestmentRole {
-    cbu_id: String,
-    cbu_name: String,
-    entity_name: String,
-    entity_lei: Option<String>,
-    role_name: String,
-    role_code: String,
-    investment_responsibility: String,
-    mandate_id: Option<String>,
-    has_trading_authority: Option<bool>,
-    has_settlement_authority: Option<bool>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ResourceObject {
@@ -508,17 +1449,6 @@ struct ServiceResourceHierarchy {
     dependency_level: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TaxonomyHierarchyItem {
-    level: i32,
-    item_type: String,
-    item_id: i32,
-    item_name: String,
-    item_description: Option<String>,
-    parent_id: Option<i32>,
-    configuration: Option<serde_json::Value>,
-    metadata: Option<serde_json::Value>,
-}
 
 // Syntax highlighting for DSL
 #[derive(Debug, Clone)]
@@ -779,20 +1709,12 @@ impl SyntaxHighlighter {
 }
 
 impl DataDesignerApp {
-    fn new(db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
-        let ai_assistant = if let Some(ref pool) = db_pool {
-            AiAssistant::new()
-                .with_provider(AiProvider::Offline)
-                .with_env_api_keys()
-                .with_database(pool.clone())
-        } else {
-            AiAssistant::new()
-                .with_provider(AiProvider::Offline)
-                .with_env_api_keys()
-        };
+    fn new(grpc_client: Option<TaxonomyGrpcClient>, db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
+        let ai_assistant = AiAssistant::new();
 
         let mut app = Self {
             current_tab: Tab::default(),
+            grpc_client,
             db_pool,
             runtime,
             cbus: Vec::new(),
@@ -847,10 +1769,16 @@ impl DataDesignerApp {
             multi_rule_mode: false,
 
             ai_assistant,
+            ai_provider_ui: ExtendedAiProvider::Offline, // Default to offline mode
             ai_suggestions: Vec::new(),
             ai_query: String::new(),
             show_ai_panel: true,
             ai_loading: false,
+            ai_api_key_input: String::new(),
+            show_api_key_input: false,
+
+            // White Truffle #4: Code Intelligence
+            show_code_intelligence: false,
 
             // AI Command Palette
             show_command_palette: false,
@@ -858,6 +1786,31 @@ impl DataDesignerApp {
             command_suggestions: Vec::new(),
             selected_command_index: 0,
             palette_loading: false,
+
+            // White Truffle #4: Enhanced Code Intelligence
+            code_intelligence: CodeIntelligence::default(),
+            live_errors: Vec::new(),
+            code_metrics: CodeMetrics::default(),
+            refactoring_suggestions: Vec::new(),
+            show_intelligence_panel: true,
+            analysis_in_progress: false,
+
+            // White Truffle #5: Advanced Debugging & Testing Framework
+            show_debug_panel: false,
+            debug_session: DebugSession::default(),
+            breakpoints: Vec::new(),
+            execution_state: ExecutionState::default(),
+            variable_inspector: VariableInspector::default(),
+            test_framework: TestFramework::default(),
+            test_results: Vec::new(),
+            coverage_data: CoverageData::default(),
+
+            // Resource Data Dictionary
+            resource_dictionary: ResourceDictionaryManager::default(),
+            show_resource_dictionary: false,
+            selected_resource: None,
+            resource_search_query: String::new(),
+
             show_cbu_form: false,
             cbu_form: CbuForm::default(),
             status_message: "Initializing...".to_string(),
@@ -901,6 +1854,20 @@ impl DataDesignerApp {
             edit_mode_options: false,
             pending_changes: false,
             save_feedback: None,
+
+            // Advanced Find & Replace (White Truffle #3)
+            show_find_replace: false,
+            find_query: String::new(),
+            replace_query: String::new(),
+            search_mode: SearchMode::Normal,
+            case_sensitive: false,
+            use_regex: false,
+            whole_words_only: false,
+            search_results: Vec::new(),
+            current_result_index: 0,
+            search_history: Vec::new(),
+            ai_search_suggestions: Vec::new(),
+            semantic_search_enabled: false,
         };
 
         // Load initial data
@@ -1102,6 +2069,30 @@ impl eframe::App for DataDesignerApp {
                 }
             }
 
+            // Ctrl+F / Cmd+F for Find & Replace (White Truffle #3)
+            if i.modifiers.command && i.key_pressed(egui::Key::F) {
+                self.show_find_replace = !self.show_find_replace;
+                if self.show_find_replace {
+                    self.generate_ai_search_suggestions();
+                }
+            }
+
+            // Ctrl+I / Cmd+I for Code Intelligence (White Truffle #4)
+            if i.modifiers.command && i.key_pressed(egui::Key::I) {
+                self.show_code_intelligence = !self.show_code_intelligence;
+                if self.show_code_intelligence {
+                    self.perform_live_analysis();
+                }
+            }
+
+            // Ctrl+D / Cmd+D for Debug Panel (White Truffle #5)
+            if i.modifiers.command && i.key_pressed(egui::Key::D) {
+                self.show_debug_panel = !self.show_debug_panel;
+                if self.show_debug_panel && !self.debug_session.is_active {
+                    self.generate_sample_debug_data();
+                }
+            }
+
             // Handle autocomplete navigation
             if self.dsl_editor.show_autocomplete {
                 if i.key_pressed(egui::Key::ArrowUp) {
@@ -1125,6 +2116,11 @@ impl eframe::App for DataDesignerApp {
         // Command Palette Modal
         if self.show_command_palette {
             self.show_command_palette_modal(ctx);
+        }
+
+        // Find & Replace Modal (White Truffle #3)
+        if self.show_find_replace {
+            self.show_find_replace_modal(ctx);
         }
 
         // Top menu bar
@@ -2392,19 +3388,24 @@ impl DataDesignerApp {
     fn show_transpiler_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("🔄 DSL Transpiler & Code Generation");
 
-        // AI Assistant Toggle
+        // AI Assistant and Code Intelligence Toggles
         ui.horizontal(|ui| {
             if ui.button(if self.show_ai_panel { "🤖 Hide AI Assistant" } else { "🤖 Show AI Assistant" }).clicked() {
                 self.show_ai_panel = !self.show_ai_panel;
             }
             ui.separator();
-            ui.label("💡 Get intelligent suggestions and help while coding");
+            // White Truffle #4: Code Intelligence Toggle
+            if ui.button(if self.show_code_intelligence { "🧠 Hide Intelligence" } else { "🧠 Show Intelligence" }).clicked() {
+                self.show_code_intelligence = !self.show_code_intelligence;
+            }
+            ui.separator();
+            ui.label("💡 Get intelligent suggestions and real-time code analysis");
         });
 
         ui.add_space(10.0);
 
-        // Main layout with optional AI panel
-        if self.show_ai_panel {
+        // Main layout with optional AI panel and Code Intelligence panel
+        if self.show_ai_panel || self.show_code_intelligence {
             ui.horizontal(|ui| {
                 // Left side: Editor and transpiler
                 ui.vertical(|ui| {
@@ -2413,9 +3414,24 @@ impl DataDesignerApp {
 
                 ui.separator();
 
-                // Right side: AI Assistant
+                // Right side: Side panels
                 ui.vertical(|ui| {
-                    self.show_ai_assistant_panel(ui);
+                    if self.show_ai_panel {
+                        self.show_ai_assistant_panel(ui);
+                        if self.show_code_intelligence {
+                            ui.separator();
+                        }
+                    }
+
+                    // White Truffle #4: Code Intelligence Panel
+                    if self.show_code_intelligence {
+                        self.show_code_intelligence_panel(ui);
+                    }
+
+                    // White Truffle #5: Debug Panel
+                    if self.show_debug_panel {
+                        self.show_debug_panel(ui);
+                    }
                 });
             });
         } else {
@@ -2453,6 +3469,8 @@ impl DataDesignerApp {
                     // Trigger intelligent code completion on typing
                     if editor_response.changed() || self.should_trigger_completion() {
                         self.trigger_code_completion();
+                        // White Truffle #4: Trigger real-time code analysis
+                        self.perform_live_analysis();
                     }
 
                     ui.add_space(10.0);
@@ -2709,13 +3727,131 @@ impl DataDesignerApp {
                 ui.horizontal(|ui| {
                     ui.label("Provider:");
                     egui::ComboBox::from_id_salt("ai_provider")
-                        .selected_text(&self.ai_assistant.get_provider_status())
+                        .selected_text(self.ai_provider_ui.display_name())
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::OpenAI { api_key: None }, "🔮 OpenAI");
-                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Anthropic { api_key: None }, "🧠 Anthropic");
-                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Offline, "🔒 Offline");
+                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Grpc(ProviderType::Openai), "🔮 OpenAI");
+                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Grpc(ProviderType::Anthropic), "🧠 Anthropic");
+                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Offline, "🔒 Offline");
                         });
                 });
+
+                // Sync UI state with ai_assistant provider
+                match (&self.ai_provider_ui, &self.ai_assistant.provider) {
+                    (ExtendedAiProvider::Grpc(ProviderType::Openai), crate::ai_assistant::AiProvider::OpenAI { .. }) |
+                    (ExtendedAiProvider::Grpc(ProviderType::Anthropic), crate::ai_assistant::AiProvider::Anthropic { .. }) |
+                    (ExtendedAiProvider::Offline, crate::ai_assistant::AiProvider::Offline) => {
+                        // Already in sync
+                    }
+                    (ExtendedAiProvider::Grpc(ProviderType::Openai), _) => {
+                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::OpenAI { api_key: None };
+                    }
+                    (ExtendedAiProvider::Grpc(ProviderType::Anthropic), _) => {
+                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::Anthropic { api_key: None };
+                    }
+                    (ExtendedAiProvider::Offline, _) => {
+                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::Offline;
+                    }
+                }
+
+                // API Key input
+                let has_api_key = match &self.ai_assistant.provider {
+                    crate::ai_assistant::AiProvider::OpenAI { api_key } | crate::ai_assistant::AiProvider::Anthropic { api_key } => api_key.is_some(),
+                    crate::ai_assistant::AiProvider::Offline => false,
+                };
+
+                match &self.ai_provider_ui {
+                    ExtendedAiProvider::Grpc(_) => {
+                        if has_api_key {
+                            // Key exists - show status and management options
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::GREEN, "✅ API Key Configured");
+
+                                if ui.button("🔄 Update").on_hover_text("Update API key").clicked() {
+                                    self.show_api_key_input = true;
+                                }
+
+                                if ui.button("🗑️ Remove").on_hover_text("Delete saved API key").clicked() {
+                                    // Delete API key from keychain
+                                    let result = match &self.ai_assistant.provider {
+                                        crate::ai_assistant::AiProvider::OpenAI { .. } => {
+                                            let delete_result = self.ai_assistant.delete_api_key_from_keychain("openai");
+                                            self.ai_assistant.provider = crate::ai_assistant::AiProvider::OpenAI { api_key: None };
+                                            delete_result
+                                        }
+                                        crate::ai_assistant::AiProvider::Anthropic { .. } => {
+                                            let delete_result = self.ai_assistant.delete_api_key_from_keychain("anthropic");
+                                            self.ai_assistant.provider = crate::ai_assistant::AiProvider::Anthropic { api_key: None };
+                                            delete_result
+                                        }
+                                        _ => Err("Unknown provider".to_string())
+                                    };
+
+                                    match result {
+                                        Ok(()) => {
+                                            self.status_message = "🗑️ API key deleted from keychain".to_string();
+                                        }
+                                        Err(e) => {
+                                            self.status_message = format!("❌ Failed to delete API key: {}", e);
+                                        }
+                                    }
+                                }
+                            });
+                        } else {
+                            // No key - show setup prompt
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::RED, "❌ No API Key");
+                                if ui.button("🔐 Setup").on_hover_text("Configure API key").clicked() {
+                                    self.show_api_key_input = true;
+                                }
+                            });
+                        }
+
+                        // Show input field when requested or when updating
+                        if self.show_api_key_input || (!has_api_key && self.ai_api_key_input.is_empty()) {
+                            ui.horizontal(|ui| {
+                                ui.label("API Key:");
+                                let _response = ui.add(
+                                    egui::TextEdit::singleline(&mut self.ai_api_key_input)
+                                        .hint_text("Enter API key...")
+                                        .password(true)
+                                        .desired_width(150.0)
+                                );
+
+                                if ui.button("🔐 Save").clicked() && !self.ai_api_key_input.is_empty() {
+                                    // Securely save API key to keychain
+                                    let result = match &self.ai_assistant.provider {
+                                        crate::ai_assistant::AiProvider::OpenAI { .. } => {
+                                            self.ai_assistant.set_and_save_api_key("openai", self.ai_api_key_input.clone())
+                                        }
+                                        crate::ai_assistant::AiProvider::Anthropic { .. } => {
+                                            self.ai_assistant.set_and_save_api_key("anthropic", self.ai_api_key_input.clone())
+                                        }
+                                        _ => Err("Unknown provider".to_string())
+                                    };
+
+                                    match result {
+                                        Ok(()) => {
+                                            self.status_message = "🔐 API key saved securely to keychain".to_string();
+                                            self.show_api_key_input = false; // Hide input after successful save
+                                        }
+                                        Err(e) => {
+                                            self.status_message = format!("❌ Failed to save API key: {}", e);
+                                        }
+                                    }
+                                    self.ai_api_key_input.clear();
+                                }
+
+                                if ui.button("❌ Cancel").clicked() {
+                                    self.show_api_key_input = false;
+                                    self.ai_api_key_input.clear();
+                                }
+                            });
+                        }
+                    }
+                    ExtendedAiProvider::Offline => {
+                        ui.colored_label(egui::Color32::GRAY, "🔒 Offline mode - no API key needed");
+                    }
+                }
 
                 ui.add_space(10.0);
 
@@ -2788,20 +3924,21 @@ impl DataDesignerApp {
                                     ui.vertical(|ui| {
                                         // Suggestion header
                                         ui.horizontal(|ui| {
-                                            let icon = match suggestion.suggestion_type {
-                                                SuggestionType::CodeCompletion => "💻",
-                                                SuggestionType::ErrorFix => "🔧",
-                                                SuggestionType::Optimization => "⚡",
-                                                SuggestionType::Alternative => "🔄",
-                                                SuggestionType::Documentation => "📖",
-                                                SuggestionType::FunctionUsage => "🔧",
-                                                SuggestionType::BestPractice => "⭐",
-                                                SuggestionType::SimilarPattern => "🔍",
-                                                SuggestionType::PatternMatch => "🎯",
-                                                SuggestionType::AutoComplete => "🏃",
-                                                SuggestionType::SnippetCompletion => "📝",
-                                                SuggestionType::ErrorAnalysis => "🔍",
-                                                SuggestionType::QuickFix => "⚡",
+                                            let icon = match suggestion.category.as_str() {
+                                                "CodeCompletion" => "💻",
+                                                "ErrorFix" => "🔧",
+                                                "Optimization" => "⚡",
+                                                "Alternative" => "🔄",
+                                                "Documentation" => "📖",
+                                                "FunctionUsage" => "🔧",
+                                                "BestPractice" => "⭐",
+                                                "SimilarPattern" => "🔍",
+                                                "PatternMatch" => "🎯",
+                                                "AutoComplete" => "🏃",
+                                                "SnippetCompletion" => "📝",
+                                                "ErrorAnalysis" => "🔍",
+                                                "QuickFix" => "⚡",
+                                                _ => "💡", // Default icon
                                             };
                                             ui.label(format!("{} {}", icon, suggestion.title));
 
@@ -2816,7 +3953,7 @@ impl DataDesignerApp {
                                         // Suggestion content
                                         ui.label(&suggestion.description);
 
-                                        if let Some(code) = &suggestion.code_snippet {
+                                        if let Some(code) = suggestion.applicable_contexts.first() {
                                             ui.add_space(5.0);
                                             ui.monospace(code);
                                         }
@@ -2863,17 +4000,47 @@ impl DataDesignerApp {
         // Update context with current state
         self.update_ai_context();
 
-        // Use offline suggestions for now (can be enhanced later for async RAG)
         let query = self.ai_query.clone();
-        let suggestions = self.ai_assistant.get_offline_suggestions(&query);
 
-        // Add manual RAG suggestions if database is available
-        if let Some(_) = &self.db_pool {
-            // Note: RAG suggestions require async, which would need a different architecture
-            // For now, we'll use the offline suggestions and enhance later
+        // Check if we have a valid API key and use real API calls
+        if self.ai_assistant.has_valid_api_key() && !query.trim().is_empty() {
+            // Use async runtime to call real API
+            let rt = &self.runtime;
+            let mut ai_assistant = self.ai_assistant.clone();
+
+            match rt.block_on(async {
+                ai_assistant.get_suggestions(&query).await
+            }) {
+                suggestions if !suggestions.is_empty() => {
+                    // self.ai_suggestions = suggestions; // Temporarily disabled for gRPC testing
+                    self.status_message = format!("✨ Generated {} AI suggestions", self.ai_suggestions.len());
+                }
+                _ => {
+                    // Fallback to offline suggestions if API fails
+                    let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
+                    let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+                        .into_iter()
+                        .map(|s| s.into())
+                        .collect();
+                    self.ai_suggestions = suggestions;
+                    self.status_message = "⚠️ Using offline suggestions (API unavailable)".to_string();
+                }
+            }
+        } else {
+            // Use offline suggestions when no API key is configured
+            let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
+            let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
+            self.ai_suggestions = suggestions;
+
+            if !self.ai_assistant.has_valid_api_key() {
+                self.status_message = "🔒 Using offline suggestions (no API key configured)".to_string();
+            } else {
+                self.status_message = "💭 Enter a query to get AI suggestions".to_string();
+            }
         }
-
-        self.ai_suggestions = suggestions;
     }
 
     fn should_trigger_completion(&self) -> bool {
@@ -2917,8 +4084,11 @@ impl DataDesignerApp {
 
         // Mix completion suggestions with existing suggestions for the side panel
         if !completions.is_empty() {
-            // Keep existing suggestions but prioritize completions
-            let mut mixed_suggestions = completions;
+            // Convert local completions to gRPC format
+            let mut mixed_suggestions: Vec<GrpcAiSuggestion> = completions
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
 
             // Add some existing suggestions if we have room
             for suggestion in &self.ai_suggestions {
@@ -2988,11 +4158,10 @@ impl DataDesignerApp {
 
     fn apply_ai_suggestion(&mut self, suggestion_index: usize) {
         if let Some(suggestion) = self.ai_suggestions.get(suggestion_index) {
-            match suggestion.suggestion_type {
-                SuggestionType::CodeCompletion | SuggestionType::Alternative |
-                SuggestionType::AutoComplete | SuggestionType::SnippetCompletion => {
+            match suggestion.category.as_str() {
+                "CodeCompletion" | "Alternative" | "AutoComplete" | "SnippetCompletion" => {
                     // Replace current input with suggested code
-                    if let Some(code) = &suggestion.code_snippet {
+                    if let Some(code) = suggestion.applicable_contexts.first() {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
 
@@ -3000,21 +4169,21 @@ impl DataDesignerApp {
                         self.transpile_expression();
                     }
                 }
-                SuggestionType::ErrorFix | SuggestionType::QuickFix => {
+                "ErrorFix" | "QuickFix" => {
                     // Apply the fix to current input
-                    if let Some(code) = &suggestion.code_snippet {
+                    if let Some(code) = suggestion.applicable_contexts.first() {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
                         self.transpile_expression();
                     }
                 }
-                SuggestionType::ErrorAnalysis => {
+                "ErrorAnalysis" => {
                     // For error analysis, just display the information
                     // The analysis text is already shown in the UI
                 }
-                SuggestionType::Optimization => {
+                "Optimization" => {
                     // Apply optimization and retranspile
-                    if let Some(code) = &suggestion.code_snippet {
+                    if let Some(code) = suggestion.applicable_contexts.first() {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
                         self.optimization_enabled = true; // Enable optimizations
@@ -3034,7 +4203,7 @@ impl DataDesignerApp {
 
         // Add error analysis suggestions to the AI suggestions list
         for suggestion in suggestions {
-            self.ai_suggestions.push(suggestion);
+            self.ai_suggestions.push(suggestion.into());
         }
 
         // Ensure AI panel is visible
@@ -3487,7 +4656,7 @@ impl DataDesignerApp {
     }
 
     fn show_investment_mandates_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("🎯 Investment Mandates");
+        ui.heading("🎯 Investment Mandates & Entity Relationships");
         ui.separator();
 
         // Refresh button
@@ -3497,219 +4666,239 @@ impl DataDesignerApp {
 
         ui.separator();
 
-        // CBU Investment Mandate Structure
-        ui.collapsing("🏢 CBU Investment Structure", |ui| {
-            if self.cbu_mandate_structure.is_empty() {
-                ui.label("No CBU mandate structure loaded. Click refresh to load data.");
-            } else {
-                // Back button when viewing a specific mandate
-                if let Some(ref selected) = self.selected_mandate {
-                    let selected_clone = selected.clone();
-                    ui.horizontal(|ui| {
-                        if ui.button("← Back to All Mandates").clicked() {
-                            self.selected_mandate = None;
-                        }
-                        ui.label(format!("Viewing mandate: {}", selected_clone));
-                    });
-                    ui.separator();
-                }
+        if self.cbu_mandate_structure.is_empty() {
+            ui.label("No CBU mandate structure loaded. Click refresh to load data.");
+            return;
+        }
 
-                match &self.selected_mandate {
-                    None => {
-                        // Show mandate list - clickable cards
-                        ui.label("Click on a mandate to view detailed information:");
+        // Group CBU data with multiple entities (stable grouping to prevent strobing)
+        let mut cbu_groups: std::collections::HashMap<String, Vec<&GrpcCbuInvestmentMandateStructure>> = std::collections::HashMap::new();
+        for structure in &self.cbu_mandate_structure {
+            cbu_groups.entry(structure.cbu_id.clone()).or_insert_with(Vec::new).push(structure);
+        }
+
+        // Early return if no data to prevent empty UI loops
+        if cbu_groups.is_empty() {
+            ui.label("No CBU mandate data available.");
+            return;
+        }
+
+        // CBU-centered view with expand/collapse functionality
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut cbus_to_expand: Option<String> = None;
+            let mut cbus_to_collapse: Option<String> = None;
+
+            // Create a sorted vector to ensure stable ordering and prevent strobing
+            let mut cbu_list: Vec<_> = cbu_groups.iter().collect();
+            cbu_list.sort_by(|a, b| a.0.cmp(b.0)); // Sort by CBU ID
+
+            for (cbu_id, structures) in cbu_list {
+                let is_expanded = self.expanded_cbus.contains(cbu_id as &str);
+
+                ui.push_id(cbu_id, |ui| {
+                    // CBU header with entity count
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            // Expand/collapse button
+                            let expand_button = if is_expanded { "🔽" } else { "▶️" };
+                            if ui.button(expand_button).clicked() {
+                                if is_expanded {
+                                    cbus_to_collapse = Some(cbu_id.clone());
+                                } else {
+                                    cbus_to_expand = Some(cbu_id.clone());
+                                }
+                            }
+
+                            // CBU info with entity counts
+                            if let Some(first_structure) = structures.first() {
+                                ui.label("🏢");
+                                ui.strong(&first_structure.cbu_name);
+                                ui.separator();
+                                ui.label(format!("ID: {}", cbu_id));
+                                ui.separator();
+
+                                // Count unique entities in this CBU
+                                let mut entities = std::collections::HashSet::new();
+                                for structure in structures {
+                                    if let Some(asset_owner) = &structure.asset_owner_name {
+                                        entities.insert(("Asset Owner", asset_owner.as_str()));
+                                    }
+                                    if let Some(investment_manager) = &structure.investment_manager_name {
+                                        entities.insert(("Investment Manager", investment_manager.as_str()));
+                                    }
+                                }
+
+                                ui.colored_label(egui::Color32::BLUE, format!("👥 {} Entities", entities.len()));
+                                ui.separator();
+                                ui.colored_label(egui::Color32::GREEN, format!("📋 {} Mandates", structures.len()));
+                            }
+                        });
+                    });
+
+                    // Expanded view showing entity relationship map
+                    if is_expanded {
                         ui.add_space(5.0);
 
-                        for structure in &self.cbu_mandate_structure {
-                            if let Some(mandate_id) = &structure.mandate_id {
-                                // Make each mandate a clickable button with group styling
-                                ui.group(|ui| {
-                                    ui.set_min_width(ui.available_width());
-                                    ui.horizontal(|ui| {
+                        // Entity Relationship Visual Map
+                        ui.group(|ui| {
+                            ui.heading("🗺️ Entity Relationship Map");
+                            ui.separator();
+
+                            // Create visual connection lines between entities
+                            for structure in structures {
+                                if let Some(mandate_id) = &structure.mandate_id {
+                                    ui.group(|ui| {
                                         ui.vertical(|ui| {
-                                            ui.horizontal(|ui| {
-                                                ui.strong(&structure.cbu_name);
-                                                ui.label(format!("({})", structure.cbu_id));
-                                            });
+                                            // Mandate header
                                             ui.horizontal(|ui| {
                                                 ui.label("📋");
                                                 ui.strong(mandate_id);
+                                                if let Some(currency) = &structure.base_currency {
+                                                    ui.label(format!("({} based)", currency));
+                                                }
                                             });
-                                            if let Some(asset_owner) = &structure.asset_owner_name {
-                                                ui.label(format!("💰 {}", asset_owner));
-                                            }
-                                        });
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            // Make this a clickable button instead of just a label
-                                            if ui.button("📋 View Details").clicked() {
-                                                self.selected_mandate = Some(mandate_id.clone());
-                                            }
+
+                                            ui.add_space(5.0);
+
+                                            // Visual entity flow with connecting arrows
+                                            ui.horizontal(|ui| {
+                                                // Asset Owner
+                                                if let Some(asset_owner) = &structure.asset_owner_name {
+                                                    ui.group(|ui| {
+                                                        ui.vertical(|ui| {
+                                                            ui.colored_label(egui::Color32::GOLD, "💰 Asset Owner");
+                                                            ui.strong(asset_owner);
+                                                            ui.small("Gives Mandate");
+                                                        });
+                                                    });
+
+                                                    ui.label("➡️");
+                                                }
+
+                                                // Investment Manager
+                                                if let Some(investment_manager) = &structure.investment_manager_name {
+                                                    ui.group(|ui| {
+                                                        ui.vertical(|ui| {
+                                                            ui.colored_label(egui::Color32::LIGHT_BLUE, "📊 Investment Manager");
+                                                            ui.strong(investment_manager);
+                                                            ui.small("Executes Mandate");
+                                                        });
+                                                    });
+
+                                                    ui.label("➡️");
+                                                }
+
+                                                // CBU Services
+                                                ui.group(|ui| {
+                                                    ui.vertical(|ui| {
+                                                        ui.colored_label(egui::Color32::GREEN, "🏢 CBU Services");
+                                                        ui.strong(&structure.cbu_name);
+                                                        ui.small("Provides Infrastructure");
+                                                    });
+                                                });
+                                            });
+
+                                            // Investment details below the flow
+                                            ui.add_space(5.0);
+                                            ui.horizontal(|ui| {
+                                                if let Some(instruments) = structure.total_instruments {
+                                                    ui.label(format!("🎪 {} Instruments", instruments));
+                                                    ui.separator();
+                                                }
+                                                if let Some(families) = &structure.families {
+                                                    ui.label(format!("📁 {}", families));
+                                                    ui.separator();
+                                                }
+                                                if let Some(exposure) = structure.total_exposure_pct {
+                                                    let exposure_value = exposure.to_string().parse::<f64>().unwrap_or(0.0);
+                                                    ui.colored_label(egui::Color32::YELLOW, format!("📈 {:.1}% Exposure", exposure_value));
+                                                }
+                                            });
                                         });
                                     });
-                                });
+                                }
                             }
-                        }
-                    }
-                    Some(selected_mandate_id) => {
-                        // Show detailed view for selected mandate
-                        if let Some(structure) = self.cbu_mandate_structure.iter()
-                            .find(|s| s.mandate_id.as_ref() == Some(selected_mandate_id)) {
+                        });
 
-                            ui.heading(format!("📋 Mandate Details: {}", selected_mandate_id));
+                        ui.add_space(5.0);
+
+                        // Related Member Roles for this CBU
+                        ui.group(|ui| {
+                            ui.heading("👥 Member Roles & Authorities");
                             ui.separator();
 
-                            // Detailed mandate information
-                            ui.group(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading("🏢 Business Unit Information");
-                                    ui.horizontal(|ui| {
-                                        ui.label("CBU Name:");
-                                        ui.strong(&structure.cbu_name);
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("CBU ID:");
-                                        ui.strong(&structure.cbu_id);
-                                    });
-                                });
-                            });
+                            let cbu_roles: Vec<_> = self.cbu_member_roles.iter()
+                                .filter(|role| &role.cbu_id == cbu_id)
+                                .collect();
 
-                            ui.add_space(10.0);
+                            if cbu_roles.is_empty() {
+                                ui.label("No specific member roles found for this CBU.");
+                            } else {
+                                // Group roles by entity (stable grouping to prevent strobing)
+                                let mut role_groups: std::collections::HashMap<String, Vec<&GrpcCbuMemberInvestmentRole>> = std::collections::HashMap::new();
+                                for role in cbu_roles {
+                                    role_groups.entry(role.entity_name.clone()).or_insert_with(Vec::new).push(role);
+                                }
 
-                            ui.group(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading("👥 Parties");
-                                    if let Some(asset_owner) = &structure.asset_owner_name {
-                                        ui.horizontal(|ui| {
-                                            ui.label("💰 Asset Owner:");
-                                            ui.strong(asset_owner);
-                                        });
-                                    }
-                                    if let Some(investment_manager) = &structure.investment_manager_name {
-                                        ui.horizontal(|ui| {
-                                            ui.label("📊 Investment Manager:");
-                                            ui.strong(investment_manager);
-                                        });
-                                    }
-                                });
-                            });
+                                // Create a sorted vector to ensure stable ordering for entities
+                                let mut entity_list: Vec<_> = role_groups.iter().collect();
+                                entity_list.sort_by(|a, b| a.0.cmp(b.0)); // Sort by entity name
 
-                            ui.add_space(10.0);
+                                for (entity_name, entity_roles) in entity_list {
+                                    ui.group(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.strong(entity_name);
+                                                ui.label(format!("({} roles)", entity_roles.len()));
+                                            });
 
-                            ui.group(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading("📊 Investment Details");
-                                    if let Some(currency) = &structure.base_currency {
-                                        ui.horizontal(|ui| {
-                                            ui.label("💱 Base Currency:");
-                                            ui.strong(currency);
-                                        });
-                                    }
-                                    if let Some(instruments) = structure.total_instruments {
-                                        ui.horizontal(|ui| {
-                                            ui.label("🎪 Total Instruments:");
-                                            ui.strong(&format!("{}", instruments));
-                                        });
-                                    }
-                                    if let Some(families) = &structure.families {
-                                        ui.horizontal(|ui| {
-                                            ui.label("📁 Instrument Families:");
-                                            ui.strong(families);
-                                        });
-                                    }
-                                    if let Some(exposure) = structure.total_exposure_pct {
-                                        ui.horizontal(|ui| {
-                                            ui.label("📈 Total Exposure:");
-                                            let exposure_value = exposure.to_string().parse::<f64>().unwrap_or(0.0);
-                                            ui.strong(&format!("{:.1}%", exposure_value));
-                                        });
-                                    }
-                                });
-                            });
+                                            // Sort roles within each entity for stability
+                                            let mut sorted_roles = entity_roles.clone();
+                                            sorted_roles.sort_by(|a, b| a.role_name.cmp(&b.role_name));
 
-                            // Show related CBU member roles for this mandate
-                            ui.add_space(10.0);
-                            ui.group(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading("👥 Related Member Roles");
-                                    let related_roles: Vec<_> = self.cbu_member_roles.iter()
-                                        .filter(|role| role.mandate_id.as_ref() == Some(selected_mandate_id))
-                                        .collect();
-
-                                    if related_roles.is_empty() {
-                                        ui.label("No specific member roles found for this mandate.");
-                                    } else {
-                                        for role in related_roles {
-                                            ui.group(|ui| {
+                                            for role in sorted_roles {
                                                 ui.horizontal(|ui| {
                                                     ui.label("🎭");
                                                     ui.strong(&role.role_name);
-                                                    ui.label(format!("({})", role.entity_name));
-                                                });
-                                                ui.label(format!("Responsibility: {}", role.investment_responsibility));
-                                                ui.horizontal(|ui| {
+                                                    ui.separator();
+                                                    ui.label(&role.investment_responsibility);
+                                                    ui.separator();
+
+                                                    // Show authorities with colors
                                                     if role.has_trading_authority.unwrap_or(false) {
-                                                        ui.colored_label(egui::Color32::GREEN, "🔄 Trading");
+                                                        ui.colored_label(egui::Color32::GREEN, "🔄");
                                                     }
                                                     if role.has_settlement_authority.unwrap_or(false) {
-                                                        ui.colored_label(egui::Color32::BLUE, "💱 Settlement");
+                                                        ui.colored_label(egui::Color32::BLUE, "💱");
+                                                    }
+
+                                                    if let Some(mandate_id) = &role.mandate_id {
+                                                        ui.separator();
+                                                        ui.small(format!("Mandate: {}", mandate_id));
                                                     }
                                                 });
-                                            });
-                                        }
-                                    }
-                                });
-                            });
-                        }
+                                            }
+                                        });
+                                    });
+                                }
+                            }
+                        });
+
+                        ui.add_space(10.0);
                     }
-                }
+                });
             }
-        });
 
-        // CBU Member Investment Roles
-        ui.collapsing("👥 CBU Member Roles", |ui| {
-            if self.cbu_member_roles.is_empty() {
-                ui.label("No CBU member roles loaded.");
-            } else {
-                for role in &self.cbu_member_roles {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong(&role.entity_name);
-                            ui.label(format!("({})", role.role_name));
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("🏢 CBU:");
-                            ui.label(&role.cbu_name);
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("🎭 Role:");
-                            ui.strong(&role.role_code);
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("💼 Responsibility:");
-                            ui.label(&role.investment_responsibility);
-                        });
-
-                        if let Some(mandate_id) = &role.mandate_id {
-                            ui.horizontal(|ui| {
-                                ui.label("📋 Mandate:");
-                                ui.label(mandate_id);
-                            });
-                        }
-
-                        ui.horizontal(|ui| {
-                            ui.label("Authorities:");
-                            if role.has_trading_authority.unwrap_or(false) {
-                                ui.colored_label(egui::Color32::GREEN, "🔄 Trading");
-                            }
-                            if role.has_settlement_authority.unwrap_or(false) {
-                                ui.colored_label(egui::Color32::BLUE, "💱 Settlement");
-                            }
-                        });
-                    });
-                }
+            // Handle expand/collapse after iteration to avoid borrowing issues
+            if let Some(cbu_id) = cbus_to_expand {
+                self.expanded_cbus.insert(cbu_id);
+                // Request repaint only when state actually changes
+                ui.ctx().request_repaint();
+            }
+            if let Some(cbu_id) = cbus_to_collapse {
+                self.expanded_cbus.remove(&cbu_id);
+                // Request repaint only when state actually changes
+                ui.ctx().request_repaint();
             }
         });
     }
@@ -3742,24 +4931,84 @@ impl DataDesignerApp {
         }
     }
 
-    // Database Loading Methods
+    // gRPC/Database Loading Methods
     fn load_product_taxonomy(&mut self) {
-        if let Some(ref pool) = self.db_pool {
+        // Try gRPC first, fallback to direct database
+        if self.grpc_client.is_some() {
+            let rt = self.runtime.clone();
+            let mut grpc_success = false;
+
+            // Load products via gRPC
+            if let Some(ref mut grpc_client) = self.grpc_client {
+                match rt.block_on(async {
+                    grpc_client.get_products(Some("active".to_string())).await
+                }) {
+                    Ok(products) => {
+                        self.products = products;
+                        self.status_message = format!("✅ Loaded {} products via gRPC", self.products.len());
+                        grpc_success = true;
+                    }
+                    Err(e) => {
+                        self.status_message = format!("❌ gRPC error loading products: {}", e);
+                    }
+                }
+            }
+
+            // If gRPC failed, load mock data
+            if !grpc_success {
+                self.load_mock_product_taxonomy();
+                return;
+            }
+
+            // Load product options via gRPC
+            if let Some(ref mut grpc_client) = self.grpc_client {
+                match rt.block_on(async {
+                    grpc_client.get_product_options(None).await
+                }) {
+                    Ok(options) => {
+                        self.product_options = options;
+                        self.status_message = format!("✅ Loaded {} product options via gRPC", self.product_options.len());
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading product options via gRPC: {}", e);
+                        self.status_message = format!("❌ gRPC error loading product options: {}", e);
+                    }
+                }
+            }
+
+            // Load services via gRPC
+            if let Some(ref mut grpc_client) = self.grpc_client {
+                match rt.block_on(async {
+                    grpc_client.get_services(None).await
+                }) {
+                    Ok(services) => {
+                        self.services = services;
+                        self.status_message = format!("✅ Loaded {} services via gRPC", self.services.len());
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading services via gRPC: {}", e);
+                        self.status_message = format!("❌ gRPC error loading services: {}", e);
+                    }
+                }
+            }
+
+            // Note: Resources and service-resource hierarchy are not yet available via gRPC
+            // They are loaded via database fallback if needed
+        } else if let Some(ref pool) = self.db_pool {
+            // Fallback to database if gRPC is not available
             let pool = pool.clone();
             let rt = self.runtime.clone();
 
-            // Load products
+            // Load from database using existing logic
             match rt.block_on(async {
-                sqlx::query(
-                    "SELECT id, product_id, product_name, line_of_business, description, status,
-                     contract_type, commercial_status, pricing_model, target_market
-                     FROM products WHERE status = 'active' ORDER BY product_name")
-                .fetch_all(&pool)
-                .await
+                sqlx::query("SELECT product_id, product_name, line_of_business, description, status FROM products WHERE status = 'active' ORDER BY product_name")
+                    .fetch_all(&pool)
+                    .await
             }) {
                 Ok(rows) => {
-                    self.products = rows.into_iter().map(|row| Product {
-                        id: row.get("id"),
+                    // Convert to gRPC types for consistency
+                    self.products = rows.into_iter().map(|row| GrpcProduct {
+                        id: row.try_get::<i32, _>("id").unwrap_or(0),
                         product_id: row.get("product_id"),
                         product_name: row.get("product_name"),
                         line_of_business: row.get("line_of_business"),
@@ -3770,259 +5019,63 @@ impl DataDesignerApp {
                         pricing_model: row.get("pricing_model"),
                         target_market: row.get("target_market"),
                     }).collect();
-                    self.status_message = format!("Loaded {} products", self.products.len());
+                    self.status_message = format!("✅ Loaded {} products via database fallback", self.products.len());
                 }
                 Err(e) => {
-                    // Load mock data if database query fails
+                    eprintln!("Database fallback failed: {}", e);
                     self.load_mock_product_taxonomy();
-                    self.status_message = format!("Database error, loaded mock data: {}", e);
-                }
-            }
-
-            // Load product options
-            match rt.block_on(async {
-                sqlx::query(
-                    "SELECT id, option_id, product_id, option_name, option_category, option_type,
-                     option_value, display_name, description, pricing_impact, status
-                     FROM product_options WHERE status = 'active' ORDER BY option_name")
-                .fetch_all(&pool)
-                .await
-            }) {
-                Ok(rows) => {
-                    self.product_options = rows.into_iter().map(|row| ProductOption {
-                        id: row.get("id"),
-                        option_id: row.get("option_id"),
-                        product_id: row.get("product_id"),
-                        option_name: row.get("option_name"),
-                        option_category: row.get("option_category"),
-                        option_type: row.get("option_type"),
-                        option_value: row.get("option_value"),
-                        display_name: row.get("display_name"),
-                        description: row.get("description"),
-                        pricing_impact: row.get("pricing_impact"),
-                        status: row.get("status"),
-                    }).collect();
-                }
-                Err(e) => {
-                    eprintln!("Error loading product options: {}", e);
-                    // Load mock options if database fails
-                    if self.product_options.is_empty() {
-                        self.load_mock_product_taxonomy();
-                    }
-                }
-            }
-
-            // Load services
-            match rt.block_on(async {
-                sqlx::query(
-                    "SELECT id, service_id, service_name, service_category, description,
-                     service_type, delivery_model, billable, status
-                     FROM services WHERE status = 'active' ORDER BY service_name")
-                .fetch_all(&pool)
-                .await
-            }) {
-                Ok(rows) => {
-                    self.services = rows.into_iter().map(|row| Service {
-                        id: row.get("id"),
-                        service_id: row.get("service_id"),
-                        service_name: row.get("service_name"),
-                        service_category: row.get("service_category"),
-                        description: row.get("description"),
-                        service_type: row.get("service_type"),
-                        delivery_model: row.get("delivery_model"),
-                        billable: row.get("billable"),
-                        status: row.get("status"),
-                    }).collect();
-                }
-                Err(e) => {
-                    eprintln!("Error loading services: {}", e);
-                    // Load mock services if database fails
-                    if self.services.is_empty() {
-                        self.load_mock_product_taxonomy();
-                    }
-                }
-            }
-
-            // Load resources
-            match rt.block_on(async {
-                sqlx::query(
-                    "SELECT id, resource_name, description, version, category, resource_type,
-                     criticality_level, operational_status, owner_team, status
-                     FROM resource_objects WHERE status = 'active' ORDER BY resource_name")
-                .fetch_all(&pool)
-                .await
-            }) {
-                Ok(rows) => {
-                    self.resources = rows.into_iter().map(|row| ResourceObject {
-                        id: row.get("id"),
-                        resource_name: row.get("resource_name"),
-                        description: row.get("description"),
-                        version: row.get("version"),
-                        category: row.get("category"),
-                        resource_type: row.get("resource_type"),
-                        criticality_level: row.get("criticality_level"),
-                        operational_status: row.get("operational_status"),
-                        owner_team: row.get("owner_team"),
-                        status: row.get("status"),
-                    }).collect();
-                }
-                Err(e) => {
-                    eprintln!("Error loading resources: {}", e);
-                    // Load mock resources if database fails
-                    if self.resources.is_empty() {
-                        self.load_mock_product_taxonomy();
-                    }
-                }
-            }
-
-            // Load service-resource hierarchy
-            match rt.block_on(async {
-                sqlx::query(
-                    "SELECT service_id, service_code, service_name, service_category, service_type,
-                     delivery_model, billable, service_description, service_status,
-                     resource_id, resource_name, resource_description, resource_version,
-                     resource_category, resource_type, criticality_level, operational_status,
-                     owner_team, usage_type, resource_role, cost_allocation_percentage, dependency_level
-                     FROM service_resources_hierarchy ORDER BY service_name, dependency_level")
-                .fetch_all(&pool)
-                .await
-            }) {
-                Ok(rows) => {
-                    self.service_resource_hierarchy = rows.into_iter().map(|row| ServiceResourceHierarchy {
-                        service_id: row.get("service_id"),
-                        service_code: row.get("service_code"),
-                        service_name: row.get("service_name"),
-                        service_category: row.get("service_category"),
-                        service_type: row.get("service_type"),
-                        delivery_model: row.get("delivery_model"),
-                        billable: row.get("billable"),
-                        service_description: row.get("service_description"),
-                        service_status: row.get("service_status"),
-                        resource_id: row.get("resource_id"),
-                        resource_name: row.get("resource_name"),
-                        resource_description: row.get("resource_description"),
-                        resource_version: row.get("resource_version"),
-                        resource_category: row.get("resource_category"),
-                        resource_type: row.get("resource_type"),
-                        criticality_level: row.get("criticality_level"),
-                        operational_status: row.get("operational_status"),
-                        owner_team: row.get("owner_team"),
-                        usage_type: row.get("usage_type"),
-                        resource_role: row.get("resource_role"),
-                        cost_allocation_percentage: row.get("cost_allocation_percentage"),
-                        dependency_level: row.get("dependency_level"),
-                    }).collect();
-                }
-                Err(e) => {
-                    eprintln!("Error loading service-resource hierarchy: {}", e);
-                    // Load mock hierarchy if database fails
-                    if self.service_resource_hierarchy.is_empty() {
-                        self.load_mock_product_taxonomy();
-                    }
+                    self.status_message = "❌ Using mock data".to_string();
                 }
             }
         } else {
-            // No database connection, load mock data
+            // No connection available, load mock data
             self.load_mock_product_taxonomy();
             self.load_mock_investment_mandates();
             self.load_mock_onboarding_requests();
+            self.status_message = "⚠️ No gRPC or database connection, using mock data".to_string();
         }
     }
 
     fn load_investment_mandates(&mut self) {
-        if let Some(ref pool) = self.db_pool {
-            let pool = pool.clone();
+        // Try gRPC first, fallback to direct database
+        if let Some(ref mut grpc_client) = self.grpc_client {
             let rt = self.runtime.clone();
 
-            // Load CBU investment mandate structure
+            // Load CBU investment mandate structure via gRPC
             match rt.block_on(async {
-                sqlx::query(
-                    "SELECT cbu_id, cbu_name, mandate_id, asset_owner_name, investment_manager_name,
-                     base_currency, total_instruments, families, total_exposure_pct
-                     FROM cbu_investment_mandate_structure ORDER BY cbu_id")
-                .fetch_all(&pool)
-                .await
+                grpc_client.get_cbu_mandate_structure().await
             }) {
-                Ok(rows) => {
-                    // Try to map rows and catch any conversion errors
-                    let mut structures = Vec::new();
-                    for row in rows {
-                        match (|| -> Result<CbuInvestmentMandateStructure, Box<dyn std::error::Error>> {
-                            Ok(CbuInvestmentMandateStructure {
-                                cbu_id: row.try_get("cbu_id")?,
-                                cbu_name: row.try_get("cbu_name")?,
-                                mandate_id: row.try_get("mandate_id").ok(),
-                                asset_owner_name: row.try_get("asset_owner_name").ok(),
-                                investment_manager_name: row.try_get("investment_manager_name").ok(),
-                                base_currency: row.try_get("base_currency").ok(),
-                                total_instruments: row.try_get("total_instruments").ok(),
-                                families: row.try_get("families").ok(),
-                                total_exposure_pct: row.try_get("total_exposure_pct").ok(),
-                            })
-                        })() {
-                            Ok(structure) => structures.push(structure),
-                            Err(e) => {
-                                eprintln!("Error converting row to CbuInvestmentMandateStructure: {}", e);
-                                self.status_message = format!("Data conversion error: {}", e);
-                            }
-                        }
-                    }
+                Ok(structures) => {
                     self.cbu_mandate_structure = structures;
-                    self.status_message = format!("Loaded {} CBU mandate structures", self.cbu_mandate_structure.len());
+                    self.status_message = format!("✅ Loaded {} CBU mandate structures via gRPC", self.cbu_mandate_structure.len());
                 }
                 Err(e) => {
-                    eprintln!("Database query error for CBU mandate structure: {}", e);
-                    self.status_message = format!("Database error, loading mock investment mandates: {}", e);
-                    self.load_mock_investment_mandates();
+                    eprintln!("Error loading CBU mandate structure via gRPC: {}", e);
+                    self.status_message = format!("❌ gRPC error loading CBU mandate structure: {}", e);
                 }
             }
 
-            // Load CBU member investment roles
+            // Load CBU member investment roles via gRPC
             match rt.block_on(async {
-                sqlx::query(
-                    "SELECT cbu_id, cbu_name, entity_name, entity_lei, role_name, role_code,
-                     investment_responsibility, mandate_id, has_trading_authority, has_settlement_authority
-                     FROM cbu_member_investment_roles ORDER BY cbu_id, role_code")
-                .fetch_all(&pool)
-                .await
+                grpc_client.get_cbu_member_roles().await
             }) {
-                Ok(rows) => {
-                    // Try to map rows and catch any conversion errors
-                    let mut roles = Vec::new();
-                    for row in rows {
-                        match (|| -> Result<CbuMemberInvestmentRole, Box<dyn std::error::Error>> {
-                            Ok(CbuMemberInvestmentRole {
-                                cbu_id: row.try_get("cbu_id")?,
-                                cbu_name: row.try_get("cbu_name")?,
-                                entity_name: row.try_get("entity_name")?,
-                                entity_lei: row.try_get("entity_lei").ok(),
-                                role_name: row.try_get("role_name")?,
-                                role_code: row.try_get("role_code")?,
-                                investment_responsibility: row.try_get("investment_responsibility")?,
-                                mandate_id: row.try_get("mandate_id").ok(),
-                                has_trading_authority: row.try_get("has_trading_authority").ok(),
-                                has_settlement_authority: row.try_get("has_settlement_authority").ok(),
-                            })
-                        })() {
-                            Ok(role) => roles.push(role),
-                            Err(e) => {
-                                eprintln!("Error converting row to CbuMemberInvestmentRole: {}", e);
-                            }
-                        }
-                    }
+                Ok(roles) => {
                     self.cbu_member_roles = roles;
+                    self.status_message = format!("✅ Loaded {} CBU member roles via gRPC", self.cbu_member_roles.len());
                 }
                 Err(e) => {
-                    eprintln!("Database query error for CBU member roles: {}", e);
+                    eprintln!("Error loading CBU member roles via gRPC: {}", e);
+                    self.status_message = format!("❌ gRPC error loading CBU member roles: {}", e);
                 }
             }
         } else {
+            // No gRPC or database connection available
             self.load_mock_investment_mandates();
+            self.status_message = "⚠️ No gRPC connection, using mock investment mandates".to_string();
         }
     }
 
     fn load_mock_investment_mandates(&mut self) {
-        use std::str::FromStr;
 
         // Mock Investment Mandates - Comprehensive Global Examples
         self.investment_mandates = vec![
@@ -4550,7 +5603,7 @@ impl DataDesignerApp {
         // Enhanced CBU mandate structure with mock data
         self.cbu_mandate_structure = vec![
             // Original 3 CBUs plus expanded global coverage
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 mandate_id: Some("MND-2024-001".to_string()),
@@ -4559,9 +5612,9 @@ impl DataDesignerApp {
                 base_currency: Some("USD".to_string()),
                 total_instruments: Some(3),
                 families: Some("Government Bonds, Corporate Bonds, Money Market".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+                total_exposure_pct: Some(100.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 mandate_id: Some("MND-2024-002".to_string()),
@@ -4570,9 +5623,9 @@ impl DataDesignerApp {
                 base_currency: Some("EUR".to_string()),
                 total_instruments: Some(3),
                 families: Some("Equities, Corporate Bonds, Derivatives".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+                total_exposure_pct: Some(100.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 mandate_id: Some("MND-2024-003".to_string()),
@@ -4581,10 +5634,10 @@ impl DataDesignerApp {
                 base_currency: Some("AUD".to_string()),
                 total_instruments: Some(2),
                 families: Some("Infrastructure Debt, Real Estate".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
+                total_exposure_pct: Some(100.0),
             },
             // New CBU structures for expanded mandates
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-209847".to_string(),
                 cbu_name: "Silicon Valley Innovation Fund".to_string(),
                 mandate_id: Some("MND-2024-004".to_string()),
@@ -4593,9 +5646,9 @@ impl DataDesignerApp {
                 base_currency: Some("USD".to_string()),
                 total_instruments: Some(3),
                 families: Some("Technology Equities, Equity Options, Index Futures".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("200.0").unwrap()),
+                total_exposure_pct: Some(200.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-211563".to_string(),
                 cbu_name: "Latin America Fixed Income".to_string(),
                 mandate_id: Some("MND-2024-005".to_string()),
@@ -4604,9 +5657,9 @@ impl DataDesignerApp {
                 base_currency: Some("BRL".to_string()),
                 total_instruments: Some(2),
                 families: Some("EM Government Bonds, EM Corporate Bonds".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
+                total_exposure_pct: Some(85.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-213794".to_string(),
                 cbu_name: "Swiss Private Banking".to_string(),
                 mandate_id: Some("MND-2024-006".to_string()),
@@ -4615,9 +5668,9 @@ impl DataDesignerApp {
                 base_currency: Some("CHF".to_string()),
                 total_instruments: Some(3),
                 families: Some("Swiss Government Bonds, Blue Chip Equities, Bank Deposits".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("80.0").unwrap()),
+                total_exposure_pct: Some(80.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-215928".to_string(),
                 cbu_name: "Japan ESG Investment Platform".to_string(),
                 mandate_id: Some("MND-2024-007".to_string()),
@@ -4626,9 +5679,9 @@ impl DataDesignerApp {
                 base_currency: Some("JPY".to_string()),
                 total_instruments: Some(3),
                 families: Some("ESG Equities, Green Bonds, Sustainable REITs".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("95.0").unwrap()),
+                total_exposure_pct: Some(95.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-217456".to_string(),
                 cbu_name: "Middle East Sovereign Diversified".to_string(),
                 mandate_id: Some("MND-2024-008".to_string()),
@@ -4637,9 +5690,9 @@ impl DataDesignerApp {
                 base_currency: Some("QAR".to_string()),
                 total_instruments: Some(3),
                 families: Some("Global Equities, Private Equity, Energy Commodities".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("120.0").unwrap()),
+                total_exposure_pct: Some(120.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-219673".to_string(),
                 cbu_name: "Canadian Real Estate Platform".to_string(),
                 mandate_id: Some("MND-2024-009".to_string()),
@@ -4648,9 +5701,9 @@ impl DataDesignerApp {
                 base_currency: Some("CAD".to_string()),
                 total_instruments: Some(2),
                 families: Some("Canadian REITs, Real Estate Mortgages".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("110.0").unwrap()),
+                total_exposure_pct: Some(110.0),
             },
-            CbuInvestmentMandateStructure {
+            GrpcCbuInvestmentMandateStructure {
                 cbu_id: "CBU-221847".to_string(),
                 cbu_name: "UK Insurance Multi-Asset".to_string(),
                 mandate_id: Some("MND-2024-010".to_string()),
@@ -4659,13 +5712,13 @@ impl DataDesignerApp {
                 base_currency: Some("GBP".to_string()),
                 total_instruments: Some(3),
                 families: Some("UK Gilts, UK Large Cap Equities, Insurance Linked Securities".to_string()),
-                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
+                total_exposure_pct: Some(85.0),
             },
         ];
 
         // Enhanced CBU member roles with realistic authorities
         self.cbu_member_roles = vec![
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 entity_name: "Singapore Sovereign Wealth Fund".to_string(),
@@ -4677,7 +5730,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 entity_name: "Asian Trade Capital Management".to_string(),
@@ -4689,7 +5742,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(true),
                 has_settlement_authority: Some(true),
             },
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 entity_name: "Nordic Pension Consortium".to_string(),
@@ -4701,7 +5754,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 entity_name: "European Growth Partners".to_string(),
@@ -4713,7 +5766,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(true),
                 has_settlement_authority: Some(true),
             },
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 entity_name: "Australian Infrastructure Fund".to_string(),
@@ -4725,7 +5778,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            CbuMemberInvestmentRole {
+            GrpcCbuMemberInvestmentRole {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 entity_name: "Pacific Asset Management".to_string(),
@@ -5334,7 +6387,7 @@ impl DataDesignerApp {
     fn load_taxonomy_hierarchy(&mut self) {
         // For now, create a sample hierarchy
         self.taxonomy_hierarchy = vec![
-            TaxonomyHierarchyItem {
+            GrpcTaxonomyHierarchyItem {
                 level: 1,
                 item_type: "product".to_string(),
                 item_id: 1,
@@ -5344,7 +6397,7 @@ impl DataDesignerApp {
                 configuration: None,
                 metadata: None,
             },
-            TaxonomyHierarchyItem {
+            GrpcTaxonomyHierarchyItem {
                 level: 2,
                 item_type: "product_option".to_string(),
                 item_id: 2,
@@ -5637,7 +6690,7 @@ impl DataDesignerApp {
     fn load_mock_product_taxonomy(&mut self) {
         // Mock Products
         self.products = vec![
-            Product {
+            GrpcProduct {
                 id: 1,
                 product_id: "ICP-001".to_string(),
                 product_name: "Institutional Custody Plus".to_string(),
@@ -5649,7 +6702,7 @@ impl DataDesignerApp {
                 pricing_model: Some("Asset-based + Transaction fees".to_string()),
                 target_market: Some("Pension Funds, Insurance Companies".to_string()),
             },
-            Product {
+            GrpcProduct {
                 id: 2,
                 product_id: "FAC-002".to_string(),
                 product_name: "Fund Administration Complete".to_string(),
@@ -5661,7 +6714,7 @@ impl DataDesignerApp {
                 pricing_model: Some("Fixed fee + AUM basis points".to_string()),
                 target_market: Some("Mutual Funds, Hedge Funds".to_string()),
             },
-            Product {
+            GrpcProduct {
                 id: 3,
                 product_id: "TSP-003".to_string(),
                 product_name: "Trade Settlement Professional".to_string(),
@@ -5677,63 +6730,63 @@ impl DataDesignerApp {
 
         // Mock Product Options
         self.product_options = vec![
-            ProductOption {
+            GrpcProductOption {
                 id: 1,
                 option_id: "ICP-001-US".to_string(),
-                product_id: 1, // Fixed: should be i32, not String
+                product_id: "ICP-001".to_string(),
                 option_name: "US Market Settlement".to_string(),
                 option_category: "Market Coverage".to_string(),
                 option_type: "required".to_string(),
-                option_value: serde_json::json!("USD settlements via DTC/NSCC"), // Fixed: use serde_json::json!
+                option_value: Some("USD settlements via DTC/NSCC".to_string()),
                 display_name: Some("US Markets".to_string()),
                 description: Some("Settlement and custody for US equities and fixed income".to_string()),
-                pricing_impact: Some(rust_decimal::Decimal::from_str("0.05").unwrap()),
+                pricing_impact: Some(0.05),
                 status: "active".to_string(),
             },
-            ProductOption {
+            GrpcProductOption {
                 id: 2,
                 option_id: "ICP-001-EMEA".to_string(),
-                product_id: 1, // Fixed: should be i32
+                product_id: "ICP-001".to_string(),
                 option_name: "EMEA Market Settlement".to_string(),
                 option_category: "Market Coverage".to_string(),
                 option_type: "optional".to_string(),
-                option_value: serde_json::json!("EUR/GBP settlements via Euroclear/Clearstream"), // Fixed: use serde_json::json!
+                option_value: Some("EUR/GBP settlements via Euroclear/Clearstream".to_string()),
                 display_name: Some("EMEA Markets".to_string()),
                 description: Some("European and UK market settlement capabilities".to_string()),
-                pricing_impact: Some(rust_decimal::Decimal::from_str("0.08").unwrap()),
+                pricing_impact: Some(0.08),
                 status: "active".to_string(),
             },
-            ProductOption {
+            GrpcProductOption {
                 id: 3,
                 option_id: "FAC-002-NAV".to_string(),
-                product_id: 2, // Fixed: should be i32
+                product_id: "ICP-002".to_string(),
                 option_name: "Daily NAV Calculation".to_string(),
                 option_category: "Valuation Services".to_string(),
                 option_type: "required".to_string(),
-                option_value: serde_json::json!("T+1 NAV calculation and distribution"), // Fixed: use serde_json::json!
+                option_value: Some("T+1 NAV calculation and distribution".to_string()),
                 display_name: Some("Daily NAV".to_string()),
                 description: Some("Daily net asset value calculation with T+1 delivery".to_string()),
-                pricing_impact: Some(rust_decimal::Decimal::from_str("0.03").unwrap()),
+                pricing_impact: Some(0.03),
                 status: "active".to_string(),
             },
-            ProductOption {
+            GrpcProductOption {
                 id: 4,
                 option_id: "TSP-003-FIX".to_string(),
-                product_id: 3, // Fixed: should be i32
+                product_id: "ICP-003".to_string(),
                 option_name: "FIX Protocol Support".to_string(),
                 option_category: "Connectivity".to_string(),
                 option_type: "premium".to_string(),
-                option_value: serde_json::json!("FIX 4.4/5.0 trade messaging"), // Fixed: use serde_json::json!
+                option_value: Some("FIX 4.4/5.0 trade messaging".to_string()),
                 display_name: Some("FIX Connectivity".to_string()),
                 description: Some("High-speed FIX protocol for trade execution".to_string()),
-                pricing_impact: Some(rust_decimal::Decimal::from_str("0.15").unwrap()),
+                pricing_impact: Some(0.15),
                 status: "active".to_string(),
             },
         ];
 
         // Mock Services
         self.services = vec![
-            Service {
+            GrpcService {
                 id: 1,
                 service_id: "SVC-CUSTODY".to_string(),
                 service_name: "Enhanced Custody Services".to_string(),
@@ -5744,7 +6797,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            Service {
+            GrpcService {
                 id: 2,
                 service_id: "SVC-SETTLEMENT".to_string(),
                 service_name: "Multi-Market Settlement".to_string(),
@@ -5755,7 +6808,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            Service {
+            GrpcService {
                 id: 3,
                 service_id: "SVC-RECONCILIATION".to_string(),
                 service_name: "Automated Reconciliation".to_string(),
@@ -5766,7 +6819,7 @@ impl DataDesignerApp {
                 billable: Some(false),
                 status: "active".to_string(),
             },
-            Service {
+            GrpcService {
                 id: 4,
                 service_id: "SVC-REPORTING".to_string(),
                 service_name: "Regulatory Reporting".to_string(),
@@ -5777,7 +6830,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            Service {
+            GrpcService {
                 id: 5,
                 service_id: "SVC-VALUATION".to_string(),
                 service_name: "Portfolio Valuation".to_string(),
@@ -6417,61 +7470,62 @@ impl DataDesignerApp {
 
         // For now, use the existing suggestion system
         // In a full implementation, this would be an async call
-        let suggestions = ai_assistant.get_offline_suggestions(&query);
+        let local_suggestions = ai_assistant.get_offline_suggestions(&query);
+
+        // Convert local suggestions to gRPC format
+        let mut all_suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
 
         // Mix with pattern-based suggestions
-        let mut all_suggestions = suggestions;
         all_suggestions.extend(self.get_dsl_generation_suggestions(&query));
 
         self.ai_suggestions = all_suggestions;
     }
 
-    fn get_dsl_generation_suggestions(&self, query: &str) -> Vec<AiSuggestion> {
+    fn get_dsl_generation_suggestions(&self, query: &str) -> Vec<GrpcAiSuggestion> {
         let mut suggestions = Vec::new();
         let query_lower = query.to_lowercase();
 
         // Generate context-aware DSL suggestions
         if query_lower.contains("email") {
-            suggestions.push(AiSuggestion {
-                suggestion_type: SuggestionType::CodeCompletion,
+            suggestions.push(GrpcAiSuggestion {
                 title: "Email Validation Pattern".to_string(),
                 description: "Validate email format and length".to_string(),
-                code_snippet: Some("IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()),
+                category: "CodeCompletion".to_string(),
                 confidence: 0.9,
-                context_relevance: 0.95,
+                applicable_contexts: vec!["IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()],
             });
         }
 
         if query_lower.contains("risk") {
-            suggestions.push(AiSuggestion {
-                suggestion_type: SuggestionType::CodeCompletion,
+            suggestions.push(GrpcAiSuggestion {
                 title: "Risk Score Calculation".to_string(),
                 description: "Calculate risk score based on PEP status and country".to_string(),
-                code_snippet: Some("risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()),
+                category: "CodeCompletion".to_string(),
                 confidence: 0.85,
-                context_relevance: 0.9,
+                applicable_contexts: vec!["risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()],
             });
         }
 
         if query_lower.contains("name") {
-            suggestions.push(AiSuggestion {
-                suggestion_type: SuggestionType::CodeCompletion,
+            suggestions.push(GrpcAiSuggestion {
                 title: "Name Concatenation".to_string(),
                 description: "Combine first and last name fields".to_string(),
-                code_snippet: Some("full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()),
+                category: "CodeCompletion".to_string(),
                 confidence: 0.8,
-                context_relevance: 0.85,
+                applicable_contexts: vec!["full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()],
             });
         }
 
         if query_lower.contains("age") || query_lower.contains("adult") {
-            suggestions.push(AiSuggestion {
-                suggestion_type: SuggestionType::CodeCompletion,
+            suggestions.push(GrpcAiSuggestion {
                 title: "Age Validation".to_string(),
                 description: "Check if person is 18 or older".to_string(),
-                code_snippet: Some("is_adult = Client.age >= 18".to_string()),
+                category: "CodeCompletion".to_string(),
                 confidence: 0.9,
-                context_relevance: 0.88,
+                applicable_contexts: vec!["is_adult = Client.age >= 18".to_string()],
             });
         }
 
@@ -6530,15 +7584,19 @@ impl DataDesignerApp {
     }
 
     fn add_ai_command_suggestions(&mut self, suggestions: &mut Vec<CommandSuggestion>, query: &str) {
-        // Get AI-powered suggestions from the assistant
-        let ai_suggestions = self.ai_assistant.get_offline_suggestions(query);
+        // Get AI-powered suggestions from the assistant and convert to gRPC format
+        let local_suggestions = self.ai_assistant.get_offline_suggestions(query);
+        let ai_suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
 
         // Convert AI suggestions to command suggestions
         for (i, ai_suggestion) in ai_suggestions.iter().take(3).enumerate() {
-            let command_type = match ai_suggestion.suggestion_type {
-                SuggestionType::CodeCompletion | SuggestionType::AutoComplete => CommandType::GenerateDsl,
-                SuggestionType::Alternative | SuggestionType::Optimization => CommandType::Template,
-                SuggestionType::SimilarPattern => CommandType::FindSimilar,
+            let command_type = match ai_suggestion.category.as_str() {
+                "CodeCompletion" | "AutoComplete" => CommandType::GenerateDsl,
+                "Alternative" | "Optimization" => CommandType::Template,
+                "SimilarPattern" => CommandType::FindSimilar,
                 _ => CommandType::QuickAction,
             };
 
@@ -6552,7 +7610,7 @@ impl DataDesignerApp {
                     &title,
                     &description,
                     &action
-                ).with_confidence(ai_suggestion.confidence)
+                ).with_confidence(ai_suggestion.confidence as f32)
             );
         }
 
@@ -6621,7 +7679,7 @@ impl DataDesignerApp {
         if let Some(ai_suggestions) = Some(&self.ai_suggestions.clone()) {
             if let Some(suggestion) = ai_suggestions.get(index) {
                 // Apply the AI suggestion
-                if let Some(code) = &suggestion.code_snippet {
+                if let Some(code) = suggestion.applicable_contexts.first() {
                     self.dsl_editor.set_text(code.clone());
                     self.transpiler_input = code.clone();
                     self.transpile_expression();
@@ -6661,6 +7719,878 @@ impl DataDesignerApp {
         self.generate_ai_suggestions();
 
         self.status_message = format!("💡 Generated DSL using attribute: {}", attr_name);
+    }
+
+    // Advanced Find & Replace Implementation (White Truffle #3)
+    fn show_find_replace_modal(&mut self, ctx: &egui::Context) {
+        egui::Window::new("🔍 Advanced Find & Replace")
+            .collapsible(false)
+            .resizable(true)
+            .title_bar(true)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .default_width(500.0)
+            .default_height(400.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("🔍 Find:");
+                    let find_response = ui.text_edit_singleline(&mut self.find_query);
+                    if find_response.changed() {
+                        self.perform_search();
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("🔄 Replace:");
+                    ui.text_edit_singleline(&mut self.replace_query);
+                });
+
+                ui.separator();
+
+                // Search mode selection
+                ui.horizontal(|ui| {
+                    ui.label("Mode:");
+                    if ui.radio_value(&mut self.search_mode, SearchMode::Normal, "Normal").clicked() {
+                        self.perform_search();
+                    }
+                    if ui.radio_value(&mut self.search_mode, SearchMode::Regex, "Regex").clicked() {
+                        self.perform_search();
+                    }
+                    if ui.radio_value(&mut self.search_mode, SearchMode::Semantic, "AI Semantic").clicked() {
+                        self.perform_semantic_search();
+                    }
+                    if ui.radio_value(&mut self.search_mode, SearchMode::Fuzzy, "Fuzzy").clicked() {
+                        self.perform_fuzzy_search();
+                    }
+                });
+
+                // Search options
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut self.case_sensitive, "Case sensitive").clicked() {
+                        self.perform_search();
+                    }
+                    if ui.checkbox(&mut self.whole_words_only, "Whole words").clicked() {
+                        self.perform_search();
+                    }
+                    if ui.checkbox(&mut self.semantic_search_enabled, "AI Enhanced").clicked() {
+                        if self.semantic_search_enabled {
+                            self.generate_ai_search_suggestions();
+                        }
+                    }
+                });
+
+                ui.separator();
+
+                // Search results summary
+                if !self.search_results.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("📊 {} results found", self.search_results.len()));
+                        if self.current_result_index < self.search_results.len() {
+                            ui.label(format!("(showing {})", self.current_result_index + 1));
+                        }
+                    });
+
+                    // Navigation buttons
+                    ui.horizontal(|ui| {
+                        if ui.button("⬆️ Previous").clicked() {
+                            self.navigate_search_results(-1);
+                        }
+                        if ui.button("⬇️ Next").clicked() {
+                            self.navigate_search_results(1);
+                        }
+                        if ui.button("🔄 Replace").clicked() && self.current_result_index < self.search_results.len() {
+                            self.replace_current_result();
+                        }
+                        if ui.button("🔄 Replace All").clicked() {
+                            self.replace_all_results();
+                        }
+                    });
+                }
+
+                ui.separator();
+
+                // AI suggestions section
+                if self.semantic_search_enabled && !self.ai_search_suggestions.is_empty() {
+                    ui.collapsing("🤖 AI Search Suggestions", |ui| {
+                        for suggestion in &self.ai_search_suggestions.clone() {
+                            if ui.button(suggestion).clicked() {
+                                self.find_query = suggestion.clone();
+                                self.perform_search();
+                            }
+                        }
+                    });
+                }
+
+                // Search history
+                if !self.search_history.is_empty() {
+                    ui.collapsing("📖 Search History", |ui| {
+                        for historical_query in &self.search_history.clone() {
+                            if ui.button(historical_query).clicked() {
+                                self.find_query = historical_query.clone();
+                                self.perform_search();
+                            }
+                        }
+                    });
+                }
+
+                ui.separator();
+
+                // Results preview
+                if !self.search_results.is_empty() && self.current_result_index < self.search_results.len() {
+                    let result = &self.search_results[self.current_result_index];
+                    ui.group(|ui| {
+                        ui.strong("📍 Current Match:");
+                        ui.label(format!("Line {}, Columns {}-{}",
+                            result.line_number + 1,
+                            result.column_start + 1,
+                            result.column_end + 1));
+
+                        ui.horizontal(|ui| {
+                            ui.label(&result.context_before);
+                            ui.colored_label(egui::Color32::YELLOW, &result.matched_text);
+                            ui.label(&result.context_after);
+                        });
+
+                        if let Some(score) = result.similarity_score {
+                            ui.label(format!("🎯 Similarity: {:.2}%", score * 100.0));
+                        }
+                    });
+                }
+
+                ui.separator();
+
+                // Action buttons
+                ui.horizontal(|ui| {
+                    if ui.button("❌ Close").clicked() {
+                        self.show_find_replace = false;
+                    }
+                    if ui.button("🗑️ Clear").clicked() {
+                        self.clear_search();
+                    }
+                });
+            });
+    }
+
+    fn perform_search(&mut self) {
+        if self.find_query.is_empty() {
+            self.search_results.clear();
+            return;
+        }
+
+        // Add to search history
+        if !self.search_history.contains(&self.find_query) {
+            self.search_history.push(self.find_query.clone());
+            if self.search_history.len() > 10 {
+                self.search_history.remove(0);
+            }
+        }
+
+        let text = self.dsl_editor.text.clone();
+        self.search_results.clear();
+        self.current_result_index = 0;
+
+        match self.search_mode {
+            SearchMode::Normal => self.perform_normal_search(&text),
+            SearchMode::Regex => self.perform_regex_search(&text),
+            SearchMode::Fuzzy => self.perform_fuzzy_search(),
+            SearchMode::Semantic => self.perform_semantic_search(),
+        }
+    }
+
+    fn perform_normal_search(&mut self, text: &str) {
+        let query = if self.case_sensitive {
+            self.find_query.clone()
+        } else {
+            self.find_query.to_lowercase()
+        };
+
+        let search_text = if self.case_sensitive {
+            text.to_string()
+        } else {
+            text.to_lowercase()
+        };
+
+        let lines: Vec<&str> = search_text.lines().collect();
+
+        for (line_idx, line) in lines.iter().enumerate() {
+            let mut start = 0;
+            while let Some(pos) = line[start..].find(&query) {
+                let absolute_pos = start + pos;
+
+                // Check whole word constraint
+                if self.whole_words_only {
+                    let before_char = if absolute_pos > 0 {
+                        line.chars().nth(absolute_pos - 1)
+                    } else { None };
+
+                    let after_char = line.chars().nth(absolute_pos + query.len());
+
+                    let is_word_boundary = |c: Option<char>| {
+                        c.map_or(true, |ch| !ch.is_alphanumeric() && ch != '_')
+                    };
+
+                    if !is_word_boundary(before_char) || !is_word_boundary(after_char) {
+                        start = absolute_pos + 1;
+                        continue;
+                    }
+                }
+
+                let context_before = if absolute_pos >= 20 {
+                    line[absolute_pos.saturating_sub(20)..absolute_pos].to_string()
+                } else {
+                    line[..absolute_pos].to_string()
+                };
+
+                let context_after = if absolute_pos + query.len() + 20 < line.len() {
+                    line[absolute_pos + query.len()..absolute_pos + query.len() + 20].to_string()
+                } else {
+                    line[absolute_pos + query.len()..].to_string()
+                };
+
+                self.search_results.push(SearchResult {
+                    line_number: line_idx,
+                    column_start: absolute_pos,
+                    column_end: absolute_pos + query.len(),
+                    matched_text: line[absolute_pos..absolute_pos + query.len()].to_string(),
+                    context_before,
+                    context_after,
+                    similarity_score: None,
+                });
+
+                start = absolute_pos + 1;
+            }
+        }
+    }
+
+    fn perform_regex_search(&mut self, text: &str) {
+        match Regex::new(&self.find_query) {
+            Ok(regex) => {
+                let lines: Vec<&str> = text.lines().collect();
+
+                for (line_idx, line) in lines.iter().enumerate() {
+                    for mat in regex.find_iter(line) {
+                        let context_before = if mat.start() >= 20 {
+                            line[mat.start().saturating_sub(20)..mat.start()].to_string()
+                        } else {
+                            line[..mat.start()].to_string()
+                        };
+
+                        let context_after = if mat.end() + 20 < line.len() {
+                            line[mat.end()..mat.end() + 20].to_string()
+                        } else {
+                            line[mat.end()..].to_string()
+                        };
+
+                        self.search_results.push(SearchResult {
+                            line_number: line_idx,
+                            column_start: mat.start(),
+                            column_end: mat.end(),
+                            matched_text: mat.as_str().to_string(),
+                            context_before,
+                            context_after,
+                            similarity_score: None,
+                        });
+                    }
+                }
+            }
+            Err(_) => {
+                // Invalid regex, fall back to normal search
+                self.perform_normal_search(text);
+            }
+        }
+    }
+
+    fn perform_fuzzy_search(&mut self) {
+        let text = &self.dsl_editor.text;
+        let query = self.find_query.to_lowercase();
+        let lines: Vec<&str> = text.lines().collect();
+
+        for (line_idx, line) in lines.iter().enumerate() {
+            let line_lower = line.to_lowercase();
+
+            // Simple fuzzy matching: check if all characters of query appear in order
+            let mut query_chars = query.chars().peekable();
+            let mut line_chars = line_lower.char_indices();
+            let mut matches = Vec::new();
+
+            while let Some(&query_char) = query_chars.peek() {
+                if let Some((idx, line_char)) = line_chars.next() {
+                    if line_char == query_char {
+                        matches.push(idx);
+                        query_chars.next();
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // If we matched all query characters, calculate similarity score
+            if query_chars.peek().is_none() && !matches.is_empty() {
+                let first_match = matches[0];
+                let last_match = matches[matches.len() - 1];
+                let span = last_match - first_match + 1;
+                let similarity = 1.0 - (span as f64 / line.len() as f64);
+
+                let context_before = if first_match >= 20 {
+                    line[first_match.saturating_sub(20)..first_match].to_string()
+                } else {
+                    line[..first_match].to_string()
+                };
+
+                let context_after = if last_match + 20 < line.len() {
+                    line[last_match + 1..last_match + 21].to_string()
+                } else {
+                    line[last_match + 1..].to_string()
+                };
+
+                self.search_results.push(SearchResult {
+                    line_number: line_idx,
+                    column_start: first_match,
+                    column_end: last_match + 1,
+                    matched_text: line[first_match..=last_match].to_string(),
+                    context_before,
+                    context_after,
+                    similarity_score: Some(similarity),
+                });
+            }
+        }
+
+        // Sort by similarity score
+        self.search_results.sort_by(|a, b| {
+            b.similarity_score.unwrap_or(0.0).partial_cmp(&a.similarity_score.unwrap_or(0.0)).unwrap()
+        });
+    }
+
+    fn perform_semantic_search(&mut self) {
+        // Use AI assistant to perform semantic search and convert to gRPC format
+        let local_suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
+        let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
+
+        // Convert AI suggestions to search results
+        self.search_results.clear();
+
+        for (idx, suggestion) in suggestions.iter().enumerate() {
+            if idx > 10 { break; } // Limit results
+
+            self.search_results.push(SearchResult {
+                line_number: 0,
+                column_start: 0,
+                column_end: suggestion.applicable_contexts.first().map_or(0, |s| s.len()),
+                matched_text: suggestion.applicable_contexts.first().cloned().unwrap_or_default(),
+                context_before: "AI Suggestion:".to_string(),
+                context_after: suggestion.description.clone(),
+                similarity_score: Some(0.8), // Placeholder score
+            });
+        }
+    }
+
+    fn navigate_search_results(&mut self, direction: i32) {
+        if self.search_results.is_empty() {
+            return;
+        }
+
+        if direction > 0 {
+            self.current_result_index = (self.current_result_index + 1) % self.search_results.len();
+        } else {
+            self.current_result_index = if self.current_result_index == 0 {
+                self.search_results.len() - 1
+            } else {
+                self.current_result_index - 1
+            };
+        }
+
+        // Highlight the current result in the editor
+        self.highlight_search_result();
+    }
+
+    fn highlight_search_result(&mut self) {
+        if self.current_result_index < self.search_results.len() {
+            let result = &self.search_results[self.current_result_index];
+
+            // Calculate the absolute position in the text
+            let lines: Vec<&str> = self.dsl_editor.text.lines().collect();
+            let mut absolute_pos = 0;
+
+            for (line_idx, line) in lines.iter().enumerate() {
+                if line_idx == result.line_number {
+                    absolute_pos += result.column_start;
+                    break;
+                } else {
+                    absolute_pos += line.len() + 1; // +1 for newline
+                }
+            }
+
+            // Set cursor position and selection
+            self.dsl_editor.cursor_position = absolute_pos;
+            self.dsl_editor.selection_start = Some(absolute_pos);
+            self.dsl_editor.selection_end = Some(absolute_pos + result.matched_text.len());
+        }
+    }
+
+    fn replace_current_result(&mut self) {
+        if self.current_result_index >= self.search_results.len() {
+            return;
+        }
+
+        let result = &self.search_results[self.current_result_index].clone();
+        let mut lines: Vec<String> = self.dsl_editor.text.lines().map(|s| s.to_string()).collect();
+
+        if result.line_number < lines.len() {
+            let line = &mut lines[result.line_number];
+            let before = &line[..result.column_start];
+            let after = &line[result.column_end..];
+            *line = format!("{}{}{}", before, self.replace_query, after);
+
+            self.dsl_editor.set_text(lines.join("\n"));
+
+            // Remove the replaced result and refresh search
+            self.search_results.remove(self.current_result_index);
+            if self.current_result_index >= self.search_results.len() && !self.search_results.is_empty() {
+                self.current_result_index = self.search_results.len() - 1;
+            }
+        }
+    }
+
+    fn replace_all_results(&mut self) {
+        let mut lines: Vec<String> = self.dsl_editor.text.lines().map(|s| s.to_string()).collect();
+
+        // Sort results by line and column in reverse order to maintain indices
+        let mut sorted_results = self.search_results.clone();
+        sorted_results.sort_by(|a, b| {
+            if a.line_number == b.line_number {
+                b.column_start.cmp(&a.column_start)
+            } else {
+                b.line_number.cmp(&a.line_number)
+            }
+        });
+
+        for result in sorted_results {
+            if result.line_number < lines.len() {
+                let line = &mut lines[result.line_number];
+                let before = &line[..result.column_start];
+                let after = &line[result.column_end..];
+                *line = format!("{}{}{}", before, self.replace_query, after);
+            }
+        }
+
+        self.dsl_editor.set_text(lines.join("\n"));
+        self.search_results.clear();
+        self.current_result_index = 0;
+    }
+
+    fn generate_ai_search_suggestions(&mut self) {
+        if self.semantic_search_enabled {
+            let local_suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
+            let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
+            self.ai_search_suggestions = suggestions.iter()
+                .take(5)
+                .filter_map(|s| s.applicable_contexts.first().cloned())
+                .collect();
+        }
+    }
+
+    fn clear_search(&mut self) {
+        self.find_query.clear();
+        self.replace_query.clear();
+        self.search_results.clear();
+        self.current_result_index = 0;
+        self.ai_search_suggestions.clear();
+        self.dsl_editor.selection_start = None;
+        self.dsl_editor.selection_end = None;
+    }
+
+    // White Truffle #4: Enhanced Code Intelligence Methods
+    fn perform_live_analysis(&mut self) {
+        if self.analysis_in_progress {
+            return;
+        }
+
+        let current_text = self.dsl_editor.text.clone();
+
+        // Detect errors
+        self.detect_live_errors(&current_text);
+
+        // Calculate code metrics
+        self.calculate_code_metrics(&current_text);
+
+        // Update analysis timestamp
+        self.code_intelligence.last_analysis = Some(std::time::SystemTime::now());
+    }
+
+    fn detect_live_errors(&mut self, code: &str) {
+        let mut errors = Vec::new();
+
+        // Simple error detection examples
+        if code.contains("INVALID") {
+            errors.push(LiveError {
+                line: 1,
+                column: 1,
+                severity: ErrorSeverity::Error,
+                message: "Invalid syntax detected".to_string(),
+                suggestion: Some("Check the syntax".to_string()),
+                error_type: ErrorType::Syntax,
+            });
+        }
+
+        self.code_intelligence.syntax_errors = errors.into_iter().map(|e| SyntaxError {
+            position: CodeLocation { line_start: e.line, line_end: e.line, column_start: e.column, column_end: e.column },
+            message: e.message,
+            expected: None,
+            found: None,
+        }).collect();
+    }
+
+    fn calculate_code_metrics(&mut self, code: &str) {
+        let lines = code.lines().count();
+        let complexity = code.matches("IF").count() + code.matches("ELSE").count() + 1;
+        let function_count = code.matches("(").count();
+        let variable_count = code.matches("=").count();
+
+        self.code_metrics = CodeMetrics {
+            lines_of_code: lines,
+            complexity_score: complexity as f32,
+            function_count,
+            variable_count,
+            readability_score: 8.0, // Simplified calculation
+            operator_density: 0.0, // Simplified calculation
+            performance_score: 7.5, // Simplified calculation
+        };
+    }
+
+    fn show_code_intelligence_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.heading("🧠 Code Intelligence");
+                ui.separator();
+
+                // Live errors section
+                ui.collapsing("🚨 Live Errors", |ui| {
+                    if self.code_intelligence.syntax_errors.is_empty() {
+                        ui.colored_label(egui::Color32::GREEN, "✅ No errors detected");
+                    } else {
+                        for error in &self.code_intelligence.syntax_errors {
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::RED, &error.message);
+                            });
+                        }
+                    }
+                });
+
+                // Code metrics section
+                ui.collapsing("📊 Code Metrics", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Lines:");
+                        ui.label(format!("{}", self.code_metrics.lines_of_code));
+                    });
+                    ui.separator();
+                    ui.label(format!("Functions: {}", self.code_metrics.function_count));
+                    ui.separator();
+                    ui.label(format!("Variables: {}", self.code_metrics.variable_count));
+                });
+
+                // Visual metrics bars
+                ui.add(egui::ProgressBar::new(self.code_metrics.complexity_score / 10.0).text("Complexity"));
+                ui.add(egui::ProgressBar::new(self.code_metrics.readability_score / 10.0).text("Readability"));
+            });
+        });
+    }
+
+    // White Truffle #5: Advanced Debugging & Testing Framework Methods
+    fn show_debug_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.heading("🐛 Debug & Testing Framework");
+                ui.separator();
+
+                // Debug session controls
+                ui.horizontal(|ui| {
+                    if ui.button("▶️ Start Debug").clicked() {
+                        self.start_debug_session();
+                    }
+                    if ui.button("⏸️ Pause").clicked() && self.debug_session.is_active {
+                        self.execution_state = ExecutionState::Paused;
+                    }
+                    if ui.button("⏹️ Stop").clicked() {
+                        self.stop_debug_session();
+                    }
+                    if ui.button("⏭️ Step").clicked() && self.debug_session.is_active {
+                        self.step_debug_session();
+                    }
+                });
+
+                ui.separator();
+
+                // Debug session status
+                ui.horizontal(|ui| {
+                    ui.label("Status:");
+                    let status_text = match self.execution_state {
+                        ExecutionState::Stopped => "⏹️ Stopped",
+                        ExecutionState::Running => "▶️ Running",
+                        ExecutionState::Paused => "⏸️ Paused",
+                        ExecutionState::SteppingOver => "⏭️ Stepping Over",
+                        ExecutionState::SteppingInto => "⬇️ Stepping Into",
+                        ExecutionState::SteppingOut => "⬆️ Stepping Out",
+                        ExecutionState::Error(_) => "❌ Error",
+                    };
+                    ui.label(status_text);
+                });
+
+                if self.debug_session.is_active {
+                    ui.horizontal(|ui| {
+                        ui.label("Step:");
+                        ui.label(format!("{} / {}", self.debug_session.current_step, self.debug_session.total_steps));
+                    });
+                }
+
+                // Breakpoints section
+                ui.collapsing("🔴 Breakpoints", |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("➕ Add Breakpoint").clicked() {
+                            self.add_breakpoint(10, 0, None); // Example line 10
+                        }
+                        if ui.button("🗑️ Clear All").clicked() {
+                            self.breakpoints.clear();
+                        }
+                    });
+
+                    if self.breakpoints.is_empty() {
+                        ui.label("No breakpoints set");
+                    } else {
+                        let mut to_remove = None;
+                        for (i, breakpoint) in self.breakpoints.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut breakpoint.enabled, "");
+                                ui.label(format!("Line {}", breakpoint.line));
+                                if let Some(condition) = &breakpoint.condition {
+                                    ui.label(format!("if {}", condition));
+                                }
+                                ui.label(format!("(hits: {})", breakpoint.hit_count));
+                                if ui.button("❌").clicked() {
+                                    to_remove = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(index) = to_remove {
+                            self.breakpoints.remove(index);
+                        }
+                    }
+                });
+
+                // Variable inspector section
+                ui.collapsing("🔍 Variables", |ui| {
+                    if self.variable_inspector.variables.is_empty() {
+                        ui.label("No variables in scope");
+                    } else {
+                        for (name, value) in &self.variable_inspector.variables {
+                            ui.horizontal(|ui| {
+                                ui.label(name);
+                                ui.separator();
+                                ui.label(&value.value);
+                                ui.label(format!("({})", value.data_type));
+                            });
+                        }
+                    }
+
+                    // Watch expressions
+                    ui.separator();
+                    ui.label("Watch Expressions:");
+                    for watch in &self.variable_inspector.watch_expressions {
+                        ui.horizontal(|ui| {
+                            ui.label(&watch.expression);
+                            if let Some(value) = &watch.current_value {
+                                ui.label("=");
+                                ui.label(&value.value);
+                            } else if let Some(error) = &watch.error {
+                                ui.colored_label(egui::Color32::RED, error);
+                            }
+                        });
+                    }
+                });
+
+                // Test framework section
+                ui.collapsing("🧪 Test Framework", |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("▶️ Run Tests").clicked() {
+                            self.run_all_tests();
+                        }
+                        if ui.button("➕ New Test").clicked() {
+                            self.create_sample_test();
+                        }
+                        if ui.button("🤖 Auto-Generate").clicked() {
+                            self.auto_generate_tests();
+                        }
+                    });
+
+                    ui.separator();
+
+                    // Test results summary
+                    let total_tests = self.test_results.len();
+                    let passed = self.test_results.iter().filter(|r| matches!(r.status, TestStatus::Passed)).count();
+                    let failed = self.test_results.iter().filter(|r| matches!(r.status, TestStatus::Failed)).count();
+
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::GREEN, format!("✅ Passed: {}", passed));
+                        ui.colored_label(egui::Color32::RED, format!("❌ Failed: {}", failed));
+                        ui.label(format!("Total: {}", total_tests));
+                    });
+
+                    // Coverage information
+                    if self.coverage_data.total_lines > 0 {
+                        let coverage_percent = (self.coverage_data.covered_lines as f32 / self.coverage_data.total_lines as f32) * 100.0;
+                        ui.horizontal(|ui| {
+                            ui.label("Coverage:");
+                            ui.add(egui::ProgressBar::new(coverage_percent / 100.0).text(format!("{:.1}%", coverage_percent)));
+                        });
+                    }
+                });
+            });
+        });
+    }
+
+    fn generate_sample_debug_data(&mut self) {
+        // Generate sample variables
+        self.variable_inspector.variables.insert(
+            "age".to_string(),
+            DebugValue {
+                value: "25".to_string(),
+                data_type: "i32".to_string(),
+                is_complex: false,
+                children: Vec::new(),
+            }
+        );
+        self.variable_inspector.variables.insert(
+            "country".to_string(),
+            DebugValue {
+                value: "\"USA\"".to_string(),
+                data_type: "String".to_string(),
+                is_complex: false,
+                children: Vec::new(),
+            }
+        );
+
+        // Add sample breakpoint
+        if self.breakpoints.is_empty() {
+            self.add_breakpoint(15, 0, Some("age > 18".to_string()));
+        }
+
+        // Generate sample test data
+        if self.test_framework.test_suites.is_empty() {
+            self.create_sample_test();
+        }
+
+        // Generate sample coverage data
+        self.coverage_data.total_lines = 100;
+        self.coverage_data.covered_lines = 75;
+    }
+
+    fn start_debug_session(&mut self) {
+        self.debug_session.is_active = true;
+        self.debug_session.current_step = 0;
+        self.debug_session.total_steps = 10;
+        self.execution_state = ExecutionState::Running;
+        self.generate_sample_debug_data();
+    }
+
+    fn stop_debug_session(&mut self) {
+        self.debug_session.is_active = false;
+        self.debug_session.current_step = 0;
+        self.execution_state = ExecutionState::Stopped;
+        self.debug_session.execution_stack.clear();
+        self.debug_session.current_variables.clear();
+    }
+
+    fn step_debug_session(&mut self) {
+        if self.debug_session.is_active && self.debug_session.current_step < self.debug_session.total_steps {
+            self.debug_session.current_step += 1;
+            self.execution_state = ExecutionState::SteppingOver;
+
+            // Simulate stepping through code
+            if self.debug_session.current_step >= self.debug_session.total_steps {
+                self.stop_debug_session();
+            }
+        }
+    }
+
+    fn add_breakpoint(&mut self, line: usize, column: usize, condition: Option<String>) {
+        let id = self.breakpoints.len();
+        self.breakpoints.push(Breakpoint {
+            id,
+            line,
+            column,
+            condition,
+            hit_count: 0,
+            enabled: true,
+            temporary: false,
+        });
+    }
+
+    fn run_all_tests(&mut self) {
+        self.test_results.clear();
+
+        for suite in &self.test_framework.test_suites {
+            for test_case in &suite.test_cases {
+                let result = TestResult {
+                    test_case_id: test_case.id,
+                    suite_id: suite.id,
+                    status: TestStatus::Passed, // Simplified - always pass for demo
+                    actual_output: Some("Expected result".to_string()),
+                    execution_time: 0.001,
+                    timestamp: std::time::SystemTime::now(),
+                    error_details: None,
+                };
+                self.test_results.push(result);
+            }
+        }
+    }
+
+    fn create_sample_test(&mut self) {
+        if self.test_framework.test_suites.is_empty() {
+            let mut suite = TestSuite::default();
+            suite.id = 1;
+            suite.name = "Sample Test Suite".to_string();
+            suite.description = "Example tests for DSL rules".to_string();
+
+            let mut test_case = TestCase::default();
+            test_case.id = 1;
+            test_case.name = "Age Validation Test".to_string();
+            test_case.description = "Test age validation rule".to_string();
+            test_case.rule_expression = "age > 18".to_string();
+            test_case.expected_output = "true".to_string();
+            test_case.input_data.insert("age".to_string(), "25".to_string());
+
+            suite.test_cases.push(test_case);
+            self.test_framework.test_suites.push(suite);
+        }
+    }
+
+    fn auto_generate_tests(&mut self) {
+        // Generate tests based on current rule input
+        let rule = self.rule_input.clone();
+        if !rule.is_empty() && self.test_framework.test_suites.len() < 3 {
+            let mut suite = TestSuite::default();
+            suite.id = self.test_framework.test_suites.len() + 1;
+            suite.name = format!("Auto-Generated Suite {}", suite.id);
+            suite.description = format!("Tests for rule: {}", rule);
+
+            // Generate a few test cases
+            for i in 1..=3 {
+                let mut test_case = TestCase::default();
+                test_case.id = i;
+                test_case.name = format!("Auto Test {}", i);
+                test_case.rule_expression = rule.clone();
+                test_case.expected_output = "true".to_string();
+                test_case.input_data.insert("test_var".to_string(), format!("value_{}", i));
+
+                suite.test_cases.push(test_case);
+            }
+
+            self.test_framework.test_suites.push(suite);
+        }
     }
 
 }

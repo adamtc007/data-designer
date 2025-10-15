@@ -7,6 +7,9 @@ edition = "2021"
 # Core library with database support
 data-designer-core = { path = "../data-designer-core" }
 
+# Shared UI components with gRPC client
+financial-taxonomy-shared-ui = { path = "shared-components" }
+
 # egui ecosystem
 egui = "0.33"
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "persistence"] }
@@ -35,6 +38,12 @@ rust_decimal = { version = "1.0", features = ["serde"] }
 
 # Async
 futures = "0.3"
+
+# HTTP client for AI API calls
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Secure keychain storage for API keys
+keyring = "2.0"
 
 # Text processing
 regex = "1.0"

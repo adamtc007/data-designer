@@ -16,26 +16,39 @@
 
 ### Architecture
 - **Frontend**: Pure Rust egui immediate mode GUI (`egui-frontend/`)
+- **Backend**: gRPC server with Protocol Buffers (`egui-frontend/grpc-server/`)
 - **Core Library**: Expression engine with database layer (`data-designer-core/`)
 - **Database**: PostgreSQL with pgvector for semantic similarity
+- **Communication**: gRPC-first with database fallback (hybrid reliability)
 - **Build System**: Clean Cargo workspace
 
 ### Development Commands
 ```bash
+# gRPC Server (run first)
+cd egui-frontend/grpc-server && cargo run
+
+# Desktop Client (gRPC-enabled)
+cd egui-frontend && cargo run --release --bin data-designer-egui
+
+# Development
 cargo build                    # Build entire workspace
-cargo run --release           # Run optimized desktop app
-cd egui-frontend && cargo run # Run from frontend directory
 cargo test --all              # Run comprehensive test suite (16+ tests)
 ```
 
 ### Key Files
-- `egui-frontend/src/main.rs` - Main egui application
+- `egui-frontend/src/main.rs` - Main egui application (gRPC-enabled)
+- `egui-frontend/grpc-server/` - gRPC server with Protocol Buffers
+- `egui-frontend/shared-components/` - Shared UI components with gRPC client
 - `data-designer-core/src/db/mod.rs` - Database operations
 - `data-designer-core/src/db/persistence.rs` - Data connection layer
 - `data-designer-core/src/config.rs` - Configuration management
 - `Cargo.toml` - Workspace configuration
 
 ### Current Features - COMPLETED SYSTEM
+- ✅ **gRPC-Enabled Desktop Application** - Hybrid architecture with Protocol Buffers
+- ✅ **Microservices Architecture** - gRPC server + egui client (port 50051)
+- ✅ **Hybrid Reliability** - gRPC-first with automatic database fallback
+- ✅ **Type-Safe Communication** - Protocol Buffers with zero-copy performance
 - ✅ Native egui desktop application with enhanced font rendering
 - ✅ Clean Cargo workspace structure
 - ✅ PostgreSQL database integration with full CRUD operations
@@ -57,6 +70,7 @@ cargo test --all              # Run comprehensive test suite (16+ tests)
 - ✅ Rule testing and execution interface
 - ✅ Comprehensive database management
 - ✅ Both Tauri and Pure Rust versions fully operational
+- ✅ **Investment Mandate Drill-Down System** - Interactive mandate exploration with detailed views
 
 ### AI Features Status
 **🎯 COMPLETE: All 7 AI features successfully implemented and tested**
@@ -67,6 +81,17 @@ cargo test --all              # Run comprehensive test suite (16+ tests)
 5. **Code Completion** - Intelligent function/attribute/operator suggestions
 6. **Error Analysis** - Comprehensive error detection and automatic fixing
 7. **RAG Integration** - Retrieval-Augmented Generation with vector similarity
+
+### Financial Services Features
+- **🎯 Investment Mandate Management** - Complete drill-down system with:
+  - Interactive mandate cards with "View Details" buttons
+  - Comprehensive detailed views (business units, parties, investment details)
+  - Related member roles and trading/settlement authorities
+  - Back navigation and breadcrumb display
+  - Robust error handling and crash prevention
+- **📦 Product Taxonomy** - Complete hierarchical system for financial products
+- **🏢 CBU Management** - Client Business Unit organization and member roles
+- **💼 Interactive Editing** - Full CRUD operations with database persistence
 
 ### Database Schema
 PostgreSQL database: `data_designer` with rules, attributes, embeddings, and business entity tables.

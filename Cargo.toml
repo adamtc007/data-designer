@@ -2,6 +2,8 @@
 members = [
     "data-designer-core",
     "egui-frontend",
+    "egui-frontend/grpc-server",
+    "egui-frontend/shared-components",
 ]
 resolver = "2"
 

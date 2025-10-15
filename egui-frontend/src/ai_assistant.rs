@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use data_designer_core::models::{Expression, Value, DataDictionary};
 use data_designer_core::db::{DbPool, EmbeddingOperations};
+use reqwest;
+use keyring::Entry;
 
 /// AI Assistant for intelligent DSL development
 #[derive(Clone)]
@@ -70,6 +72,58 @@ pub enum MessageRole {
     User,
     Assistant,
     System,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIResponse {
+    choices: Vec<OpenAIChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChoice {
+    message: OpenAIMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIMessage {
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIRequest {
+    model: String,
+    messages: Vec<OpenAIRequestMessage>,
+    max_tokens: u32,
+    temperature: f32,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIRequestMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicContent {
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicRequest {
+    model: String,
+    max_tokens: u32,
+    messages: Vec<AnthropicRequestMessage>,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicRequestMessage {
+    role: String,
+    content: String,
 }
 
 impl Default for AiAssistant {
@@ -147,18 +201,126 @@ impl AiAssistant {
     async fn get_openai_suggestions(&self, query: &str) -> Result<Vec<AiSuggestion>, Box<dyn std::error::Error>> {
         let prompt = self.build_context_prompt(query);
 
-        // This would be the actual OpenAI API call
-        // For now, return smart offline suggestions
-        Ok(self.get_enhanced_offline_suggestions(query))
+        // Get API key from provider
+        let api_key = match &self.provider {
+            AiProvider::OpenAI { api_key } => {
+                api_key.as_ref().ok_or("No OpenAI API key available")?
+            }
+            _ => return Err("Not using OpenAI provider".into()),
+        };
+
+        // Create HTTP client
+        let client = reqwest::Client::new();
+
+        // Build request
+        let request = OpenAIRequest {
+            model: "gpt-3.5-turbo".to_string(),
+            messages: vec![
+                OpenAIRequestMessage {
+                    role: "system".to_string(),
+                    content: "You are an expert assistant for a financial KYC DSL system. Provide helpful code suggestions in JSON format.".to_string(),
+                },
+                OpenAIRequestMessage {
+                    role: "user".to_string(),
+                    content: prompt,
+                },
+            ],
+            max_tokens: 1000,
+            temperature: 0.3,
+        };
+
+        // Make API call
+        let response = client
+            .post("https://api.openai.com/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("OpenAI API error: {}", error_text).into());
+        }
+
+        let openai_response: OpenAIResponse = response.json().await?;
+
+        // Parse the response and convert to suggestions
+        let mut suggestions = Vec::new();
+        if let Some(choice) = openai_response.choices.first() {
+            let content = &choice.message.content;
+
+            // Try to parse as structured suggestions, fallback to text parsing
+            suggestions.extend(self.parse_ai_response_to_suggestions(content));
+        }
+
+        // If we got no suggestions from AI, fallback to offline suggestions
+        if suggestions.is_empty() {
+            suggestions = self.get_enhanced_offline_suggestions(query);
+        }
+
+        Ok(suggestions)
     }
 
     /// Anthropic Claude-powered suggestions
     async fn get_anthropic_suggestions(&self, query: &str) -> Result<Vec<AiSuggestion>, Box<dyn std::error::Error>> {
         let prompt = self.build_context_prompt(query);
 
-        // This would be the actual Anthropic API call
-        // For now, return smart offline suggestions
-        Ok(self.get_enhanced_offline_suggestions(query))
+        // Get API key from provider
+        let api_key = match &self.provider {
+            AiProvider::Anthropic { api_key } => {
+                api_key.as_ref().ok_or("No Anthropic API key available")?
+            }
+            _ => return Err("Not using Anthropic provider".into()),
+        };
+
+        // Create HTTP client
+        let client = reqwest::Client::new();
+
+        // Build request
+        let request = AnthropicRequest {
+            model: "claude-3-haiku-20240307".to_string(),
+            max_tokens: 1000,
+            messages: vec![
+                AnthropicRequestMessage {
+                    role: "user".to_string(),
+                    content: prompt,
+                },
+            ],
+        };
+
+        // Make API call
+        let response = client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("Content-Type", "application/json")
+            .header("anthropic-version", "2023-06-01")
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Anthropic API error: {}", error_text).into());
+        }
+
+        let anthropic_response: AnthropicResponse = response.json().await?;
+
+        // Parse the response and convert to suggestions
+        let mut suggestions = Vec::new();
+        if let Some(content) = anthropic_response.content.first() {
+            let text = &content.text;
+
+            // Try to parse as structured suggestions, fallback to text parsing
+            suggestions.extend(self.parse_ai_response_to_suggestions(text));
+        }
+
+        // If we got no suggestions from AI, fallback to offline suggestions
+        if suggestions.is_empty() {
+            suggestions = self.get_enhanced_offline_suggestions(query);
+        }
+
+        Ok(suggestions)
     }
 
     /// Intelligent offline suggestions using pattern matching
@@ -1699,5 +1861,193 @@ impl AiAssistant {
             }
             AiProvider::Offline => "🤖 Offline Mode".to_string(),
         }
+    }
+
+    /// Parse AI response text into structured suggestions
+    fn parse_ai_response_to_suggestions(&self, response_text: &str) -> Vec<AiSuggestion> {
+        let mut suggestions = Vec::new();
+
+        // Try to parse as JSON first
+        if let Ok(json_suggestions) = self.parse_json_suggestions(response_text) {
+            return json_suggestions;
+        }
+
+        // Fallback to text parsing for common patterns
+        let lines: Vec<&str> = response_text.lines().collect();
+        let mut current_suggestion: Option<AiSuggestion> = None;
+
+        for line in lines {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            // Look for suggestion patterns
+            if line.starts_with("1.") || line.starts_with("-") || line.starts_with("*") {
+                // Save previous suggestion
+                if let Some(suggestion) = current_suggestion.take() {
+                    suggestions.push(suggestion);
+                }
+
+                // Start new suggestion
+                let title = line.trim_start_matches("1.")
+                    .trim_start_matches("-")
+                    .trim_start_matches("*")
+                    .trim()
+                    .to_string();
+
+                current_suggestion = Some(AiSuggestion {
+                    suggestion_type: SuggestionType::CodeCompletion,
+                    title: if title.len() > 50 { title[..47].to_string() + "..." } else { title },
+                    description: "AI-generated suggestion".to_string(),
+                    code_snippet: None,
+                    confidence: 0.8,
+                    context_relevance: 0.7,
+                });
+            } else if line.starts_with("```") && line.len() > 3 {
+                // Code block
+                if let Some(ref mut suggestion) = current_suggestion {
+                    // Extract code between backticks
+                    if let Some(code_start) = response_text.find("```") {
+                        if let Some(code_end) = response_text[code_start + 3..].find("```") {
+                            let code = response_text[code_start + 3..code_start + 3 + code_end].trim();
+                            suggestion.code_snippet = Some(code.to_string());
+                        }
+                    }
+                }
+            } else if let Some(ref mut suggestion) = current_suggestion {
+                // Add to description
+                if !suggestion.description.is_empty() && suggestion.description != "AI-generated suggestion" {
+                    suggestion.description.push(' ');
+                }
+                suggestion.description.push_str(line);
+            }
+        }
+
+        // Add final suggestion
+        if let Some(suggestion) = current_suggestion {
+            suggestions.push(suggestion);
+        }
+
+        // If no structured suggestions found, create a generic one
+        if suggestions.is_empty() && !response_text.trim().is_empty() {
+            // Look for code-like patterns in the response
+            if response_text.contains("IF") || response_text.contains("CONCAT") || response_text.contains("==") {
+                suggestions.push(AiSuggestion {
+                    suggestion_type: SuggestionType::CodeCompletion,
+                    title: "AI Suggestion".to_string(),
+                    description: response_text.lines().next().unwrap_or("AI-generated code suggestion").to_string(),
+                    code_snippet: Some(response_text.trim().to_string()),
+                    confidence: 0.7,
+                    context_relevance: 0.6,
+                });
+            } else {
+                suggestions.push(AiSuggestion {
+                    suggestion_type: SuggestionType::Documentation,
+                    title: "AI Guidance".to_string(),
+                    description: if response_text.len() > 100 {
+                        response_text[..97].to_string() + "..."
+                    } else {
+                        response_text.to_string()
+                    },
+                    code_snippet: None,
+                    confidence: 0.6,
+                    context_relevance: 0.5,
+                });
+            }
+        }
+
+        suggestions
+    }
+
+    /// Try to parse JSON-formatted suggestions
+    fn parse_json_suggestions(&self, text: &str) -> Result<Vec<AiSuggestion>, serde_json::Error> {
+        // Look for JSON arrays or objects
+        if let Some(start) = text.find('[') {
+            if let Some(end) = text.rfind(']') {
+                let json_text = &text[start..=end];
+                return serde_json::from_str(json_text);
+            }
+        }
+
+        if let Some(start) = text.find('{') {
+            if let Some(end) = text.rfind('}') {
+                let json_text = &text[start..=end];
+                // Try as single suggestion
+                let suggestion: AiSuggestion = serde_json::from_str(json_text)?;
+                return Ok(vec![suggestion]);
+            }
+        }
+
+        Err(serde_json::from_str::<AiSuggestion>("").unwrap_err())
+    }
+
+    /// Save API key securely to OS keychain
+    pub fn save_api_key_to_keychain(&self, service: &str, api_key: &str) -> Result<(), String> {
+        let entry = Entry::new("data-designer", service)
+            .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
+
+        entry.set_password(api_key)
+            .map_err(|e| format!("Failed to save API key to keychain: {}", e))
+    }
+
+    /// Load API key securely from OS keychain
+    pub fn load_api_key_from_keychain(&self, service: &str) -> Result<String, String> {
+        let entry = Entry::new("data-designer", service)
+            .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
+
+        entry.get_password()
+            .map_err(|e| format!("Failed to load API key from keychain: {}", e))
+    }
+
+    /// Delete API key from OS keychain
+    pub fn delete_api_key_from_keychain(&self, service: &str) -> Result<(), String> {
+        let entry = Entry::new("data-designer", service)
+            .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
+
+        entry.delete_password()
+            .map_err(|e| format!("Failed to delete API key from keychain: {}", e))
+    }
+
+    /// Load API keys from keychain on startup
+    pub fn load_keys_from_keychain(mut self) -> Self {
+        // Try to load OpenAI key
+        if let Ok(openai_key) = self.load_api_key_from_keychain("openai") {
+            if matches!(self.provider, AiProvider::Offline) {
+                self.provider = AiProvider::OpenAI { api_key: Some(openai_key) };
+            } else if let AiProvider::OpenAI { ref mut api_key } = self.provider {
+                *api_key = Some(openai_key);
+            }
+        }
+
+        // Try to load Anthropic key
+        if let Ok(anthropic_key) = self.load_api_key_from_keychain("anthropic") {
+            if matches!(self.provider, AiProvider::Offline) {
+                self.provider = AiProvider::Anthropic { api_key: Some(anthropic_key) };
+            } else if let AiProvider::Anthropic { ref mut api_key } = self.provider {
+                *api_key = Some(anthropic_key);
+            }
+        }
+
+        self
+    }
+
+    /// Set API key and save to keychain
+    pub fn set_and_save_api_key(&mut self, provider_type: &str, api_key: String) -> Result<(), String> {
+        // Save to keychain first
+        self.save_api_key_to_keychain(provider_type, &api_key)?;
+
+        // Update in-memory provider
+        match provider_type {
+            "openai" => {
+                self.provider = AiProvider::OpenAI { api_key: Some(api_key) };
+            }
+            "anthropic" => {
+                self.provider = AiProvider::Anthropic { api_key: Some(api_key) };
+            }
+            _ => return Err("Unknown provider type".to_string()),
+        }
+
+        Ok(())
     }
 }

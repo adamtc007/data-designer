@@ -1,0 +1,217 @@
+syntax = "proto3";
+
+package financial_taxonomy;
+
+// Import google well-known types
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Core business entities
+message Product {
+    int32 id = 1;
+    string product_id = 2;
+    string product_name = 3;
+    string line_of_business = 4;
+    optional string description = 5;
+    string status = 6;
+    optional string contract_type = 7;
+    optional string commercial_status = 8;
+    optional string pricing_model = 9;
+    optional string target_market = 10;
+}
+
+message ProductOption {
+    int32 id = 1;
+    string option_id = 2;
+    string product_id = 3;
+    string option_name = 4;
+    string option_category = 5;
+    string option_type = 6;
+    optional string option_value = 7;
+    optional string display_name = 8;
+    optional string description = 9;
+    optional double pricing_impact = 10;
+    string status = 11;
+}
+
+message Service {
+    int32 id = 1;
+    string service_id = 2;
+    string service_name = 3;
+    optional string service_category = 4;
+    optional string description = 5;
+    optional string service_type = 6;
+    optional string delivery_model = 7;
+    optional bool billable = 8;
+    string status = 9;
+}
+
+message CbuInvestmentMandateStructure {
+    string cbu_id = 1;
+    string cbu_name = 2;
+    optional string mandate_id = 3;
+    optional string asset_owner_name = 4;
+    optional string investment_manager_name = 5;
+    optional string base_currency = 6;
+    optional int32 total_instruments = 7;
+    optional string families = 8;
+    optional double total_exposure_pct = 9;
+}
+
+message CbuMemberInvestmentRole {
+    string cbu_id = 1;
+    string cbu_name = 2;
+    string entity_name = 3;
+    optional string entity_lei = 4;
+    string role_name = 5;
+    string role_code = 6;
+    string investment_responsibility = 7;
+    optional string mandate_id = 8;
+    optional bool has_trading_authority = 9;
+    optional bool has_settlement_authority = 10;
+}
+
+message TaxonomyHierarchyItem {
+    int32 level = 1;
+    string item_type = 2;
+    int32 item_id = 3;
+    string item_name = 4;
+    optional string item_description = 5;
+    optional int32 parent_id = 6;
+    optional string configuration = 7;
+    optional string metadata = 8;
+}
+
+// AI Assistant related
+message AiSuggestion {
+    string title = 1;
+    string description = 2;
+    string category = 3;
+    double confidence = 4;
+    repeated string applicable_contexts = 5;
+}
+
+message AiProvider {
+    enum ProviderType {
+        OPENAI = 0;
+        ANTHROPIC = 1;
+    }
+    ProviderType provider_type = 1;
+    optional string api_key = 2;
+}
+
+// Request/Response messages
+message GetProductsRequest {
+    optional string status_filter = 1;
+    optional int32 limit = 2;
+    optional int32 offset = 3;
+}
+
+message GetProductsResponse {
+    repeated Product products = 1;
+    int32 total_count = 2;
+}
+
+message GetProductOptionsRequest {
+    optional string product_id = 1;
+    optional string status_filter = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
+message GetProductOptionsResponse {
+    repeated ProductOption product_options = 1;
+    int32 total_count = 2;
+}
+
+message GetServicesRequest {
+    optional string status_filter = 1;
+    optional string service_category = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
+message GetServicesResponse {
+    repeated Service services = 1;
+    int32 total_count = 2;
+}
+
+message GetCbuMandateStructureRequest {
+    optional string cbu_id = 1;
+    optional string mandate_id = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
+message GetCbuMandateStructureResponse {
+    repeated CbuInvestmentMandateStructure structures = 1;
+    int32 total_count = 2;
+}
+
+message GetCbuMemberRolesRequest {
+    optional string cbu_id = 1;
+    optional string role_code = 2;
+    optional int32 limit = 3;
+    optional int32 offset = 4;
+}
+
+message GetCbuMemberRolesResponse {
+    repeated CbuMemberInvestmentRole roles = 1;
+    int32 total_count = 2;
+}
+
+message GetTaxonomyHierarchyRequest {
+    optional int32 max_levels = 1;
+    optional string item_type_filter = 2;
+}
+
+message GetTaxonomyHierarchyResponse {
+    repeated TaxonomyHierarchyItem items = 1;
+}
+
+message GetAiSuggestionsRequest {
+    string query = 1;
+    AiProvider ai_provider = 2;
+    optional string context = 3;
+}
+
+message GetAiSuggestionsResponse {
+    repeated AiSuggestion suggestions = 1;
+    string status_message = 2;
+}
+
+// Health check and status
+message HealthCheckRequest {
+    string service = 1;
+}
+
+message HealthCheckResponse {
+    enum ServingStatus {
+        UNKNOWN = 0;
+        SERVING = 1;
+        NOT_SERVING = 2;
+        SERVICE_UNKNOWN = 3;
+    }
+    ServingStatus status = 1;
+}
+
+// gRPC service definitions
+service FinancialTaxonomyService {
+    // Product operations
+    rpc GetProducts(GetProductsRequest) returns (GetProductsResponse);
+    rpc GetProductOptions(GetProductOptionsRequest) returns (GetProductOptionsResponse);
+    rpc GetServices(GetServicesRequest) returns (GetServicesResponse);
+
+    // CBU and Investment operations
+    rpc GetCbuMandateStructure(GetCbuMandateStructureRequest) returns (GetCbuMandateStructureResponse);
+    rpc GetCbuMemberRoles(GetCbuMemberRolesRequest) returns (GetCbuMemberRolesResponse);
+
+    // Taxonomy hierarchy
+    rpc GetTaxonomyHierarchy(GetTaxonomyHierarchyRequest) returns (GetTaxonomyHierarchyResponse);
+
+    // AI Assistant
+    rpc GetAiSuggestions(GetAiSuggestionsRequest) returns (GetAiSuggestionsResponse);
+
+    // Health check
+    rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+}
