@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use data_designer_core::models::{Expression, Value, DataDictionary};
+use data_designer_core::models::DataDictionary;
 use data_designer_core::db::{DbPool, EmbeddingOperations};
-use reqwest;
 use keyring::Entry;
+
+// Import gRPC client for key management
+use financial_taxonomy_shared_ui::TaxonomyGrpcClient;
 
 /// AI Assistant for intelligent DSL development
 #[derive(Clone)]
@@ -13,6 +15,7 @@ pub struct AiAssistant {
     pub suggestions_cache: HashMap<String, Vec<AiSuggestion>>,
     pub conversation_history: Vec<AiMessage>,
     pub db_pool: Option<DbPool>,
+    pub grpc_client: Option<TaxonomyGrpcClient>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,11 +132,12 @@ struct AnthropicRequestMessage {
 impl Default for AiAssistant {
     fn default() -> Self {
         Self {
-            provider: AiProvider::Offline,
+            provider: AiProvider::Anthropic { api_key: None },
             context: DslContext::default(),
             suggestions_cache: HashMap::new(),
             conversation_history: Vec::new(),
             db_pool: None,
+            grpc_client: None,
         }
     }
 }
@@ -400,7 +404,7 @@ impl AiAssistant {
             });
         }
 
-        if query_lower.contains("error") || self.context.recent_errors.len() > 0 {
+        if query_lower.contains("error") || !self.context.recent_errors.is_empty() {
             suggestions.push(AiSuggestion {
                 suggestion_type: SuggestionType::ErrorFix,
                 title: "Common Syntax Fixes".to_string(),
@@ -578,7 +582,7 @@ impl AiAssistant {
 
         // Suggest available attributes
         for dataset in &dict.datasets {
-            for (attr_name, _) in &dataset.attributes {
+            for attr_name in dataset.attributes.keys() {
                 if attr_name.to_lowercase().contains(&query.to_lowercase()) {
                     suggestions.push(AiSuggestion {
                         suggestion_type: SuggestionType::CodeCompletion,
@@ -723,6 +727,100 @@ impl AiAssistant {
     /// Set database pool for semantic search
     pub fn set_db_pool(&mut self, pool: DbPool) {
         self.db_pool = Some(pool);
+    }
+
+    /// Set gRPC client for key management and load existing API keys
+    pub fn set_grpc_client(&mut self, grpc_client: TaxonomyGrpcClient) {
+        println!("🔑 AI Assistant: Setting gRPC client");
+        self.grpc_client = Some(grpc_client);
+
+        // Try to load existing API keys when gRPC client is set
+        println!("🔑 AI Assistant: Attempting to load existing API keys...");
+        self.try_load_api_keys();
+        println!("🔑 AI Assistant: API key loading attempt complete");
+    }
+
+    /// Try to load API keys from gRPC or keychain into memory
+    pub fn try_load_api_keys(&mut self) {
+        let provider_name = match &self.provider {
+            AiProvider::OpenAI { .. } => "openai",
+            AiProvider::Anthropic { .. } => "anthropic",
+            AiProvider::Offline => {
+                println!("🔑 AI Assistant: Offline provider detected, skipping key loading");
+                return;
+            },
+        };
+
+        println!("🔑 AI Assistant: Loading keys for provider: {}", provider_name);
+
+        // Try loading via gRPC first
+        if let Some(grpc_client) = &self.grpc_client {
+            println!("🔑 AI Assistant: gRPC client available, attempting key retrieval...");
+            let rt = tokio::runtime::Runtime::new();
+            if let Ok(rt) = rt {
+                match rt.block_on(async {
+                    grpc_client.get_api_key(provider_name.to_string(), "data-designer".to_string()).await
+                }) {
+                    Ok(response) => {
+                        println!("🔑 AI Assistant: gRPC response - success: {}, key_exists: {}, key_len: {}",
+                                response.success, response.key_exists, response.api_key.len());
+
+                        if response.success && response.key_exists && !response.api_key.is_empty() {
+                            // Load the API key into the provider
+                            match &mut self.provider {
+                                AiProvider::OpenAI { api_key } if provider_name == "openai" => {
+                                    *api_key = Some(response.api_key);
+                                    println!("✅ Loaded OpenAI API key via gRPC");
+                                }
+                                AiProvider::Anthropic { api_key } if provider_name == "anthropic" => {
+                                    *api_key = Some(response.api_key);
+                                    println!("✅ Loaded Anthropic API key via gRPC");
+                                }
+                                _ => {
+                                    println!("⚠️ AI Assistant: Provider mismatch or unsupported provider");
+                                }
+                            }
+                            return;
+                        } else {
+                            println!("🔑 AI Assistant: gRPC key retrieval failed or key is empty");
+                        }
+                    }
+                    Err(e) => {
+                        println!("❌ AI Assistant: gRPC call failed: {}", e);
+                    }
+                }
+            } else {
+                println!("❌ AI Assistant: Failed to create tokio runtime");
+            }
+        }
+
+        // Fallback to direct keychain access
+        println!("🔑 AI Assistant: Attempting fallback to direct keychain access...");
+        if let Ok(entry) = keyring::Entry::new("data-designer", provider_name) {
+            match entry.get_password() {
+                Ok(api_key) => {
+                    println!("🔑 AI Assistant: Direct keychain access successful, key length: {}", api_key.len());
+                    match &mut self.provider {
+                        AiProvider::OpenAI { api_key: ref mut stored_key } if provider_name == "openai" => {
+                            *stored_key = Some(api_key);
+                            println!("✅ Loaded OpenAI API key via direct keychain");
+                        }
+                        AiProvider::Anthropic { api_key: ref mut stored_key } if provider_name == "anthropic" => {
+                            *stored_key = Some(api_key);
+                            println!("✅ Loaded Anthropic API key via direct keychain");
+                        }
+                        _ => {
+                            println!("⚠️ AI Assistant: Provider mismatch in direct keychain access");
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("❌ AI Assistant: Direct keychain access failed: {}", e);
+                }
+            }
+        } else {
+            println!("❌ AI Assistant: Failed to create keychain entry for {}", provider_name);
+        }
     }
 
     /// Enhanced offline suggestions with semantic search
@@ -1131,7 +1229,7 @@ impl AiAssistant {
     fn is_after_expression(&self, before_cursor: &str) -> bool {
         let trimmed = before_cursor.trim_end();
         trimmed.ends_with(')') ||
-        trimmed.chars().last().map_or(false, |c| c.is_alphanumeric() || c == '_')
+        trimmed.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_')
     }
 
     /// Check if cursor is in function context
@@ -1416,8 +1514,8 @@ impl AiAssistant {
         let mut suggestions = Vec::new();
 
         // CONCAT function errors
-        if dsl_input.contains("CONCAT") {
-            if error_message.contains("argument") || error_message.contains("parameter") {
+        if dsl_input.contains("CONCAT")
+            && (error_message.contains("argument") || error_message.contains("parameter")) {
                 suggestions.push(AiSuggestion {
                     suggestion_type: SuggestionType::QuickFix,
                     title: "Fix CONCAT Usage".to_string(),
@@ -1427,7 +1525,6 @@ impl AiAssistant {
                     context_relevance: 0.9,
                 });
             }
-        }
 
         // IF-THEN-ELSE errors
         if dsl_input.contains("IF") && !dsl_input.contains("THEN") {
@@ -1833,13 +1930,83 @@ impl AiAssistant {
         self
     }
 
-    /// Check if API keys are available
+    /// Check if API keys are available (checks both in-memory and via gRPC/keychain)
     pub fn has_valid_api_key(&self) -> bool {
-        match &self.provider {
-            AiProvider::OpenAI { api_key } => api_key.is_some(),
-            AiProvider::Anthropic { api_key } => api_key.is_some(),
-            AiProvider::Offline => false,
+        println!("🔍 AI Assistant: Checking for valid API key...");
+
+        // First check in-memory keys
+        let has_memory_key = match &self.provider {
+            AiProvider::OpenAI { api_key } => {
+                let has_key = api_key.is_some();
+                println!("🔍 AI Assistant: OpenAI in-memory key check: {}", has_key);
+                has_key
+            },
+            AiProvider::Anthropic { api_key } => {
+                let has_key = api_key.is_some();
+                println!("🔍 AI Assistant: Anthropic in-memory key check: {}", has_key);
+                has_key
+            },
+            AiProvider::Offline => {
+                println!("🔍 AI Assistant: Provider is Offline, no key needed");
+                false
+            },
+        };
+
+        if has_memory_key {
+            println!("✅ AI Assistant: Found valid in-memory API key");
+            return true;
         }
+
+        // If no in-memory key, check via gRPC or keychain
+        let provider_name = match &self.provider {
+            AiProvider::OpenAI { .. } => "openai",
+            AiProvider::Anthropic { .. } => "anthropic",
+            AiProvider::Offline => {
+                println!("🔍 AI Assistant: Offline provider, returning false");
+                return false;
+            },
+        };
+
+        println!("🔍 AI Assistant: No in-memory key for {}, checking via gRPC...", provider_name);
+
+        // Try to load key via gRPC first
+        if let Some(grpc_client) = &self.grpc_client {
+            println!("🔍 AI Assistant: gRPC client available, making request...");
+            // Use blocking runtime check for synchronous method
+            let rt = tokio::runtime::Runtime::new();
+            if let Ok(rt) = rt {
+                if let Ok(response) = rt.block_on(async {
+                    grpc_client.get_api_key(provider_name.to_string(), "data-designer".to_string()).await
+                }) {
+                    let is_valid = response.success && response.key_exists && !response.api_key.is_empty();
+                    println!("🔍 AI Assistant: gRPC response - success: {}, key_exists: {}, is_valid: {}",
+                             response.success, response.key_exists, is_valid);
+                    return is_valid;
+                } else {
+                    println!("❌ AI Assistant: gRPC request failed");
+                }
+            } else {
+                println!("❌ AI Assistant: Failed to create runtime for gRPC call");
+            }
+        } else {
+            println!("❌ AI Assistant: No gRPC client available");
+        }
+
+        println!("🔍 AI Assistant: Falling back to direct keychain check...");
+        // Fallback to direct keychain check
+        if let Ok(entry) = keyring::Entry::new("data-designer", provider_name) {
+            if let Ok(_) = entry.get_password() {
+                println!("✅ AI Assistant: Found key via direct keychain access");
+                return true;
+            } else {
+                println!("❌ AI Assistant: No key found in direct keychain access");
+            }
+        } else {
+            println!("❌ AI Assistant: Failed to create keychain entry");
+        }
+
+        println!("❌ AI Assistant: No valid API key found anywhere");
+        false
     }
 
     /// Get the current provider status
@@ -1982,8 +2149,25 @@ impl AiAssistant {
         Err(serde_json::from_str::<AiSuggestion>("").unwrap_err())
     }
 
-    /// Save API key securely to OS keychain
-    pub fn save_api_key_to_keychain(&self, service: &str, api_key: &str) -> Result<(), String> {
+    /// Save API key securely via gRPC service (with fallback to direct keychain)
+    pub async fn save_api_key_to_keychain(&self, service: &str, api_key: &str) -> Result<(), String> {
+        if let Some(grpc_client) = &self.grpc_client {
+            // Use gRPC client for key storage
+            match grpc_client.store_api_key(service.to_string(), api_key.to_string(), "data-designer".to_string()).await {
+                Ok(response) => {
+                    if response.success {
+                        return Ok(());
+                    } else {
+                        return Err(response.message);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("gRPC store_api_key failed: {}, falling back to direct keychain", e);
+                }
+            }
+        }
+
+        // Fallback to direct keychain access
         let entry = Entry::new("data-designer", service)
             .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
 
@@ -1991,8 +2175,27 @@ impl AiAssistant {
             .map_err(|e| format!("Failed to save API key to keychain: {}", e))
     }
 
-    /// Load API key securely from OS keychain
-    pub fn load_api_key_from_keychain(&self, service: &str) -> Result<String, String> {
+    /// Load API key securely via gRPC service (with fallback to direct keychain)
+    pub async fn load_api_key_from_keychain(&self, service: &str) -> Result<String, String> {
+        if let Some(grpc_client) = &self.grpc_client {
+            // Use gRPC client for key retrieval
+            match grpc_client.get_api_key(service.to_string(), "data-designer".to_string()).await {
+                Ok(response) => {
+                    if response.success && response.key_exists {
+                        return Ok(response.api_key);
+                    } else if !response.key_exists {
+                        return Err("No API key found".to_string());
+                    } else {
+                        return Err(response.message);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("gRPC get_api_key failed: {}, falling back to direct keychain", e);
+                }
+            }
+        }
+
+        // Fallback to direct keychain access
         let entry = Entry::new("data-designer", service)
             .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
 
@@ -2000,8 +2203,25 @@ impl AiAssistant {
             .map_err(|e| format!("Failed to load API key from keychain: {}", e))
     }
 
-    /// Delete API key from OS keychain
-    pub fn delete_api_key_from_keychain(&self, service: &str) -> Result<(), String> {
+    /// Delete API key via gRPC service (with fallback to direct keychain)
+    pub async fn delete_api_key_from_keychain(&self, service: &str) -> Result<(), String> {
+        if let Some(grpc_client) = &self.grpc_client {
+            // Use gRPC client for key deletion
+            match grpc_client.delete_api_key(service.to_string(), "data-designer".to_string()).await {
+                Ok(response) => {
+                    if response.success {
+                        return Ok(());
+                    } else {
+                        return Err(response.message);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("gRPC delete_api_key failed: {}, falling back to direct keychain", e);
+                }
+            }
+        }
+
+        // Fallback to direct keychain access
         let entry = Entry::new("data-designer", service)
             .map_err(|e| format!("Failed to create keychain entry: {}", e))?;
 
@@ -2009,10 +2229,10 @@ impl AiAssistant {
             .map_err(|e| format!("Failed to delete API key from keychain: {}", e))
     }
 
-    /// Load API keys from keychain on startup
-    pub fn load_keys_from_keychain(mut self) -> Self {
+    /// Load API keys from keychain on startup (async)
+    pub async fn load_keys_from_keychain(mut self) -> Self {
         // Try to load OpenAI key
-        if let Ok(openai_key) = self.load_api_key_from_keychain("openai") {
+        if let Ok(openai_key) = self.load_api_key_from_keychain("openai").await {
             if matches!(self.provider, AiProvider::Offline) {
                 self.provider = AiProvider::OpenAI { api_key: Some(openai_key) };
             } else if let AiProvider::OpenAI { ref mut api_key } = self.provider {
@@ -2021,7 +2241,7 @@ impl AiAssistant {
         }
 
         // Try to load Anthropic key
-        if let Ok(anthropic_key) = self.load_api_key_from_keychain("anthropic") {
+        if let Ok(anthropic_key) = self.load_api_key_from_keychain("anthropic").await {
             if matches!(self.provider, AiProvider::Offline) {
                 self.provider = AiProvider::Anthropic { api_key: Some(anthropic_key) };
             } else if let AiProvider::Anthropic { ref mut api_key } = self.provider {
@@ -2032,10 +2252,10 @@ impl AiAssistant {
         self
     }
 
-    /// Set API key and save to keychain
-    pub fn set_and_save_api_key(&mut self, provider_type: &str, api_key: String) -> Result<(), String> {
-        // Save to keychain first
-        self.save_api_key_to_keychain(provider_type, &api_key)?;
+    /// Set API key and save to keychain (async)
+    pub async fn set_and_save_api_key(&mut self, provider_type: &str, api_key: String) -> Result<(), String> {
+        // Save to keychain first (now async)
+        self.save_api_key_to_keychain(provider_type, &api_key).await?;
 
         // Update in-memory provider
         match provider_type {

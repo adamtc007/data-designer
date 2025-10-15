@@ -194,7 +194,7 @@ impl DslCodeEditor {
                     column += 1;
                     let mut escaped = false;
 
-                    while let Some((_, c)) = chars.next() {
+                    for (_, c) in chars.by_ref() {
                         string_content.push(c);
                         column += 1;
 
@@ -228,7 +228,7 @@ impl DslCodeEditor {
                     let mut string_content = String::from("'");
                     column += 1;
 
-                    while let Some((_, c)) = chars.next() {
+                    for (_, c) in chars.by_ref() {
                         string_content.push(c);
                         column += 1;
                         if c == '\'' { break; }
@@ -821,7 +821,7 @@ impl DslCodeEditor {
         // Group tokens by line for proper rendering
         let mut lines: HashMap<usize, Vec<&Token>> = HashMap::new();
         for token in tokens {
-            lines.entry(token.line).or_insert_with(Vec::new).push(token);
+            lines.entry(token.line).or_default().push(token);
         }
 
         let line_count = self.text.lines().count().max(1);

@@ -9,17 +9,7 @@ mod code_editor;
 use code_editor::{DslCodeEditor, DslLanguage};
 
 mod ai_assistant;
-use ai_assistant::{AiAssistant, SuggestionType};
-
-// Import shared UI components and gRPC client
-use financial_taxonomy_shared_ui::{
-    TaxonomyGrpcClient,
-    Product as GrpcProduct, ProductOption as GrpcProductOption, Service as GrpcService,
-    CbuInvestmentMandateStructure as GrpcCbuInvestmentMandateStructure,
-    CbuMemberInvestmentRole as GrpcCbuMemberInvestmentRole,
-    TaxonomyHierarchyItem as GrpcTaxonomyHierarchyItem,
-    AiSuggestion as GrpcAiSuggestion, AiProvider as GrpcAiProvider
-};
+use ai_assistant::{AiAssistant, AiProvider, AiSuggestion, SuggestionType};
 use data_designer_core::{parser, evaluator, models::{Value, DataDictionary, ViewerState}, transpiler::{Transpiler, TranspilerOptions, TargetLanguage, DslTranspiler, DslRule, TranspileError}};
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
@@ -29,104 +19,24 @@ use rust_decimal::prelude::*;
 use sqlx::Row;
 use regex::Regex;
 
-// Import the ProviderType enum from generated code
-use financial_taxonomy_shared_ui::ai_provider::ProviderType;
-
-// Extended provider enum to handle offline mode
-#[derive(Debug, Clone, PartialEq)]
-pub enum ExtendedAiProvider {
-    Grpc(ProviderType),
-    Offline,
-}
-
-impl ExtendedAiProvider {
-    fn to_grpc(&self) -> Option<GrpcAiProvider> {
-        match self {
-            ExtendedAiProvider::Grpc(provider_type) => Some(GrpcAiProvider {
-                provider_type: *provider_type as i32,
-                api_key: None,
-            }),
-            ExtendedAiProvider::Offline => None,
-        }
-    }
-
-    fn from_grpc(provider: GrpcAiProvider) -> Self {
-        let provider_type = match provider.provider_type {
-            0 => ProviderType::Openai,
-            1 => ProviderType::Anthropic,
-            _ => ProviderType::Openai, // Default fallback
-        };
-        ExtendedAiProvider::Grpc(provider_type)
-    }
-
-    fn display_name(&self) -> &str {
-        match self {
-            ExtendedAiProvider::Grpc(ProviderType::Openai) => "🔮 OpenAI",
-            ExtendedAiProvider::Grpc(ProviderType::Anthropic) => "🧠 Anthropic",
-            ExtendedAiProvider::Offline => "🔒 Offline",
-        }
-    }
-}
-
-// Conversion functions between local and gRPC types
-impl From<ai_assistant::AiSuggestion> for GrpcAiSuggestion {
-    fn from(local: ai_assistant::AiSuggestion) -> Self {
-        GrpcAiSuggestion {
-            title: local.title,
-            description: local.description,
-            category: format!("{:?}", local.suggestion_type), // Convert enum to string
-            confidence: local.confidence as f64,
-            applicable_contexts: local.code_snippet.map(|s| vec![s]).unwrap_or_default(),
-        }
-    }
-}
-
-impl From<GrpcAiSuggestion> for ai_assistant::AiSuggestion {
-    fn from(grpc: GrpcAiSuggestion) -> Self {
-        ai_assistant::AiSuggestion {
-            suggestion_type: SuggestionType::CodeCompletion, // Default type
-            title: grpc.title,
-            description: grpc.description,
-            code_snippet: grpc.applicable_contexts.first().cloned(),
-            confidence: grpc.confidence as f32,
-            context_relevance: grpc.confidence as f32, // Use confidence as relevance
-        }
-    }
-}
-
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
-    println!("🚀 Starting Data Designer - gRPC Client Edition!");
-    println!("🔌 Connecting to gRPC server...");
+    println!("🚀 Starting Data Designer - Pure Rust Edition!");
+    println!("🔌 Connecting to PostgreSQL database...");
 
-    // Initialize runtime and gRPC client
+    // Initialize database connection
     let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
-
-    // Try to connect to gRPC server first, fallback to direct database if needed
-    let (grpc_client, pool) = rt.block_on(async {
-        // Try gRPC connection first
-        match TaxonomyGrpcClient::new("http://127.0.0.1:50051").await {
-            Ok(client) => {
-                println!("✅ gRPC client connected successfully");
-                (Some(client), None)
+    let pool = rt.block_on(async {
+        match init_db().await {
+            Ok(pool) => {
+                println!("✅ Database connected successfully");
+                Some(pool)
             }
             Err(e) => {
-                eprintln!("❌ gRPC connection failed: {}", e);
-                eprintln!("   Falling back to direct database connection...");
-
-                // Fallback to direct database connection
-                match init_db().await {
-                    Ok(pool) => {
-                        println!("✅ Database connected successfully (fallback mode)");
-                        (None, Some(pool))
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Database connection also failed: {}", e);
-                        eprintln!("   Continuing with offline mode...");
-                        (None, None)
-                    }
-                }
+                eprintln!("❌ Database connection failed: {}", e);
+                eprintln!("   Continuing with offline mode...");
+                None
             }
         }
     });
@@ -139,18 +49,17 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Data Designer - gRPC Client + Database",
+        "Data Designer - Pure Rust + Database",
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(DataDesignerApp::new(grpc_client, pool, rt)))
+            Ok(Box::new(DataDesignerApp::new(pool, rt)))
         }),
     )
 }
 
 struct DataDesignerApp {
     current_tab: Tab,
-    grpc_client: Option<TaxonomyGrpcClient>,
     db_pool: Option<DbPool>,
     runtime: Arc<Runtime>,
 
@@ -214,8 +123,7 @@ struct DataDesignerApp {
     multi_rule_mode: bool,
     // AI Assistant
     ai_assistant: AiAssistant,
-    ai_provider_ui: ExtendedAiProvider, // UI state for provider selection
-    ai_suggestions: Vec<GrpcAiSuggestion>,
+    ai_suggestions: Vec<AiSuggestion>,
     ai_query: String,
     show_ai_panel: bool,
     ai_loading: bool,
@@ -266,18 +174,18 @@ struct DataDesignerApp {
     expanded_cbus: std::collections::HashSet<String>, // Set of expanded CBU IDs
     cbu_members: std::collections::HashMap<String, Vec<CbuMemberDetail>>, // CBU ID -> Members
 
-    // Taxonomy Data (using gRPC types)
-    products: Vec<GrpcProduct>,
-    product_options: Vec<GrpcProductOption>,
-    services: Vec<GrpcService>,
+    // Taxonomy Data
+    products: Vec<Product>,
+    product_options: Vec<ProductOption>,
+    services: Vec<Service>,
     resources: Vec<ResourceObject>,
     service_resource_hierarchy: Vec<ServiceResourceHierarchy>,
     investment_mandates: Vec<InvestmentMandate>,
     mandate_instruments: Vec<MandateInstrument>,
     instruction_formats: Vec<InstructionFormat>,
-    cbu_mandate_structure: Vec<GrpcCbuInvestmentMandateStructure>,
-    cbu_member_roles: Vec<GrpcCbuMemberInvestmentRole>,
-    taxonomy_hierarchy: Vec<GrpcTaxonomyHierarchyItem>,
+    cbu_mandate_structure: Vec<CbuInvestmentMandateStructure>,
+    cbu_member_roles: Vec<CbuMemberInvestmentRole>,
+    taxonomy_hierarchy: Vec<TaxonomyHierarchyItem>,
     selected_mandate: Option<String>, // Selected mandate ID for drill-down
 
     // Onboarding Requests - CBU + Product Bundle combinations
@@ -359,7 +267,6 @@ struct SearchPattern {
 
 // White Truffle #4: Enhanced Code Intelligence structures
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct CodeIntelligence {
     last_analysis: Option<std::time::SystemTime>,
     ast_cache: Option<String>, // Cached AST representation
@@ -455,8 +362,8 @@ struct CodeWarning {
 enum WarningCategory {
     Performance,
     Style,
-    BestPractice,
-    PotentialBug,
+    Best_Practice,
+    Potential_Bug,
     Deprecated,
 }
 
@@ -489,7 +396,6 @@ struct HoverInfo {
 // White Truffle #5: Advanced Debugging & Testing Framework Structures
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct DebugSession {
     is_active: bool,
     current_step: usize,
@@ -500,7 +406,6 @@ struct DebugSession {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct ExecutionFrame {
     function_name: String,
     line_number: usize,
@@ -540,7 +445,6 @@ enum ExecutionState {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct VariableInspector {
     variables: std::collections::HashMap<String, DebugValue>,
     watch_expressions: Vec<WatchExpression>,
@@ -548,7 +452,6 @@ struct VariableInspector {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct WatchExpression {
     id: usize,
     expression: String,
@@ -557,7 +460,6 @@ struct WatchExpression {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct TestFramework {
     test_suites: Vec<TestSuite>,
     current_suite: Option<usize>,
@@ -627,7 +529,6 @@ enum DataSource {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct CoverageData {
     total_lines: usize,
     covered_lines: usize,
@@ -637,7 +538,6 @@ struct CoverageData {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct BranchCoverage {
     total_branches: usize,
     covered_branches: usize,
@@ -790,7 +690,6 @@ enum ResourceStatus {
 }
 
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct AttributeAiMetadata {
     semantic_description: String,
     business_examples: Vec<String>,
@@ -829,7 +728,6 @@ enum Cardinality {
 
 // Resource Dictionary Management
 #[derive(Debug, Clone)]
-#[derive(Default)]
 struct ResourceDictionaryManager {
     dictionaries: Vec<ResourceDataDictionary>,
     relationships: Vec<ResourceRelationship>,
@@ -839,7 +737,30 @@ struct ResourceDictionaryManager {
 }
 
 // Default implementations for debugging structures
+impl Default for DebugSession {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            current_step: 0,
+            total_steps: 0,
+            execution_stack: Vec::new(),
+            current_variables: std::collections::HashMap::new(),
+            session_id: None,
+        }
+    }
+}
 
+impl Default for ExecutionFrame {
+    fn default() -> Self {
+        Self {
+            function_name: String::new(),
+            line_number: 0,
+            column: 0,
+            local_variables: std::collections::HashMap::new(),
+            expression: String::new(),
+        }
+    }
+}
 
 impl Default for DebugValue {
     fn default() -> Self {
@@ -872,8 +793,37 @@ impl Default for ExecutionState {
     }
 }
 
+impl Default for VariableInspector {
+    fn default() -> Self {
+        Self {
+            variables: std::collections::HashMap::new(),
+            watch_expressions: Vec::new(),
+            expanded_variables: std::collections::HashSet::new(),
+        }
+    }
+}
 
+impl Default for WatchExpression {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            expression: String::new(),
+            current_value: None,
+            error: None,
+        }
+    }
+}
 
+impl Default for TestFramework {
+    fn default() -> Self {
+        Self {
+            test_suites: Vec::new(),
+            current_suite: None,
+            auto_generate_tests: false,
+            test_data_sets: Vec::new(),
+        }
+    }
+}
 
 impl Default for TestSuite {
     fn default() -> Self {
@@ -942,7 +892,27 @@ impl Default for DataSource {
     }
 }
 
+impl Default for CoverageData {
+    fn default() -> Self {
+        Self {
+            total_lines: 0,
+            covered_lines: 0,
+            line_coverage: std::collections::HashMap::new(),
+            branch_coverage: std::collections::HashMap::new(),
+            function_coverage: std::collections::HashMap::new(),
+        }
+    }
+}
 
+impl Default for BranchCoverage {
+    fn default() -> Self {
+        Self {
+            total_branches: 0,
+            covered_branches: 0,
+            branch_details: Vec::new(),
+        }
+    }
+}
 
 // Default implementations for resource data dictionary structures
 impl Default for ResourceDataDictionary {
@@ -1059,6 +1029,18 @@ impl Default for ResourceStatus {
     }
 }
 
+impl Default for AttributeAiMetadata {
+    fn default() -> Self {
+        Self {
+            semantic_description: String::new(),
+            business_examples: Vec::new(),
+            common_transformations: Vec::new(),
+            related_attributes: Vec::new(),
+            ai_suggestions: Vec::new(),
+            embedding: None,
+        }
+    }
+}
 
 impl Default for ResourceRelationship {
     fn default() -> Self {
@@ -1084,8 +1066,31 @@ impl Default for Cardinality {
     }
 }
 
+impl Default for ResourceDictionaryManager {
+    fn default() -> Self {
+        Self {
+            dictionaries: Vec::new(),
+            relationships: Vec::new(),
+            search_index: std::collections::HashMap::new(),
+            category_index: std::collections::HashMap::new(),
+            attribute_index: std::collections::HashMap::new(),
+        }
+    }
+}
 
 // Default implementations for code intelligence
+impl Default for CodeIntelligence {
+    fn default() -> Self {
+        Self {
+            last_analysis: None,
+            ast_cache: None,
+            syntax_errors: Vec::new(),
+            warnings: Vec::new(),
+            suggestions: Vec::new(),
+            hover_info: None,
+        }
+    }
+}
 
 impl Default for CodeMetrics {
     fn default() -> Self {
@@ -1219,6 +1224,47 @@ impl CommandSuggestion {
 }
 
 // Taxonomy Database Structs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Product {
+    id: i32,
+    product_id: String,
+    product_name: String,
+    line_of_business: String,
+    description: Option<String>,
+    status: String,
+    contract_type: Option<String>,
+    commercial_status: Option<String>,
+    pricing_model: Option<String>,
+    target_market: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProductOption {
+    id: i32,
+    option_id: String,
+    product_id: i32,
+    option_name: String,
+    option_category: String,
+    option_type: String,
+    option_value: serde_json::Value,
+    display_name: Option<String>,
+    description: Option<String>,
+    pricing_impact: Option<rust_decimal::Decimal>,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Service {
+    id: i32,
+    service_id: String,
+    service_name: String,
+    service_category: Option<String>,
+    description: Option<String>,
+    service_type: Option<String>,
+    delivery_model: Option<String>,
+    billable: Option<bool>,
+    status: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct InvestmentMandate {
@@ -1305,7 +1351,32 @@ struct InstructionFormat {
     status: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CbuInvestmentMandateStructure {
+    cbu_id: String,
+    cbu_name: String,
+    mandate_id: Option<String>,
+    asset_owner_name: Option<String>,
+    investment_manager_name: Option<String>,
+    base_currency: Option<String>,
+    total_instruments: Option<i64>,
+    families: Option<String>,
+    total_exposure_pct: Option<rust_decimal::Decimal>,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CbuMemberInvestmentRole {
+    cbu_id: String,
+    cbu_name: String,
+    entity_name: String,
+    entity_lei: Option<String>,
+    role_name: String,
+    role_code: String,
+    investment_responsibility: String,
+    mandate_id: Option<String>,
+    has_trading_authority: Option<bool>,
+    has_settlement_authority: Option<bool>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ResourceObject {
@@ -1352,6 +1423,17 @@ struct ServiceResourceHierarchy {
     dependency_level: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TaxonomyHierarchyItem {
+    level: i32,
+    item_type: String,
+    item_id: i32,
+    item_name: String,
+    item_description: Option<String>,
+    parent_id: Option<i32>,
+    configuration: Option<serde_json::Value>,
+    metadata: Option<serde_json::Value>,
+}
 
 // Syntax highlighting for DSL
 #[derive(Debug, Clone)]
@@ -1414,7 +1496,7 @@ impl SyntaxHighlighter {
                     let mut end = start + 1;
                     let mut escaped = false;
 
-                    for (pos, ch) in chars.by_ref() {
+                    while let Some((pos, ch)) = chars.next() {
                         end = pos + ch.len_utf8();
                         if !escaped && ch == quote {
                             break;
@@ -1435,7 +1517,7 @@ impl SyntaxHighlighter {
                         if *next_ch != '/' && *next_ch != '=' && *next_ch != '*' {
                             // Likely a regex
                             let mut end = start + 1;
-                            for (pos, ch) in chars.by_ref() {
+                            while let Some((pos, ch)) = chars.next() {
                                 end = pos + ch.len_utf8();
                                 if ch == '/' {
                                     break;
@@ -1612,21 +1694,22 @@ impl SyntaxHighlighter {
 }
 
 impl DataDesignerApp {
-    fn new(grpc_client: Option<TaxonomyGrpcClient>, db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
-        let mut ai_assistant = AiAssistant::new();
-
-        // Set gRPC client for AI assistant if available
-        if let Some(ref client) = grpc_client {
-            println!("🔑 Setting gRPC client for AI assistant...");
-            ai_assistant.set_grpc_client(client.clone());
-            println!("🔑 AI assistant gRPC client setup complete");
+    fn new(db_pool: Option<DbPool>, runtime: Arc<Runtime>) -> Self {
+        let ai_assistant = if let Some(ref pool) = db_pool {
+            AiAssistant::new()
+                .with_provider(AiProvider::Offline)
+                .with_env_api_keys()
+                .load_keys_from_keychain()  // Load securely stored keys
+                .with_database(pool.clone())
         } else {
-            println!("⚠️ No gRPC client available for AI assistant");
-        }
+            AiAssistant::new()
+                .with_provider(AiProvider::Offline)
+                .with_env_api_keys()
+                .load_keys_from_keychain()  // Load securely stored keys
+        };
 
         let mut app = Self {
             current_tab: Tab::default(),
-            grpc_client,
             db_pool,
             runtime,
             cbus: Vec::new(),
@@ -1681,7 +1764,6 @@ impl DataDesignerApp {
             multi_rule_mode: false,
 
             ai_assistant,
-            ai_provider_ui: ExtendedAiProvider::Offline, // Default to offline mode
             ai_suggestions: Vec::new(),
             ai_query: String::new(),
             show_ai_panel: true,
@@ -2132,32 +2214,7 @@ impl DataDesignerApp {
 
         ui.horizontal(|ui| {
             ui.label("Database Status:");
-            if let Some(ref mut grpc_client) = self.grpc_client {
-                // Try to get database status via gRPC
-                match self.runtime.block_on(async {
-                    grpc_client.get_database_status().await
-                }) {
-                    Ok(status) => {
-                        if status.connected {
-                            ui.colored_label(egui::Color32::GREEN, format!("✅ Connected: {} ({})", status.database_name, status.host));
-                            ui.label(format!("Tables: {}, Products: {}, Services: {}",
-                                status.total_tables, status.total_products, status.total_services));
-                        } else {
-                            ui.colored_label(egui::Color32::RED, "❌ Database disconnected");
-                            if let Some(error) = &status.error_message {
-                                ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        ui.colored_label(egui::Color32::RED, format!("🔌 gRPC Error: {}", e));
-                        // Fallback to simple pool check
-                        if self.db_pool.is_some() {
-                            ui.colored_label(egui::Color32::YELLOW, "(Local pool available)");
-                        }
-                    }
-                }
-            } else if self.db_pool.is_some() {
+            if self.db_pool.is_some() {
                 ui.colored_label(egui::Color32::GREEN, "✅ Connected to PostgreSQL");
             } else {
                 ui.colored_label(egui::Color32::YELLOW, "⚠️ Offline mode");
@@ -2628,7 +2685,11 @@ impl DataDesignerApp {
 
                         if !nullability_matches {
                             false
-                        } else { !(!self.filter_key && attr.is_key) }
+                        } else if !self.filter_key && attr.is_key {
+                            false
+                        } else {
+                            true
+                        }
                     }
                 };
 
@@ -3206,12 +3267,13 @@ impl DataDesignerApp {
 
                                             // Show filtered attributes
                                             for (attr_name, attr_value) in &dataset.attributes {
-                                                if (self.viewer_state.search_query.is_empty()
-                                                   || attr_name.to_lowercase().contains(&self.viewer_state.search_query.to_lowercase()))
+                                                if self.viewer_state.search_query.is_empty()
+                                                   || attr_name.to_lowercase().contains(&self.viewer_state.search_query.to_lowercase()) {
 
-                                                    && ui.selectable_label(false, format!("🏷️ {}", attr_name)).clicked() {
+                                                    if ui.selectable_label(false, format!("🏷️ {}", attr_name)).clicked() {
                                                         self.viewer_state.selected_dataset = Some(format!("{}.{}", dataset.id, attr_name));
                                                     }
+                                                }
                                             }
                                         });
                                     }
@@ -3563,7 +3625,7 @@ impl DataDesignerApp {
                         if !rule.dependencies.is_empty() {
                             output.push_str(&format!("  Dependencies: {}\n", rule.dependencies.join(", ")));
                         }
-                        output.push('\n');
+                        output.push_str("\n");
                     }
 
                     self.transpiler_output = output;
@@ -3659,40 +3721,22 @@ impl DataDesignerApp {
                 ui.horizontal(|ui| {
                     ui.label("Provider:");
                     egui::ComboBox::from_id_salt("ai_provider")
-                        .selected_text(self.ai_provider_ui.display_name())
+                        .selected_text(&self.ai_assistant.get_provider_status())
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Grpc(ProviderType::Openai), "🔮 OpenAI");
-                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Grpc(ProviderType::Anthropic), "🧠 Anthropic");
-                            ui.selectable_value(&mut self.ai_provider_ui, ExtendedAiProvider::Offline, "🔒 Offline");
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::OpenAI { api_key: None }, "🔮 OpenAI");
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Anthropic { api_key: None }, "🧠 Anthropic");
+                            ui.selectable_value(&mut self.ai_assistant.provider, AiProvider::Offline, "🔒 Offline");
                         });
                 });
 
-                // Sync UI state with ai_assistant provider
-                match (&self.ai_provider_ui, &self.ai_assistant.provider) {
-                    (ExtendedAiProvider::Grpc(ProviderType::Openai), crate::ai_assistant::AiProvider::OpenAI { .. }) |
-                    (ExtendedAiProvider::Grpc(ProviderType::Anthropic), crate::ai_assistant::AiProvider::Anthropic { .. }) |
-                    (ExtendedAiProvider::Offline, crate::ai_assistant::AiProvider::Offline) => {
-                        // Already in sync
-                    }
-                    (ExtendedAiProvider::Grpc(ProviderType::Openai), _) => {
-                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::OpenAI { api_key: None };
-                    }
-                    (ExtendedAiProvider::Grpc(ProviderType::Anthropic), _) => {
-                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::Anthropic { api_key: None };
-                    }
-                    (ExtendedAiProvider::Offline, _) => {
-                        self.ai_assistant.provider = crate::ai_assistant::AiProvider::Offline;
-                    }
-                }
-
                 // API Key input
                 let has_api_key = match &self.ai_assistant.provider {
-                    crate::ai_assistant::AiProvider::OpenAI { api_key } | crate::ai_assistant::AiProvider::Anthropic { api_key } => api_key.is_some(),
-                    crate::ai_assistant::AiProvider::Offline => false,
+                    AiProvider::OpenAI { api_key } | AiProvider::Anthropic { api_key } => api_key.is_some(),
+                    AiProvider::Offline => false,
                 };
 
-                match &self.ai_provider_ui {
-                    ExtendedAiProvider::Grpc(_) => {
+                match &self.ai_assistant.provider {
+                    AiProvider::OpenAI { .. } | AiProvider::Anthropic { .. } => {
                         if has_api_key {
                             // Key exists - show status and management options
                             ui.horizontal(|ui| {
@@ -3705,20 +3749,14 @@ impl DataDesignerApp {
                                 if ui.button("🗑️ Remove").on_hover_text("Delete saved API key").clicked() {
                                     // Delete API key from keychain
                                     let result = match &self.ai_assistant.provider {
-                                        crate::ai_assistant::AiProvider::OpenAI { .. } => {
-                                            let assistant = self.ai_assistant.clone();
-                                            let delete_result = self.runtime.block_on(async {
-                                                assistant.delete_api_key_from_keychain("openai").await
-                                            });
-                                            self.ai_assistant.provider = crate::ai_assistant::AiProvider::OpenAI { api_key: None };
+                                        AiProvider::OpenAI { .. } => {
+                                            let delete_result = self.ai_assistant.delete_api_key_from_keychain("openai");
+                                            self.ai_assistant.provider = AiProvider::OpenAI { api_key: None };
                                             delete_result
                                         }
-                                        crate::ai_assistant::AiProvider::Anthropic { .. } => {
-                                            let assistant = self.ai_assistant.clone();
-                                            let delete_result = self.runtime.block_on(async {
-                                                assistant.delete_api_key_from_keychain("anthropic").await
-                                            });
-                                            self.ai_assistant.provider = crate::ai_assistant::AiProvider::Anthropic { api_key: None };
+                                        AiProvider::Anthropic { .. } => {
+                                            let delete_result = self.ai_assistant.delete_api_key_from_keychain("anthropic");
+                                            self.ai_assistant.provider = AiProvider::Anthropic { api_key: None };
                                             delete_result
                                         }
                                         _ => Err("Unknown provider".to_string())
@@ -3758,25 +3796,11 @@ impl DataDesignerApp {
                                 if ui.button("🔐 Save").clicked() && !self.ai_api_key_input.is_empty() {
                                     // Securely save API key to keychain
                                     let result = match &self.ai_assistant.provider {
-                                        crate::ai_assistant::AiProvider::OpenAI { .. } => {
-                                            let mut assistant = self.ai_assistant.clone();
-                                            let save_result = self.runtime.block_on(async {
-                                                assistant.set_and_save_api_key("openai", self.ai_api_key_input.clone()).await
-                                            });
-                                            if save_result.is_ok() {
-                                                self.ai_assistant.provider = assistant.provider;
-                                            }
-                                            save_result
+                                        AiProvider::OpenAI { .. } => {
+                                            self.ai_assistant.set_and_save_api_key("openai", self.ai_api_key_input.clone())
                                         }
-                                        crate::ai_assistant::AiProvider::Anthropic { .. } => {
-                                            let mut assistant = self.ai_assistant.clone();
-                                            let save_result = self.runtime.block_on(async {
-                                                assistant.set_and_save_api_key("anthropic", self.ai_api_key_input.clone()).await
-                                            });
-                                            if save_result.is_ok() {
-                                                self.ai_assistant.provider = assistant.provider;
-                                            }
-                                            save_result
+                                        AiProvider::Anthropic { .. } => {
+                                            self.ai_assistant.set_and_save_api_key("anthropic", self.ai_api_key_input.clone())
                                         }
                                         _ => Err("Unknown provider".to_string())
                                     };
@@ -3800,7 +3824,7 @@ impl DataDesignerApp {
                             });
                         }
                     }
-                    ExtendedAiProvider::Offline => {
+                    AiProvider::Offline => {
                         ui.colored_label(egui::Color32::GRAY, "🔒 Offline mode - no API key needed");
                     }
                 }
@@ -3876,21 +3900,20 @@ impl DataDesignerApp {
                                     ui.vertical(|ui| {
                                         // Suggestion header
                                         ui.horizontal(|ui| {
-                                            let icon = match suggestion.category.as_str() {
-                                                "CodeCompletion" => "💻",
-                                                "ErrorFix" => "🔧",
-                                                "Optimization" => "⚡",
-                                                "Alternative" => "🔄",
-                                                "Documentation" => "📖",
-                                                "FunctionUsage" => "🔧",
-                                                "BestPractice" => "⭐",
-                                                "SimilarPattern" => "🔍",
-                                                "PatternMatch" => "🎯",
-                                                "AutoComplete" => "🏃",
-                                                "SnippetCompletion" => "📝",
-                                                "ErrorAnalysis" => "🔍",
-                                                "QuickFix" => "⚡",
-                                                _ => "💡", // Default icon
+                                            let icon = match suggestion.suggestion_type {
+                                                SuggestionType::CodeCompletion => "💻",
+                                                SuggestionType::ErrorFix => "🔧",
+                                                SuggestionType::Optimization => "⚡",
+                                                SuggestionType::Alternative => "🔄",
+                                                SuggestionType::Documentation => "📖",
+                                                SuggestionType::FunctionUsage => "🔧",
+                                                SuggestionType::BestPractice => "⭐",
+                                                SuggestionType::SimilarPattern => "🔍",
+                                                SuggestionType::PatternMatch => "🎯",
+                                                SuggestionType::AutoComplete => "🏃",
+                                                SuggestionType::SnippetCompletion => "📝",
+                                                SuggestionType::ErrorAnalysis => "🔍",
+                                                SuggestionType::QuickFix => "⚡",
                                             };
                                             ui.label(format!("{} {}", icon, suggestion.title));
 
@@ -3905,7 +3928,7 @@ impl DataDesignerApp {
                                         // Suggestion content
                                         ui.label(&suggestion.description);
 
-                                        if let Some(code) = suggestion.applicable_contexts.first() {
+                                        if let Some(code) = &suggestion.code_snippet {
                                             ui.add_space(5.0);
                                             ui.monospace(code);
                                         }
@@ -3955,89 +3978,28 @@ impl DataDesignerApp {
         let query = self.ai_query.clone();
 
         // Check if we have a valid API key and use real API calls
-        if let Some(ref mut grpc_client) = self.grpc_client {
-            if !query.trim().is_empty() {
-                // Use gRPC AI suggestions
-                let rt = &self.runtime;
-
-                // Determine AI provider from current assistant setting
-                let ai_provider = match &self.ai_assistant.provider {
-                    crate::ai_assistant::AiProvider::OpenAI { .. } => GrpcAiProvider {
-                        provider_type: 0, // OpenAI
-                        api_key: None,
-                    },
-                    crate::ai_assistant::AiProvider::Anthropic { .. } => GrpcAiProvider {
-                        provider_type: 1, // Anthropic
-                        api_key: None,
-                    },
-                    _ => GrpcAiProvider {
-                        provider_type: 0, // Default to OpenAI
-                        api_key: None,
-                    },
-                };
-
-                match rt.block_on(async {
-                    grpc_client.get_ai_suggestions(query.clone(), ai_provider).await
-                }) {
-                    Ok(suggestions) if !suggestions.is_empty() => {
-                        self.ai_suggestions = suggestions;
-                        self.status_message = format!("✨ Generated {} AI suggestions via gRPC", self.ai_suggestions.len());
-                    }
-                    Ok(_) => {
-                        // Empty response from gRPC, fallback to offline
-                        let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
-                        let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect();
-                        self.ai_suggestions = suggestions;
-                        self.status_message = "⚠️ Using offline suggestions (gRPC returned empty)".to_string();
-                    }
-                    Err(e) => {
-                        // gRPC failed, fallback to offline
-                        let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
-                        let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect();
-                        self.ai_suggestions = suggestions;
-                        self.status_message = format!("⚠️ Using offline suggestions (gRPC error: {})", e);
-                    }
-                }
-            }
-        } else if self.ai_assistant.has_valid_api_key() && !query.trim().is_empty() {
-            // Fallback to local AI assistant if no gRPC client
+        if self.ai_assistant.has_valid_api_key() && !query.trim().is_empty() {
+            // Use async runtime to call real API
             let rt = &self.runtime;
             let mut ai_assistant = self.ai_assistant.clone();
+
             match rt.block_on(async {
                 ai_assistant.get_suggestions(&query).await
             }) {
                 suggestions if !suggestions.is_empty() => {
-                    let grpc_suggestions: Vec<GrpcAiSuggestion> = suggestions
-                        .into_iter()
-                        .map(|s| s.into())
-                        .collect();
-                    self.ai_suggestions = grpc_suggestions;
-                    self.status_message = format!("✨ Generated {} AI suggestions (local)", self.ai_suggestions.len());
+                    self.ai_suggestions = suggestions;
+                    self.status_message = format!("✨ Generated {} AI suggestions", self.ai_suggestions.len());
                 }
                 _ => {
                     // Fallback to offline suggestions if API fails
-                    let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
-                    let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-                        .into_iter()
-                        .map(|s| s.into())
-                        .collect();
+                    let suggestions = self.ai_assistant.get_offline_suggestions(&query);
                     self.ai_suggestions = suggestions;
                     self.status_message = "⚠️ Using offline suggestions (API unavailable)".to_string();
                 }
             }
         } else {
             // Use offline suggestions when no API key is configured
-            let local_suggestions = self.ai_assistant.get_offline_suggestions(&query);
-            let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-                .into_iter()
-                .map(|s| s.into())
-                .collect();
+            let suggestions = self.ai_assistant.get_offline_suggestions(&query);
             self.ai_suggestions = suggestions;
 
             if !self.ai_assistant.has_valid_api_key() {
@@ -4089,11 +4051,8 @@ impl DataDesignerApp {
 
         // Mix completion suggestions with existing suggestions for the side panel
         if !completions.is_empty() {
-            // Convert local completions to gRPC format
-            let mut mixed_suggestions: Vec<GrpcAiSuggestion> = completions
-                .into_iter()
-                .map(|s| s.into())
-                .collect();
+            // Keep existing suggestions but prioritize completions
+            let mut mixed_suggestions = completions;
 
             // Add some existing suggestions if we have room
             for suggestion in &self.ai_suggestions {
@@ -4163,10 +4122,11 @@ impl DataDesignerApp {
 
     fn apply_ai_suggestion(&mut self, suggestion_index: usize) {
         if let Some(suggestion) = self.ai_suggestions.get(suggestion_index) {
-            match suggestion.category.as_str() {
-                "CodeCompletion" | "Alternative" | "AutoComplete" | "SnippetCompletion" => {
+            match suggestion.suggestion_type {
+                SuggestionType::CodeCompletion | SuggestionType::Alternative |
+                SuggestionType::AutoComplete | SuggestionType::SnippetCompletion => {
                     // Replace current input with suggested code
-                    if let Some(code) = suggestion.applicable_contexts.first() {
+                    if let Some(code) = &suggestion.code_snippet {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
 
@@ -4174,21 +4134,21 @@ impl DataDesignerApp {
                         self.transpile_expression();
                     }
                 }
-                "ErrorFix" | "QuickFix" => {
+                SuggestionType::ErrorFix | SuggestionType::QuickFix => {
                     // Apply the fix to current input
-                    if let Some(code) = suggestion.applicable_contexts.first() {
+                    if let Some(code) = &suggestion.code_snippet {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
                         self.transpile_expression();
                     }
                 }
-                "ErrorAnalysis" => {
+                SuggestionType::ErrorAnalysis => {
                     // For error analysis, just display the information
                     // The analysis text is already shown in the UI
                 }
-                "Optimization" => {
+                SuggestionType::Optimization => {
                     // Apply optimization and retranspile
-                    if let Some(code) = suggestion.applicable_contexts.first() {
+                    if let Some(code) = &suggestion.code_snippet {
                         self.transpiler_input = code.clone();
                         self.dsl_editor.text = code.clone();
                         self.optimization_enabled = true; // Enable optimizations
@@ -4208,7 +4168,7 @@ impl DataDesignerApp {
 
         // Add error analysis suggestions to the AI suggestions list
         for suggestion in suggestions {
-            self.ai_suggestions.push(suggestion.into());
+            self.ai_suggestions.push(suggestion);
         }
 
         // Ensure AI panel is visible
@@ -4423,10 +4383,12 @@ impl DataDesignerApp {
                                     if ui.checkbox(billable, "").changed() {
                                         self.pending_changes = true;
                                     }
-                                } else if *billable {
-                                    ui.colored_label(egui::Color32::GREEN, "✅ Yes");
                                 } else {
-                                    ui.colored_label(egui::Color32::GRAY, "❌ No");
+                                    if *billable {
+                                        ui.colored_label(egui::Color32::GREEN, "✅ Yes");
+                                    } else {
+                                        ui.colored_label(egui::Color32::GRAY, "❌ No");
+                                    }
                                 }
                             });
                         }
@@ -4501,7 +4463,7 @@ impl DataDesignerApp {
                 let mut services: std::collections::HashMap<String, Vec<&ServiceResourceHierarchy>> = std::collections::HashMap::new();
                 for hierarchy_item in &self.service_resource_hierarchy {
                     services.entry(hierarchy_item.service_name.clone())
-                        .or_default()
+                        .or_insert_with(Vec::new)
                         .push(hierarchy_item);
                 }
 
@@ -4631,7 +4593,7 @@ impl DataDesignerApp {
                         .bind(&service.service_name)
                         .bind(&service.service_type)
                         .bind(&service.delivery_model)
-                        .bind(service.billable)
+                        .bind(&service.billable)
                         .bind(service.id)
                         .execute(&pool)
                         .await
@@ -4675,9 +4637,9 @@ impl DataDesignerApp {
         }
 
         // Group CBU data with multiple entities (stable grouping to prevent strobing)
-        let mut cbu_groups: std::collections::HashMap<String, Vec<&GrpcCbuInvestmentMandateStructure>> = std::collections::HashMap::new();
+        let mut cbu_groups: std::collections::HashMap<String, Vec<&crate::CbuInvestmentMandateStructure>> = std::collections::HashMap::new();
         for structure in &self.cbu_mandate_structure {
-            cbu_groups.entry(structure.cbu_id.clone()).or_default().push(structure);
+            cbu_groups.entry(structure.cbu_id.clone()).or_insert_with(Vec::new).push(structure);
         }
 
         // Early return if no data to prevent empty UI loops
@@ -4696,7 +4658,7 @@ impl DataDesignerApp {
             cbu_list.sort_by(|a, b| a.0.cmp(b.0)); // Sort by CBU ID
 
             for (cbu_id, structures) in cbu_list {
-                let is_expanded = self.expanded_cbus.contains(cbu_id as &str);
+                let is_expanded = self.expanded_cbus.contains(cbu_id);
 
                 ui.push_id(cbu_id, |ui| {
                     // CBU header with entity count
@@ -4838,9 +4800,9 @@ impl DataDesignerApp {
                                 ui.label("No specific member roles found for this CBU.");
                             } else {
                                 // Group roles by entity (stable grouping to prevent strobing)
-                                let mut role_groups: std::collections::HashMap<String, Vec<&GrpcCbuMemberInvestmentRole>> = std::collections::HashMap::new();
+                                let mut role_groups: std::collections::HashMap<String, Vec<&crate::CbuMemberInvestmentRole>> = std::collections::HashMap::new();
                                 for role in cbu_roles {
-                                    role_groups.entry(role.entity_name.clone()).or_default().push(role);
+                                    role_groups.entry(role.entity_name.clone()).or_insert_with(Vec::new).push(role);
                                 }
 
                                 // Create a sorted vector to ensure stable ordering for entities
@@ -4934,84 +4896,24 @@ impl DataDesignerApp {
         }
     }
 
-    // gRPC/Database Loading Methods
+    // Database Loading Methods
     fn load_product_taxonomy(&mut self) {
-        // Try gRPC first, fallback to direct database
-        if self.grpc_client.is_some() {
-            let rt = self.runtime.clone();
-            let mut grpc_success = false;
-
-            // Load products via gRPC
-            if let Some(ref mut grpc_client) = self.grpc_client {
-                match rt.block_on(async {
-                    grpc_client.get_products(Some("active".to_string())).await
-                }) {
-                    Ok(products) => {
-                        self.products = products;
-                        self.status_message = format!("✅ Loaded {} products via gRPC", self.products.len());
-                        grpc_success = true;
-                    }
-                    Err(e) => {
-                        self.status_message = format!("❌ gRPC error loading products: {}", e);
-                    }
-                }
-            }
-
-            // If gRPC failed, load mock data
-            if !grpc_success {
-                self.load_mock_product_taxonomy();
-                return;
-            }
-
-            // Load product options via gRPC
-            if let Some(ref mut grpc_client) = self.grpc_client {
-                match rt.block_on(async {
-                    grpc_client.get_product_options(None).await
-                }) {
-                    Ok(options) => {
-                        self.product_options = options;
-                        self.status_message = format!("✅ Loaded {} product options via gRPC", self.product_options.len());
-                    }
-                    Err(e) => {
-                        eprintln!("Error loading product options via gRPC: {}", e);
-                        self.status_message = format!("❌ gRPC error loading product options: {}", e);
-                    }
-                }
-            }
-
-            // Load services via gRPC
-            if let Some(ref mut grpc_client) = self.grpc_client {
-                match rt.block_on(async {
-                    grpc_client.get_services(None).await
-                }) {
-                    Ok(services) => {
-                        self.services = services;
-                        self.status_message = format!("✅ Loaded {} services via gRPC", self.services.len());
-                    }
-                    Err(e) => {
-                        eprintln!("Error loading services via gRPC: {}", e);
-                        self.status_message = format!("❌ gRPC error loading services: {}", e);
-                    }
-                }
-            }
-
-            // Note: Resources and service-resource hierarchy are not yet available via gRPC
-            // They are loaded via database fallback if needed
-        } else if let Some(ref pool) = self.db_pool {
-            // Fallback to database if gRPC is not available
+        if let Some(ref pool) = self.db_pool {
             let pool = pool.clone();
             let rt = self.runtime.clone();
 
-            // Load from database using existing logic
+            // Load products
             match rt.block_on(async {
-                sqlx::query("SELECT product_id, product_name, line_of_business, description, status FROM products WHERE status = 'active' ORDER BY product_name")
-                    .fetch_all(&pool)
-                    .await
+                sqlx::query(
+                    "SELECT id, product_id, product_name, line_of_business, description, status,
+                     contract_type, commercial_status, pricing_model, target_market
+                     FROM products WHERE status = 'active' ORDER BY product_name")
+                .fetch_all(&pool)
+                .await
             }) {
                 Ok(rows) => {
-                    // Convert to gRPC types for consistency
-                    self.products = rows.into_iter().map(|row| GrpcProduct {
-                        id: row.try_get::<i32, _>("id").unwrap_or(0),
+                    self.products = rows.into_iter().map(|row| Product {
+                        id: row.get("id"),
                         product_id: row.get("product_id"),
                         product_name: row.get("product_name"),
                         line_of_business: row.get("line_of_business"),
@@ -5022,63 +4924,259 @@ impl DataDesignerApp {
                         pricing_model: row.get("pricing_model"),
                         target_market: row.get("target_market"),
                     }).collect();
-                    self.status_message = format!("✅ Loaded {} products via database fallback", self.products.len());
+                    self.status_message = format!("Loaded {} products", self.products.len());
                 }
                 Err(e) => {
-                    eprintln!("Database fallback failed: {}", e);
+                    // Load mock data if database query fails
                     self.load_mock_product_taxonomy();
-                    self.status_message = "❌ Using mock data".to_string();
+                    self.status_message = format!("Database error, loaded mock data: {}", e);
+                }
+            }
+
+            // Load product options
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, option_id, product_id, option_name, option_category, option_type,
+                     option_value, display_name, description, pricing_impact, status
+                     FROM product_options WHERE status = 'active' ORDER BY option_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.product_options = rows.into_iter().map(|row| ProductOption {
+                        id: row.get("id"),
+                        option_id: row.get("option_id"),
+                        product_id: row.get("product_id"),
+                        option_name: row.get("option_name"),
+                        option_category: row.get("option_category"),
+                        option_type: row.get("option_type"),
+                        option_value: row.get("option_value"),
+                        display_name: row.get("display_name"),
+                        description: row.get("description"),
+                        pricing_impact: row.get("pricing_impact"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading product options: {}", e);
+                    // Load mock options if database fails
+                    if self.product_options.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
+                }
+            }
+
+            // Load services
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, service_id, service_name, service_category, description,
+                     service_type, delivery_model, billable, status
+                     FROM services WHERE status = 'active' ORDER BY service_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.services = rows.into_iter().map(|row| Service {
+                        id: row.get("id"),
+                        service_id: row.get("service_id"),
+                        service_name: row.get("service_name"),
+                        service_category: row.get("service_category"),
+                        description: row.get("description"),
+                        service_type: row.get("service_type"),
+                        delivery_model: row.get("delivery_model"),
+                        billable: row.get("billable"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading services: {}", e);
+                    // Load mock services if database fails
+                    if self.services.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
+                }
+            }
+
+            // Load resources
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT id, resource_name, description, version, category, resource_type,
+                     criticality_level, operational_status, owner_team, status
+                     FROM resource_objects WHERE status = 'active' ORDER BY resource_name")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.resources = rows.into_iter().map(|row| ResourceObject {
+                        id: row.get("id"),
+                        resource_name: row.get("resource_name"),
+                        description: row.get("description"),
+                        version: row.get("version"),
+                        category: row.get("category"),
+                        resource_type: row.get("resource_type"),
+                        criticality_level: row.get("criticality_level"),
+                        operational_status: row.get("operational_status"),
+                        owner_team: row.get("owner_team"),
+                        status: row.get("status"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading resources: {}", e);
+                    // Load mock resources if database fails
+                    if self.resources.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
+                }
+            }
+
+            // Load service-resource hierarchy
+            match rt.block_on(async {
+                sqlx::query(
+                    "SELECT service_id, service_code, service_name, service_category, service_type,
+                     delivery_model, billable, service_description, service_status,
+                     resource_id, resource_name, resource_description, resource_version,
+                     resource_category, resource_type, criticality_level, operational_status,
+                     owner_team, usage_type, resource_role, cost_allocation_percentage, dependency_level
+                     FROM service_resources_hierarchy ORDER BY service_name, dependency_level")
+                .fetch_all(&pool)
+                .await
+            }) {
+                Ok(rows) => {
+                    self.service_resource_hierarchy = rows.into_iter().map(|row| ServiceResourceHierarchy {
+                        service_id: row.get("service_id"),
+                        service_code: row.get("service_code"),
+                        service_name: row.get("service_name"),
+                        service_category: row.get("service_category"),
+                        service_type: row.get("service_type"),
+                        delivery_model: row.get("delivery_model"),
+                        billable: row.get("billable"),
+                        service_description: row.get("service_description"),
+                        service_status: row.get("service_status"),
+                        resource_id: row.get("resource_id"),
+                        resource_name: row.get("resource_name"),
+                        resource_description: row.get("resource_description"),
+                        resource_version: row.get("resource_version"),
+                        resource_category: row.get("resource_category"),
+                        resource_type: row.get("resource_type"),
+                        criticality_level: row.get("criticality_level"),
+                        operational_status: row.get("operational_status"),
+                        owner_team: row.get("owner_team"),
+                        usage_type: row.get("usage_type"),
+                        resource_role: row.get("resource_role"),
+                        cost_allocation_percentage: row.get("cost_allocation_percentage"),
+                        dependency_level: row.get("dependency_level"),
+                    }).collect();
+                }
+                Err(e) => {
+                    eprintln!("Error loading service-resource hierarchy: {}", e);
+                    // Load mock hierarchy if database fails
+                    if self.service_resource_hierarchy.is_empty() {
+                        self.load_mock_product_taxonomy();
+                    }
                 }
             }
         } else {
-            // No connection available, load mock data
+            // No database connection, load mock data
             self.load_mock_product_taxonomy();
             self.load_mock_investment_mandates();
             self.load_mock_onboarding_requests();
-            self.status_message = "⚠️ No gRPC or database connection, using mock data".to_string();
         }
     }
 
     fn load_investment_mandates(&mut self) {
-        // Try gRPC first, fallback to direct database
-        if let Some(ref mut grpc_client) = self.grpc_client {
+        if let Some(ref pool) = self.db_pool {
+            let pool = pool.clone();
             let rt = self.runtime.clone();
 
-            // Load CBU investment mandate structure via gRPC
+            // Load CBU investment mandate structure
             match rt.block_on(async {
-                grpc_client.get_cbu_mandate_structure().await
+                sqlx::query(
+                    "SELECT cbu_id, cbu_name, mandate_id, asset_owner_name, investment_manager_name,
+                     base_currency, total_instruments, families, total_exposure_pct
+                     FROM cbu_investment_mandate_structure ORDER BY cbu_id")
+                .fetch_all(&pool)
+                .await
             }) {
-                Ok(structures) => {
+                Ok(rows) => {
+                    // Try to map rows and catch any conversion errors
+                    let mut structures = Vec::new();
+                    for row in rows {
+                        match (|| -> Result<CbuInvestmentMandateStructure, Box<dyn std::error::Error>> {
+                            Ok(CbuInvestmentMandateStructure {
+                                cbu_id: row.try_get("cbu_id")?,
+                                cbu_name: row.try_get("cbu_name")?,
+                                mandate_id: row.try_get("mandate_id").ok(),
+                                asset_owner_name: row.try_get("asset_owner_name").ok(),
+                                investment_manager_name: row.try_get("investment_manager_name").ok(),
+                                base_currency: row.try_get("base_currency").ok(),
+                                total_instruments: row.try_get("total_instruments").ok(),
+                                families: row.try_get("families").ok(),
+                                total_exposure_pct: row.try_get("total_exposure_pct").ok(),
+                            })
+                        })() {
+                            Ok(structure) => structures.push(structure),
+                            Err(e) => {
+                                eprintln!("Error converting row to CbuInvestmentMandateStructure: {}", e);
+                                self.status_message = format!("Data conversion error: {}", e);
+                            }
+                        }
+                    }
                     self.cbu_mandate_structure = structures;
-                    self.status_message = format!("✅ Loaded {} CBU mandate structures via gRPC", self.cbu_mandate_structure.len());
+                    self.status_message = format!("Loaded {} CBU mandate structures", self.cbu_mandate_structure.len());
                 }
                 Err(e) => {
-                    eprintln!("Error loading CBU mandate structure via gRPC: {}", e);
-                    self.status_message = format!("❌ gRPC error loading CBU mandate structure: {}", e);
+                    eprintln!("Database query error for CBU mandate structure: {}", e);
+                    self.status_message = format!("Database error, loading mock investment mandates: {}", e);
+                    self.load_mock_investment_mandates();
                 }
             }
 
-            // Load CBU member investment roles via gRPC
+            // Load CBU member investment roles
             match rt.block_on(async {
-                grpc_client.get_cbu_member_roles().await
+                sqlx::query(
+                    "SELECT cbu_id, cbu_name, entity_name, entity_lei, role_name, role_code,
+                     investment_responsibility, mandate_id, has_trading_authority, has_settlement_authority
+                     FROM cbu_member_investment_roles ORDER BY cbu_id, role_code")
+                .fetch_all(&pool)
+                .await
             }) {
-                Ok(roles) => {
+                Ok(rows) => {
+                    // Try to map rows and catch any conversion errors
+                    let mut roles = Vec::new();
+                    for row in rows {
+                        match (|| -> Result<CbuMemberInvestmentRole, Box<dyn std::error::Error>> {
+                            Ok(CbuMemberInvestmentRole {
+                                cbu_id: row.try_get("cbu_id")?,
+                                cbu_name: row.try_get("cbu_name")?,
+                                entity_name: row.try_get("entity_name")?,
+                                entity_lei: row.try_get("entity_lei").ok(),
+                                role_name: row.try_get("role_name")?,
+                                role_code: row.try_get("role_code")?,
+                                investment_responsibility: row.try_get("investment_responsibility")?,
+                                mandate_id: row.try_get("mandate_id").ok(),
+                                has_trading_authority: row.try_get("has_trading_authority").ok(),
+                                has_settlement_authority: row.try_get("has_settlement_authority").ok(),
+                            })
+                        })() {
+                            Ok(role) => roles.push(role),
+                            Err(e) => {
+                                eprintln!("Error converting row to CbuMemberInvestmentRole: {}", e);
+                            }
+                        }
+                    }
                     self.cbu_member_roles = roles;
-                    self.status_message = format!("✅ Loaded {} CBU member roles via gRPC", self.cbu_member_roles.len());
                 }
                 Err(e) => {
-                    eprintln!("Error loading CBU member roles via gRPC: {}", e);
-                    self.status_message = format!("❌ gRPC error loading CBU member roles: {}", e);
+                    eprintln!("Database query error for CBU member roles: {}", e);
                 }
             }
         } else {
-            // No gRPC or database connection available
             self.load_mock_investment_mandates();
-            self.status_message = "⚠️ No gRPC connection, using mock investment mandates".to_string();
         }
     }
 
     fn load_mock_investment_mandates(&mut self) {
+        use std::str::FromStr;
 
         // Mock Investment Mandates - Comprehensive Global Examples
         self.investment_mandates = vec![
@@ -5606,7 +5704,7 @@ impl DataDesignerApp {
         // Enhanced CBU mandate structure with mock data
         self.cbu_mandate_structure = vec![
             // Original 3 CBUs plus expanded global coverage
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 mandate_id: Some("MND-2024-001".to_string()),
@@ -5615,9 +5713,9 @@ impl DataDesignerApp {
                 base_currency: Some("USD".to_string()),
                 total_instruments: Some(3),
                 families: Some("Government Bonds, Corporate Bonds, Money Market".to_string()),
-                total_exposure_pct: Some(100.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 mandate_id: Some("MND-2024-002".to_string()),
@@ -5626,9 +5724,9 @@ impl DataDesignerApp {
                 base_currency: Some("EUR".to_string()),
                 total_instruments: Some(3),
                 families: Some("Equities, Corporate Bonds, Derivatives".to_string()),
-                total_exposure_pct: Some(100.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 mandate_id: Some("MND-2024-003".to_string()),
@@ -5637,10 +5735,10 @@ impl DataDesignerApp {
                 base_currency: Some("AUD".to_string()),
                 total_instruments: Some(2),
                 families: Some("Infrastructure Debt, Real Estate".to_string()),
-                total_exposure_pct: Some(100.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("100.0").unwrap()),
             },
             // New CBU structures for expanded mandates
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-209847".to_string(),
                 cbu_name: "Silicon Valley Innovation Fund".to_string(),
                 mandate_id: Some("MND-2024-004".to_string()),
@@ -5649,9 +5747,9 @@ impl DataDesignerApp {
                 base_currency: Some("USD".to_string()),
                 total_instruments: Some(3),
                 families: Some("Technology Equities, Equity Options, Index Futures".to_string()),
-                total_exposure_pct: Some(200.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("200.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-211563".to_string(),
                 cbu_name: "Latin America Fixed Income".to_string(),
                 mandate_id: Some("MND-2024-005".to_string()),
@@ -5660,9 +5758,9 @@ impl DataDesignerApp {
                 base_currency: Some("BRL".to_string()),
                 total_instruments: Some(2),
                 families: Some("EM Government Bonds, EM Corporate Bonds".to_string()),
-                total_exposure_pct: Some(85.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-213794".to_string(),
                 cbu_name: "Swiss Private Banking".to_string(),
                 mandate_id: Some("MND-2024-006".to_string()),
@@ -5671,9 +5769,9 @@ impl DataDesignerApp {
                 base_currency: Some("CHF".to_string()),
                 total_instruments: Some(3),
                 families: Some("Swiss Government Bonds, Blue Chip Equities, Bank Deposits".to_string()),
-                total_exposure_pct: Some(80.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("80.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-215928".to_string(),
                 cbu_name: "Japan ESG Investment Platform".to_string(),
                 mandate_id: Some("MND-2024-007".to_string()),
@@ -5682,9 +5780,9 @@ impl DataDesignerApp {
                 base_currency: Some("JPY".to_string()),
                 total_instruments: Some(3),
                 families: Some("ESG Equities, Green Bonds, Sustainable REITs".to_string()),
-                total_exposure_pct: Some(95.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("95.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-217456".to_string(),
                 cbu_name: "Middle East Sovereign Diversified".to_string(),
                 mandate_id: Some("MND-2024-008".to_string()),
@@ -5693,9 +5791,9 @@ impl DataDesignerApp {
                 base_currency: Some("QAR".to_string()),
                 total_instruments: Some(3),
                 families: Some("Global Equities, Private Equity, Energy Commodities".to_string()),
-                total_exposure_pct: Some(120.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("120.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-219673".to_string(),
                 cbu_name: "Canadian Real Estate Platform".to_string(),
                 mandate_id: Some("MND-2024-009".to_string()),
@@ -5704,9 +5802,9 @@ impl DataDesignerApp {
                 base_currency: Some("CAD".to_string()),
                 total_instruments: Some(2),
                 families: Some("Canadian REITs, Real Estate Mortgages".to_string()),
-                total_exposure_pct: Some(110.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("110.0").unwrap()),
             },
-            GrpcCbuInvestmentMandateStructure {
+            CbuInvestmentMandateStructure {
                 cbu_id: "CBU-221847".to_string(),
                 cbu_name: "UK Insurance Multi-Asset".to_string(),
                 mandate_id: Some("MND-2024-010".to_string()),
@@ -5715,13 +5813,13 @@ impl DataDesignerApp {
                 base_currency: Some("GBP".to_string()),
                 total_instruments: Some(3),
                 families: Some("UK Gilts, UK Large Cap Equities, Insurance Linked Securities".to_string()),
-                total_exposure_pct: Some(85.0),
+                total_exposure_pct: Some(rust_decimal::Decimal::from_str("85.0").unwrap()),
             },
         ];
 
         // Enhanced CBU member roles with realistic authorities
         self.cbu_member_roles = vec![
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 entity_name: "Singapore Sovereign Wealth Fund".to_string(),
@@ -5733,7 +5831,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-203914".to_string(),
                 cbu_name: "Global Trade Finance Consortium".to_string(),
                 entity_name: "Asian Trade Capital Management".to_string(),
@@ -5745,7 +5843,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(true),
                 has_settlement_authority: Some(true),
             },
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 entity_name: "Nordic Pension Consortium".to_string(),
@@ -5757,7 +5855,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-205816".to_string(),
                 cbu_name: "European Growth Capital".to_string(),
                 entity_name: "European Growth Partners".to_string(),
@@ -5769,7 +5867,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(true),
                 has_settlement_authority: Some(true),
             },
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 entity_name: "Australian Infrastructure Fund".to_string(),
@@ -5781,7 +5879,7 @@ impl DataDesignerApp {
                 has_trading_authority: Some(false),
                 has_settlement_authority: Some(false),
             },
-            GrpcCbuMemberInvestmentRole {
+            CbuMemberInvestmentRole {
                 cbu_id: "CBU-207925".to_string(),
                 cbu_name: "Pacific Infrastructure Partners".to_string(),
                 entity_name: "Pacific Asset Management".to_string(),
@@ -6156,7 +6254,7 @@ impl DataDesignerApp {
                     .bind(&option.option_value)
                     .bind(&option.display_name)
                     .bind(&option.description)
-                    .bind(option.pricing_impact)
+                    .bind(&option.pricing_impact)
                     .bind(&option.status)
                     .execute(&pool)
                     .await?;
@@ -6189,7 +6287,7 @@ impl DataDesignerApp {
                     .bind(&service.description)
                     .bind(&service.service_type)
                     .bind(&service.delivery_model)
-                    .bind(service.billable)
+                    .bind(&service.billable)
                     .bind(&service.status)
                     .execute(&pool)
                     .await?;
@@ -6259,9 +6357,9 @@ impl DataDesignerApp {
                     .bind(&mandate.base_currency)
                     .bind(&mandate.effective_date)
                     .bind(&mandate.expiry_date)
-                    .bind(mandate.gross_exposure_pct)
-                    .bind(mandate.net_exposure_pct)
-                    .bind(mandate.leverage_max)
+                    .bind(&mandate.gross_exposure_pct)
+                    .bind(&mandate.net_exposure_pct)
+                    .bind(&mandate.leverage_max)
                     .execute(&pool)
                     .await?;
                 }
@@ -6291,9 +6389,9 @@ impl DataDesignerApp {
                     .bind(&instrument.instrument_family)
                     .bind(&instrument.subtype)
                     .bind(&instrument.cfi_code)
-                    .bind(instrument.exposure_pct)
-                    .bind(instrument.short_allowed)
-                    .bind(instrument.issuer_max_pct)
+                    .bind(&instrument.exposure_pct)
+                    .bind(&instrument.short_allowed)
+                    .bind(&instrument.issuer_max_pct)
                     .bind(&instrument.rating_floor)
                     .execute(&pool)
                     .await?;
@@ -6351,11 +6449,11 @@ impl DataDesignerApp {
                             .bind(&request.status)
                             .bind(&request.priority)
                             .bind(&request.expected_go_live_date)
-                            .bind(request.estimated_setup_time_days)
+                            .bind(&request.estimated_setup_time_days)
                             .bind(&request.approval_workflow_stage)
                             .bind(&request.assigned_relationship_manager)
-                            .bind(request.estimated_annual_revenue)
-                            .bind(request.complexity_score)
+                            .bind(&request.estimated_annual_revenue)
+                            .bind(&request.complexity_score)
                             .bind(&request.notes)
                             .execute(&pool)
                             .await?;
@@ -6390,7 +6488,7 @@ impl DataDesignerApp {
     fn load_taxonomy_hierarchy(&mut self) {
         // For now, create a sample hierarchy
         self.taxonomy_hierarchy = vec![
-            GrpcTaxonomyHierarchyItem {
+            TaxonomyHierarchyItem {
                 level: 1,
                 item_type: "product".to_string(),
                 item_id: 1,
@@ -6400,7 +6498,7 @@ impl DataDesignerApp {
                 configuration: None,
                 metadata: None,
             },
-            GrpcTaxonomyHierarchyItem {
+            TaxonomyHierarchyItem {
                 level: 2,
                 item_type: "product_option".to_string(),
                 item_id: 2,
@@ -6693,7 +6791,7 @@ impl DataDesignerApp {
     fn load_mock_product_taxonomy(&mut self) {
         // Mock Products
         self.products = vec![
-            GrpcProduct {
+            Product {
                 id: 1,
                 product_id: "ICP-001".to_string(),
                 product_name: "Institutional Custody Plus".to_string(),
@@ -6705,7 +6803,7 @@ impl DataDesignerApp {
                 pricing_model: Some("Asset-based + Transaction fees".to_string()),
                 target_market: Some("Pension Funds, Insurance Companies".to_string()),
             },
-            GrpcProduct {
+            Product {
                 id: 2,
                 product_id: "FAC-002".to_string(),
                 product_name: "Fund Administration Complete".to_string(),
@@ -6717,7 +6815,7 @@ impl DataDesignerApp {
                 pricing_model: Some("Fixed fee + AUM basis points".to_string()),
                 target_market: Some("Mutual Funds, Hedge Funds".to_string()),
             },
-            GrpcProduct {
+            Product {
                 id: 3,
                 product_id: "TSP-003".to_string(),
                 product_name: "Trade Settlement Professional".to_string(),
@@ -6733,63 +6831,63 @@ impl DataDesignerApp {
 
         // Mock Product Options
         self.product_options = vec![
-            GrpcProductOption {
+            ProductOption {
                 id: 1,
                 option_id: "ICP-001-US".to_string(),
-                product_id: "ICP-001".to_string(),
+                product_id: 1, // Fixed: should be i32, not String
                 option_name: "US Market Settlement".to_string(),
                 option_category: "Market Coverage".to_string(),
                 option_type: "required".to_string(),
-                option_value: Some("USD settlements via DTC/NSCC".to_string()),
+                option_value: serde_json::json!("USD settlements via DTC/NSCC"), // Fixed: use serde_json::json!
                 display_name: Some("US Markets".to_string()),
                 description: Some("Settlement and custody for US equities and fixed income".to_string()),
-                pricing_impact: Some(0.05),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.05").unwrap()),
                 status: "active".to_string(),
             },
-            GrpcProductOption {
+            ProductOption {
                 id: 2,
                 option_id: "ICP-001-EMEA".to_string(),
-                product_id: "ICP-001".to_string(),
+                product_id: 1, // Fixed: should be i32
                 option_name: "EMEA Market Settlement".to_string(),
                 option_category: "Market Coverage".to_string(),
                 option_type: "optional".to_string(),
-                option_value: Some("EUR/GBP settlements via Euroclear/Clearstream".to_string()),
+                option_value: serde_json::json!("EUR/GBP settlements via Euroclear/Clearstream"), // Fixed: use serde_json::json!
                 display_name: Some("EMEA Markets".to_string()),
                 description: Some("European and UK market settlement capabilities".to_string()),
-                pricing_impact: Some(0.08),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.08").unwrap()),
                 status: "active".to_string(),
             },
-            GrpcProductOption {
+            ProductOption {
                 id: 3,
                 option_id: "FAC-002-NAV".to_string(),
-                product_id: "ICP-002".to_string(),
+                product_id: 2, // Fixed: should be i32
                 option_name: "Daily NAV Calculation".to_string(),
                 option_category: "Valuation Services".to_string(),
                 option_type: "required".to_string(),
-                option_value: Some("T+1 NAV calculation and distribution".to_string()),
+                option_value: serde_json::json!("T+1 NAV calculation and distribution"), // Fixed: use serde_json::json!
                 display_name: Some("Daily NAV".to_string()),
                 description: Some("Daily net asset value calculation with T+1 delivery".to_string()),
-                pricing_impact: Some(0.03),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.03").unwrap()),
                 status: "active".to_string(),
             },
-            GrpcProductOption {
+            ProductOption {
                 id: 4,
                 option_id: "TSP-003-FIX".to_string(),
-                product_id: "ICP-003".to_string(),
+                product_id: 3, // Fixed: should be i32
                 option_name: "FIX Protocol Support".to_string(),
                 option_category: "Connectivity".to_string(),
                 option_type: "premium".to_string(),
-                option_value: Some("FIX 4.4/5.0 trade messaging".to_string()),
+                option_value: serde_json::json!("FIX 4.4/5.0 trade messaging"), // Fixed: use serde_json::json!
                 display_name: Some("FIX Connectivity".to_string()),
                 description: Some("High-speed FIX protocol for trade execution".to_string()),
-                pricing_impact: Some(0.15),
+                pricing_impact: Some(rust_decimal::Decimal::from_str("0.15").unwrap()),
                 status: "active".to_string(),
             },
         ];
 
         // Mock Services
         self.services = vec![
-            GrpcService {
+            Service {
                 id: 1,
                 service_id: "SVC-CUSTODY".to_string(),
                 service_name: "Enhanced Custody Services".to_string(),
@@ -6800,7 +6898,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            GrpcService {
+            Service {
                 id: 2,
                 service_id: "SVC-SETTLEMENT".to_string(),
                 service_name: "Multi-Market Settlement".to_string(),
@@ -6811,7 +6909,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            GrpcService {
+            Service {
                 id: 3,
                 service_id: "SVC-RECONCILIATION".to_string(),
                 service_name: "Automated Reconciliation".to_string(),
@@ -6822,7 +6920,7 @@ impl DataDesignerApp {
                 billable: Some(false),
                 status: "active".to_string(),
             },
-            GrpcService {
+            Service {
                 id: 4,
                 service_id: "SVC-REPORTING".to_string(),
                 service_name: "Regulatory Reporting".to_string(),
@@ -6833,7 +6931,7 @@ impl DataDesignerApp {
                 billable: Some(true),
                 status: "active".to_string(),
             },
-            GrpcService {
+            Service {
                 id: 5,
                 service_id: "SVC-VALUATION".to_string(),
                 service_name: "Portfolio Valuation".to_string(),
@@ -7473,62 +7571,61 @@ impl DataDesignerApp {
 
         // For now, use the existing suggestion system
         // In a full implementation, this would be an async call
-        let local_suggestions = ai_assistant.get_offline_suggestions(&query);
-
-        // Convert local suggestions to gRPC format
-        let mut all_suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-            .into_iter()
-            .map(|s| s.into())
-            .collect();
+        let suggestions = ai_assistant.get_offline_suggestions(&query);
 
         // Mix with pattern-based suggestions
+        let mut all_suggestions = suggestions;
         all_suggestions.extend(self.get_dsl_generation_suggestions(&query));
 
         self.ai_suggestions = all_suggestions;
     }
 
-    fn get_dsl_generation_suggestions(&self, query: &str) -> Vec<GrpcAiSuggestion> {
+    fn get_dsl_generation_suggestions(&self, query: &str) -> Vec<AiSuggestion> {
         let mut suggestions = Vec::new();
         let query_lower = query.to_lowercase();
 
         // Generate context-aware DSL suggestions
         if query_lower.contains("email") {
-            suggestions.push(GrpcAiSuggestion {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
                 title: "Email Validation Pattern".to_string(),
                 description: "Validate email format and length".to_string(),
-                category: "CodeCompletion".to_string(),
+                code_snippet: Some("IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()),
                 confidence: 0.9,
-                applicable_contexts: vec!["IS_EMAIL(Client.email) AND LENGTH(Client.email) > 5".to_string()],
+                context_relevance: 0.95,
             });
         }
 
         if query_lower.contains("risk") {
-            suggestions.push(GrpcAiSuggestion {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
                 title: "Risk Score Calculation".to_string(),
                 description: "Calculate risk score based on PEP status and country".to_string(),
-                category: "CodeCompletion".to_string(),
+                code_snippet: Some("risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()),
                 confidence: 0.85,
-                applicable_contexts: vec!["risk_score = IF Client.pep_status THEN 50 ELSE 0 + IF LOOKUP(Client.country, \"high_risk_countries\") THEN 30 ELSE 10".to_string()],
+                context_relevance: 0.9,
             });
         }
 
         if query_lower.contains("name") {
-            suggestions.push(GrpcAiSuggestion {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
                 title: "Name Concatenation".to_string(),
                 description: "Combine first and last name fields".to_string(),
-                category: "CodeCompletion".to_string(),
+                code_snippet: Some("full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()),
                 confidence: 0.8,
-                applicable_contexts: vec!["full_name = CONCAT(Client.first_name, \" \", Client.last_name)".to_string()],
+                context_relevance: 0.85,
             });
         }
 
         if query_lower.contains("age") || query_lower.contains("adult") {
-            suggestions.push(GrpcAiSuggestion {
+            suggestions.push(AiSuggestion {
+                suggestion_type: SuggestionType::CodeCompletion,
                 title: "Age Validation".to_string(),
                 description: "Check if person is 18 or older".to_string(),
-                category: "CodeCompletion".to_string(),
+                code_snippet: Some("is_adult = Client.age >= 18".to_string()),
                 confidence: 0.9,
-                applicable_contexts: vec!["is_adult = Client.age >= 18".to_string()],
+                context_relevance: 0.88,
             });
         }
 
@@ -7587,19 +7684,15 @@ impl DataDesignerApp {
     }
 
     fn add_ai_command_suggestions(&mut self, suggestions: &mut Vec<CommandSuggestion>, query: &str) {
-        // Get AI-powered suggestions from the assistant and convert to gRPC format
-        let local_suggestions = self.ai_assistant.get_offline_suggestions(query);
-        let ai_suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-            .into_iter()
-            .map(|s| s.into())
-            .collect();
+        // Get AI-powered suggestions from the assistant
+        let ai_suggestions = self.ai_assistant.get_offline_suggestions(query);
 
         // Convert AI suggestions to command suggestions
         for (i, ai_suggestion) in ai_suggestions.iter().take(3).enumerate() {
-            let command_type = match ai_suggestion.category.as_str() {
-                "CodeCompletion" | "AutoComplete" => CommandType::GenerateDsl,
-                "Alternative" | "Optimization" => CommandType::Template,
-                "SimilarPattern" => CommandType::FindSimilar,
+            let command_type = match ai_suggestion.suggestion_type {
+                SuggestionType::CodeCompletion | SuggestionType::AutoComplete => CommandType::GenerateDsl,
+                SuggestionType::Alternative | SuggestionType::Optimization => CommandType::Template,
+                SuggestionType::SimilarPattern => CommandType::FindSimilar,
                 _ => CommandType::QuickAction,
             };
 
@@ -7613,7 +7706,7 @@ impl DataDesignerApp {
                     &title,
                     &description,
                     &action
-                ).with_confidence(ai_suggestion.confidence as f32)
+                ).with_confidence(ai_suggestion.confidence)
             );
         }
 
@@ -7682,7 +7775,7 @@ impl DataDesignerApp {
         if let Some(ai_suggestions) = Some(&self.ai_suggestions.clone()) {
             if let Some(suggestion) = ai_suggestions.get(index) {
                 // Apply the AI suggestion
-                if let Some(code) = suggestion.applicable_contexts.first() {
+                if let Some(code) = &suggestion.code_snippet {
                     self.dsl_editor.set_text(code.clone());
                     self.transpiler_input = code.clone();
                     self.transpile_expression();
@@ -7774,10 +7867,11 @@ impl DataDesignerApp {
                     if ui.checkbox(&mut self.whole_words_only, "Whole words").clicked() {
                         self.perform_search();
                     }
-                    if ui.checkbox(&mut self.semantic_search_enabled, "AI Enhanced").clicked()
-                        && self.semantic_search_enabled {
+                    if ui.checkbox(&mut self.semantic_search_enabled, "AI Enhanced").clicked() {
+                        if self.semantic_search_enabled {
                             self.generate_ai_search_suggestions();
                         }
+                    }
                 });
 
                 ui.separator();
@@ -7927,7 +8021,7 @@ impl DataDesignerApp {
                     let after_char = line.chars().nth(absolute_pos + query.len());
 
                     let is_word_boundary = |c: Option<char>| {
-                        c.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+                        c.map_or(true, |ch| !ch.is_alphanumeric() && ch != '_')
                     };
 
                     if !is_word_boundary(before_char) || !is_word_boundary(after_char) {
@@ -8063,12 +8157,8 @@ impl DataDesignerApp {
     }
 
     fn perform_semantic_search(&mut self) {
-        // Use AI assistant to perform semantic search and convert to gRPC format
-        let local_suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
-        let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-            .into_iter()
-            .map(|s| s.into())
-            .collect();
+        // Use AI assistant to perform semantic search
+        let suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
 
         // Convert AI suggestions to search results
         self.search_results.clear();
@@ -8079,8 +8169,8 @@ impl DataDesignerApp {
             self.search_results.push(SearchResult {
                 line_number: 0,
                 column_start: 0,
-                column_end: suggestion.applicable_contexts.first().map_or(0, |s| s.len()),
-                matched_text: suggestion.applicable_contexts.first().cloned().unwrap_or_default(),
+                column_end: suggestion.code_snippet.as_ref().map_or(0, |s| s.len()),
+                matched_text: suggestion.code_snippet.clone().unwrap_or_default(),
                 context_before: "AI Suggestion:".to_string(),
                 context_after: suggestion.description.clone(),
                 similarity_score: Some(0.8), // Placeholder score
@@ -8184,14 +8274,10 @@ impl DataDesignerApp {
 
     fn generate_ai_search_suggestions(&mut self) {
         if self.semantic_search_enabled {
-            let local_suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
-            let suggestions: Vec<GrpcAiSuggestion> = local_suggestions
-                .into_iter()
-                .map(|s| s.into())
-                .collect();
+            let suggestions = self.ai_assistant.get_offline_suggestions(&self.find_query);
             self.ai_search_suggestions = suggestions.iter()
                 .take(5)
-                .filter_map(|s| s.applicable_contexts.first().cloned())
+                .filter_map(|s| s.code_snippet.clone())
                 .collect();
         }
     }

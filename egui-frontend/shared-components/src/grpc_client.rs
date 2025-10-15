@@ -179,4 +179,106 @@ impl TaxonomyGrpcClient {
             }
         }
     }
+
+    /// Store API key securely via gRPC server
+    pub async fn store_api_key(&self, provider: String, api_key: String, client_id: String) -> Result<StoreApiKeyResponse> {
+        let mut client = self.client.clone();
+        let request = Request::new(StoreApiKeyRequest {
+            provider,
+            api_key,
+            client_id,
+        });
+
+        match client.store_api_key(request).await {
+            Ok(response) => {
+                let store_response = response.into_inner();
+                info!("Store API key response: success={}, message={}", store_response.success, store_response.message);
+                Ok(store_response)
+            }
+            Err(e) => {
+                error!("Error storing API key: {}", e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Get API key securely via gRPC server
+    pub async fn get_api_key(&self, provider: String, client_id: String) -> Result<GetApiKeyResponse> {
+        let mut client = self.client.clone();
+        let request = Request::new(GetApiKeyRequest {
+            provider,
+            client_id,
+        });
+
+        match client.get_api_key(request).await {
+            Ok(response) => {
+                let get_response = response.into_inner();
+                info!("Get API key response: success={}, key_exists={}", get_response.success, get_response.key_exists);
+                Ok(get_response)
+            }
+            Err(e) => {
+                error!("Error getting API key: {}", e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Delete API key securely via gRPC server
+    pub async fn delete_api_key(&self, provider: String, client_id: String) -> Result<DeleteApiKeyResponse> {
+        let mut client = self.client.clone();
+        let request = Request::new(DeleteApiKeyRequest {
+            provider,
+            client_id,
+        });
+
+        match client.delete_api_key(request).await {
+            Ok(response) => {
+                let delete_response = response.into_inner();
+                info!("Delete API key response: success={}, message={}", delete_response.success, delete_response.message);
+                Ok(delete_response)
+            }
+            Err(e) => {
+                error!("Error deleting API key: {}", e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// List available API keys via gRPC server
+    pub async fn list_api_keys(&self, client_id: String) -> Result<ListApiKeysResponse> {
+        let mut client = self.client.clone();
+        let request = Request::new(ListApiKeysRequest {
+            client_id,
+        });
+
+        match client.list_api_keys(request).await {
+            Ok(response) => {
+                let list_response = response.into_inner();
+                info!("List API keys response: {} providers", list_response.providers.len());
+                Ok(list_response)
+            }
+            Err(e) => {
+                error!("Error listing API keys: {}", e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Get database status via gRPC server
+    pub async fn get_database_status(&self) -> Result<DatabaseStatusResponse> {
+        let mut client = self.client.clone();
+        let request = Request::new(DatabaseStatusRequest {});
+
+        match client.get_database_status(request).await {
+            Ok(response) => {
+                let status_response = response.into_inner();
+                info!("Database status: connected={}, database={}", status_response.connected, status_response.database_name);
+                Ok(status_response)
+            }
+            Err(e) => {
+                error!("Error getting database status: {}", e);
+                Err(e.into())
+            }
+        }
+    }
 }

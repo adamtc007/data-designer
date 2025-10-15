@@ -195,6 +195,70 @@ message HealthCheckResponse {
     ServingStatus status = 1;
 }
 
+// Database status information
+message DatabaseStatusRequest {
+    // Empty request - just check status
+}
+
+message DatabaseStatusResponse {
+    bool connected = 1;
+    string database_name = 2;
+    string host = 3;
+    int32 port = 4;
+    string status_message = 5;
+    google.protobuf.Timestamp last_check = 6;
+    optional string error_message = 7;
+    // Database metrics
+    int32 total_tables = 8;
+    int32 total_products = 9;
+    int32 total_services = 10;
+    int32 total_mandates = 11;
+}
+
+// Secure Key Management
+message StoreApiKeyRequest {
+    string provider = 1; // "openai", "anthropic", etc.
+    string api_key = 2;
+    string client_id = 3; // Optional client identifier
+}
+
+message StoreApiKeyResponse {
+    bool success = 1;
+    string message = 2;
+    string key_id = 3; // Unique identifier for the stored key
+}
+
+message GetApiKeyRequest {
+    string provider = 1;
+    string client_id = 2; // Optional client identifier
+}
+
+message GetApiKeyResponse {
+    bool success = 1;
+    string api_key = 2; // Only returned if authorized
+    string message = 3;
+    bool key_exists = 4;
+}
+
+message DeleteApiKeyRequest {
+    string provider = 1;
+    string client_id = 2; // Optional client identifier
+}
+
+message DeleteApiKeyResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ListApiKeysRequest {
+    string client_id = 1; // Optional client identifier
+}
+
+message ListApiKeysResponse {
+    repeated string providers = 1; // List of providers with stored keys
+    string message = 2;
+}
+
 // gRPC service definitions
 service FinancialTaxonomyService {
     // Product operations
@@ -214,4 +278,13 @@ service FinancialTaxonomyService {
 
     // Health check
     rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+
+    // Database status
+    rpc GetDatabaseStatus(DatabaseStatusRequest) returns (DatabaseStatusResponse);
+
+    // Secure Key Management
+    rpc StoreApiKey(StoreApiKeyRequest) returns (StoreApiKeyResponse);
+    rpc GetApiKey(GetApiKeyRequest) returns (GetApiKeyResponse);
+    rpc DeleteApiKey(DeleteApiKeyRequest) returns (DeleteApiKeyResponse);
+    rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
 }
