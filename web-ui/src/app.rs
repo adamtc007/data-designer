@@ -3,6 +3,7 @@ use crate::{AppRoute, WebRouter, wasm_utils};
 use crate::resource_sheet_ui::ResourceSheetManager;
 use crate::minimal_types::ResourceSheetRecord;
 use crate::http_api_client::DataDesignerHttpClient;
+use crate::grpc_client::{GrpcClient, GetAiSuggestionsRequest, GetAiSuggestionsResponse, AiProviderConfig, AiSuggestion, InstantiateResourceRequest, ExecuteDslRequest};
 
 /// Web version of the Data Designer application
 pub struct DataDesignerWebApp {
@@ -22,12 +23,20 @@ pub struct DataDesignerWebApp {
     grpc_endpoint: String,
     connection_status: ConnectionStatus,
     api_client: Option<DataDesignerHttpClient>,
+    grpc_client: Option<GrpcClient>,
 
     // Template Editor
     template_editor: crate::template_editor::TemplateEditor,
 
     // Debug tools
     show_debug_panel: bool,
+
+    // AI Command Palette
+    show_ai_palette: bool,
+    ai_prompt: String,
+    ai_context: String,
+    ai_loading: bool,
+    ai_response: Option<GetAiSuggestionsResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,11 +58,19 @@ impl DataDesignerWebApp {
             sample_resource_sheets: Vec::new(),
             loading: false,
             error_message: None,
-            grpc_endpoint: "http://localhost:3030".to_string(),
+            grpc_endpoint: "http://localhost:8080".to_string(),
             connection_status: ConnectionStatus::Disconnected,
             api_client: None,
+            grpc_client: Some(GrpcClient::new("http://localhost:50051")),
             template_editor: crate::template_editor::TemplateEditor::new(),
             show_debug_panel: false,
+
+            // AI Command Palette
+            show_ai_palette: false,
+            ai_prompt: String::new(),
+            ai_context: "general".to_string(),
+            ai_loading: false,
+            ai_response: None,
         };
 
         // Load sample data
@@ -299,8 +316,375 @@ impl DataDesignerWebApp {
             if ui.selectable_label(current_route == AppRoute::Transpiler, "📝 Transpiler").clicked() {
                 self.router.navigate_to(AppRoute::Transpiler);
             }
+
+            // AI Command Palette button (always available)
+            ui.separator();
+            if ui.button("🧠 AI Assistant").clicked() {
+                self.show_ai_palette = !self.show_ai_palette;
+            }
+
+            // Debug panel toggle
+            if ui.button("🔍 Debug").clicked() {
+                self.show_debug_panel = !self.show_debug_panel;
+            }
         });
     }
+
+    fn show_ai_command_palette(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🧠 AI Assistant");
+        ui.separator();
+
+        // Context selection
+        ui.horizontal(|ui| {
+            ui.label("Context:");
+            egui::ComboBox::from_label("")
+                .selected_text(&self.ai_context)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.ai_context, "general".to_string(), "🔧 General");
+                    ui.selectable_value(&mut self.ai_context, "kyc".to_string(), "🔍 KYC");
+                    ui.selectable_value(&mut self.ai_context, "onboarding".to_string(), "📋 Onboarding");
+                    ui.selectable_value(&mut self.ai_context, "dsl".to_string(), "⚡ DSL Help");
+                    ui.selectable_value(&mut self.ai_context, "transpiler".to_string(), "📝 Transpiler");
+                    ui.selectable_value(&mut self.ai_context, "validation".to_string(), "✅ Validation");
+                });
+        });
+
+        ui.add_space(10.0);
+
+        // Prompt input
+        ui.label("Your prompt:");
+        let prompt_response = ui.add(
+            egui::TextEdit::multiline(&mut self.ai_prompt)
+                .desired_rows(4)
+                .hint_text("Ask the AI assistant to generate DSL code, explain concepts, or help with data modeling...")
+        );
+
+        ui.add_space(10.0);
+
+        // Action buttons
+        ui.horizontal(|ui| {
+            let generate_button = ui.add_enabled(
+                !self.ai_prompt.trim().is_empty() && !self.ai_loading,
+                egui::Button::new("🚀 Generate DSL")
+            );
+
+            if generate_button.clicked() {
+                self.generate_ai_dsl();
+            }
+
+            if ui.button("🗑️ Clear").clicked() {
+                self.ai_prompt.clear();
+                self.ai_response = None;
+            }
+
+            if ui.button("❌ Close").clicked() {
+                self.show_ai_palette = false;
+            }
+        });
+
+        ui.add_space(10.0);
+
+        // Loading indicator
+        if self.ai_loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Generating AI response...");
+            });
+        }
+
+        // AI Response - Multiple Suggestions
+        if let Some(response) = &self.ai_response {
+            ui.separator();
+            ui.heading("🧠 AI Suggestions:");
+            ui.label(format!("Status: {}", response.status_message));
+            ui.add_space(10.0);
+
+            for (index, suggestion) in response.suggestions.iter().enumerate() {
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        // Suggestion header
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}. {}", index + 1, suggestion.title));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(format!("🎯 {:.0}%", suggestion.confidence * 100.0));
+                                ui.label(format!("🏷️ {}", suggestion.category));
+                            });
+                        });
+
+                        ui.separator();
+
+                        // Suggestion content
+                        let mut suggestion_text = suggestion.description.clone();
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut suggestion_text)
+                                        .desired_width(f32::INFINITY)
+                                        .code_editor()
+                                );
+                            });
+
+                        // Action buttons for each suggestion
+                        ui.horizontal(|ui| {
+                            let suggestion_for_copy = suggestion.description.clone();
+                            if ui.button("📋 Copy").clicked() {
+                                ui.ctx().copy_text(suggestion_for_copy);
+                            }
+
+                            let suggestion_for_insert = suggestion.description.clone();
+                            if ui.button("📝 Insert").clicked() {
+                                wasm_utils::console_log(&format!("Would insert suggestion: {}", suggestion_for_insert));
+                            }
+
+                            // Show applicable contexts
+                            if !suggestion.applicable_contexts.is_empty() {
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(format!("Contexts: {}", suggestion.applicable_contexts.join(", ")));
+                                });
+                            }
+                        });
+                    });
+                });
+                ui.add_space(5.0);
+            }
+
+            // Global action buttons
+            ui.horizontal(|ui| {
+                if ui.button("🗑️ Clear All Suggestions").clicked() {
+                    self.ai_response = None;
+                }
+            });
+        }
+
+        // Sample prompts for inspiration
+        ui.separator();
+        ui.collapsing("💡 Sample Prompts", |ui| {
+            let samples = vec![
+                "Generate a KYC workflow for a high-risk client",
+                "Create validation rules for US regulatory compliance",
+                "Write DSL for document collection and verification",
+                "Generate risk assessment logic using multiple factors",
+                "Create a decision tree for investment mandate approval",
+            ];
+
+            for sample in samples {
+                if ui.button(sample).clicked() {
+                    self.ai_prompt = sample.to_string();
+                }
+            }
+        });
+
+        // End-to-end testing section
+        ui.separator();
+        ui.collapsing("🔬 End-to-End Testing", |ui| {
+            ui.label("Test the complete flow:");
+
+            if ui.button("🏭 Test Template Instantiation").clicked() {
+                self.test_template_instantiation();
+            }
+
+            if ui.button("⚡ Test DSL Execution").clicked() {
+                self.test_dsl_execution();
+            }
+
+            if ui.button("🧠 Test AI + Instantiation + Execution").clicked() {
+                self.test_full_pipeline();
+            }
+        });
+    }
+
+    fn generate_ai_dsl(&mut self) {
+        if self.ai_prompt.trim().is_empty() {
+            return;
+        }
+
+        self.ai_loading = true;
+        let prompt = self.ai_prompt.clone();
+        let context = self.ai_context.clone();
+
+        // Make actual gRPC call to the AI assistant
+        if let Some(grpc_client) = &self.grpc_client {
+            let client = grpc_client.clone();
+            let request = GetAiSuggestionsRequest {
+                query: prompt,
+                context: Some(context),
+                ai_provider: Some(AiProviderConfig {
+                    provider_type: 2, // Offline for now
+                    api_key: None,
+                }),
+            };
+
+            // Use spawn_local for async call in WASM
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.get_ai_suggestions(request).await {
+                    Ok(response) => {
+                        wasm_utils::console_log(&format!("AI Response: {:?}", response));
+                        // TODO: Update UI with response
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("AI Error: {:?}", e));
+                    }
+                }
+            });
+        }
+
+        // For now, also keep the simulation for immediate UI feedback
+        self.simulate_ai_response(&self.ai_prompt.clone(), &self.ai_context.clone());
+    }
+
+    fn simulate_ai_response(&mut self, prompt: &str, context: &str) {
+        // Mock AI response generation (replace with actual gRPC call)
+        let mock_response = match context {
+            "kyc" => format!(
+                "// Generated KYC DSL for: {}\nWORKFLOW \"GeneratedKYC\"\nSTEP \"RiskAssessment\"\n    ASSESS_RISK USING_FACTORS [\"jurisdiction\", \"product\"] OUTPUT \"riskLevel\"\nSTEP \"DocumentCollection\"\n    COLLECT_DOCUMENT \"Identity\" FROM Client REQUIRED true\nSTEP \"Decision\"\n    IF riskLevel = \"High\" THEN\n        FLAG_FOR_REVIEW \"Manual review required\" PRIORITY High\n    ELSE\n        APPROVE_CASE",
+                prompt
+            ),
+            "validation" => format!(
+                "// Generated Validation DSL for: {}\nVALIDATE_FIELD \"client.email\" FORMAT \"email\" REQUIRED true\nVALIDATE_FIELD \"client.age\" RANGE [18, 120] REQUIRED true\nVALIDATE_DOCUMENT \"passport\" EXPIRY_CHECK true",
+                prompt
+            ),
+            "dsl" => format!(
+                "// DSL Help for: {}\n// Available commands: WORKFLOW, STEP, VALIDATE, ASSESS_RISK, COLLECT_DOCUMENT\n// Example structure:\nWORKFLOW \"MyWorkflow\"\nSTEP \"StepName\"\n    // Your logic here",
+                prompt
+            ),
+            _ => format!(
+                "// Generated DSL for: {}\n// Context: {}\nWORKFLOW \"GeneratedWorkflow\"\nSTEP \"MainStep\"\n    // Generated based on your prompt\n    VALIDATE_INPUT \"data\" REQUIRED true",
+                prompt, context
+            )
+        };
+
+        // Create mock response with the new structure
+        let suggestions = vec![
+            AiSuggestion {
+                title: "Generated DSL Code".to_string(),
+                description: mock_response,
+                category: "code_generation".to_string(),
+                confidence: 0.85,
+                applicable_contexts: vec![context.to_string()],
+            }
+        ];
+
+        let response = GetAiSuggestionsResponse {
+            suggestions,
+            status_message: format!("Mock AI suggestions generated for {} context", context),
+        };
+
+        self.ai_response = Some(response);
+        self.ai_loading = false;
+    }
+
+    fn test_template_instantiation(&self) {
+        if let Some(grpc_client) = &self.grpc_client {
+            let client = grpc_client.clone();
+            let request = InstantiateResourceRequest {
+                template_id: "kyc-sample-001".to_string(),
+                onboarding_request_id: format!("web-test-{}", js_sys::Date::now()),
+                context: Some("testing".to_string()),
+                initial_data: Some(r#"{"test_mode": true, "source": "web_ui"}"#.to_string()),
+            };
+
+            wasm_bindgen_futures::spawn_local(async move {
+                wasm_utils::console_log("🏭 Testing Template Instantiation...");
+                match client.instantiate_resource(request).await {
+                    Ok(response) => {
+                        wasm_utils::console_log(&format!("✅ Template Instantiation Success: {:?}", response));
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ Template Instantiation Error: {:?}", e));
+                    }
+                }
+            });
+        }
+    }
+
+    fn test_dsl_execution(&self) {
+        if let Some(grpc_client) = &self.grpc_client {
+            let client = grpc_client.clone();
+            let request = ExecuteDslRequest {
+                instance_id: "test-instance-123".to_string(),
+                execution_context: Some("web_testing".to_string()),
+                input_data: Some(r#"{"test_data": "web_ui_test", "timestamp": "2025-10-16"}"#.to_string()),
+            };
+
+            wasm_bindgen_futures::spawn_local(async move {
+                wasm_utils::console_log("⚡ Testing DSL Execution...");
+                match client.execute_dsl(request).await {
+                    Ok(response) => {
+                        wasm_utils::console_log(&format!("✅ DSL Execution Success: {:?}", response));
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ DSL Execution Error: {:?}", e));
+                    }
+                }
+            });
+        }
+    }
+
+    fn test_full_pipeline(&self) {
+        if let Some(grpc_client) = &self.grpc_client {
+            let client = grpc_client.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                wasm_utils::console_log("🧠 Testing Full Pipeline: AI → Template → DSL...");
+
+                // Step 1: AI Suggestion
+                let ai_request = GetAiSuggestionsRequest {
+                    query: "Generate a KYC workflow for testing".to_string(),
+                    context: Some("kyc".to_string()),
+                    ai_provider: Some(AiProviderConfig {
+                        provider_type: 2,
+                        api_key: None,
+                    }),
+                };
+
+                match client.get_ai_suggestions(ai_request).await {
+                    Ok(ai_response) => {
+                        wasm_utils::console_log(&format!("✅ AI Suggestions: {:?}", ai_response));
+
+                        // Step 2: Template Instantiation
+                        let inst_request = InstantiateResourceRequest {
+                            template_id: "kyc-sample-001".to_string(),
+                            onboarding_request_id: format!("pipeline-test-{}", js_sys::Date::now()),
+                            context: Some("full_pipeline_test".to_string()),
+                            initial_data: Some(r#"{"ai_generated": true, "pipeline_test": true}"#.to_string()),
+                        };
+
+                        match client.instantiate_resource(inst_request).await {
+                            Ok(inst_response) => {
+                                wasm_utils::console_log(&format!("✅ Template Instantiation: {:?}", inst_response));
+
+                                // Step 3: DSL Execution
+                                if let Some(instance) = inst_response.instance {
+                                    let exec_request = ExecuteDslRequest {
+                                        instance_id: instance.instance_id,
+                                        execution_context: Some("full_pipeline".to_string()),
+                                        input_data: Some(r#"{"pipeline_test": true, "step": "execution"}"#.to_string()),
+                                    };
+
+                                    match client.execute_dsl(exec_request).await {
+                                        Ok(exec_response) => {
+                                            wasm_utils::console_log(&format!("✅ Full Pipeline Success: {:?}", exec_response));
+                                        }
+                                        Err(e) => {
+                                            wasm_utils::console_log(&format!("❌ Pipeline DSL Execution Error: {:?}", e));
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                wasm_utils::console_log(&format!("❌ Pipeline Template Error: {:?}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ Pipeline AI Error: {:?}", e));
+                    }
+                }
+            });
+        }
+    }
+
 }
 
 impl eframe::App for DataDesignerWebApp {
@@ -346,6 +730,17 @@ impl eframe::App for DataDesignerWebApp {
                 }
             }
         });
+
+        // AI Command Palette (modal window)
+        if self.show_ai_palette {
+            egui::Window::new("🧠 AI Assistant")
+                .resizable(true)
+                .default_width(600.0)
+                .default_height(400.0)
+                .show(ctx, |ui| {
+                    self.show_ai_command_palette(ui);
+                });
+        }
 
         // Debug panel (collapsible right panel)
         egui::SidePanel::right("debug_panel")

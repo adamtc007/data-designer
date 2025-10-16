@@ -10,6 +10,7 @@ mod code_editor;
 mod dsl_syntax_test;
 mod attribute_autocomplete;
 mod attribute_palette;
+mod grpc_client;
 
 use app::DataDesignerWebApp;
 
