@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package financial_taxonomy;
+
+// Health check service
+service HealthService {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  string status = 1;
+  string message = 2;
+}
+
+// Financial taxonomy service
+service FinancialTaxonomyService {
+  rpc GetProducts(GetProductsRequest) returns (GetProductsResponse);
+  rpc GetServices(GetServicesRequest) returns (GetServicesResponse);
+}
+
+message GetProductsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message GetProductsResponse {
+  repeated Product products = 1;
+  int32 total_count = 2;
+}
+
+message GetServicesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message GetServicesResponse {
+  repeated Service services = 1;
+  int32 total_count = 2;
+}
+
+message Product {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string category = 4;
+}
+
+message Service {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string type = 4;
+}

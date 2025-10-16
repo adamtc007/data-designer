@@ -273,6 +273,7 @@ pub mod cbu;
 pub mod products;
 pub mod config_driven;
 pub mod persistence;
+pub mod resource_sheets;
 
 // Re-export all database entities and operations
 pub use rules::*;
@@ -283,6 +284,7 @@ pub use data_dictionary::*;
 pub use cbu::*;
 pub use products::*;
 pub use config_driven::*;
+pub use resource_sheets::*;
 
 // Legacy compatibility
 pub use self::rules::CreateRuleRequest;

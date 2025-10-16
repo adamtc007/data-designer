@@ -1,0 +1,370 @@
+use eframe::egui;
+use crate::{AppRoute, WebRouter, wasm_utils};
+use crate::resource_sheet_ui::ResourceSheetManager;
+use crate::minimal_types::ResourceSheetRecord;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
+
+/// Web version of the Data Designer application
+pub struct DataDesignerWebApp {
+    router: WebRouter,
+
+    // Resource Sheet Manager (web-compatible)
+    resource_sheet_manager: ResourceSheetManager,
+
+    // Sample data for demo (since we can't connect to local DB from web)
+    sample_resource_sheets: Vec<ResourceSheetRecord>,
+
+    // UI state
+    loading: bool,
+    error_message: Option<String>,
+
+    // Web-specific state
+    grpc_endpoint: String,
+    connection_status: ConnectionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ConnectionStatus {
+    Disconnected,
+    Connecting,
+    Connected,
+    Failed(String),
+}
+
+impl DataDesignerWebApp {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        wasm_utils::set_panic_hook();
+        wasm_utils::console_log("🚀 Starting Data Designer Web App");
+
+        let mut app = Self {
+            router: WebRouter::new(),
+            resource_sheet_manager: ResourceSheetManager::new(),
+            sample_resource_sheets: Vec::new(),
+            loading: false,
+            error_message: None,
+            grpc_endpoint: "http://localhost:50051".to_string(),
+            connection_status: ConnectionStatus::Disconnected,
+        };
+
+        // Load sample data
+        app.load_sample_data();
+
+        app
+    }
+
+    fn load_sample_data(&mut self) {
+        // Create sample resource sheets for web demo
+        let sample_kyc = ResourceSheetRecord {
+            resource_id: "web-kyc-001".to_string(),
+            resource_type: "Domain_KYC".to_string(),
+            name: "KYC Case for Web Demo".to_string(),
+            description: Some("Sample KYC case for web demonstration".to_string()),
+            version: "1.0.0".to_string(),
+            client_id: Some("WEB-CLIENT-001".to_string()),
+            product_id: Some("DEMO-TRADING".to_string()),
+            status: "Pending".to_string(),
+            json_data: serde_json::json!({
+                "id": "web-kyc-001",
+                "case_id": "KYC-WEB-001",
+                "client_id": "WEB-CLIENT-001",
+                "product_id": "DEMO-TRADING",
+                "resource_type": "Domain_KYC",
+                "status": "Pending",
+                "metadata": {
+                    "name": "KYC Case for Web Demo",
+                    "description": "Sample KYC case for web demonstration",
+                    "version": "1.0.0",
+                    "priority": "Normal",
+                    "estimated_duration_minutes": 120,
+                    "tags": ["KYC", "Compliance", "Web Demo"]
+                },
+                "business_logic_dsl": "WORKFLOW \"WebDemoKYC\"\nSTEP \"InitialAssessment\"\n    DERIVE_REGULATORY_CONTEXT FOR_JURISDICTION \"US\" WITH_PRODUCTS [\"Trading\"]\n    ASSESS_RISK USING_FACTORS [\"jurisdiction\", \"product\", \"client\"] OUTPUT \"combinedRisk\"\nSTEP \"DocumentCollection\"\n    COLLECT_DOCUMENT \"PassportCopy\" FROM Client REQUIRED true\n    COLLECT_DOCUMENT \"ProofOfAddress\" FROM Client REQUIRED true\nSTEP \"ScreeningProcess\"\n    SCREEN_ENTITY \"client.name\" AGAINST \"SanctionsList\" THRESHOLD 0.85\n    SCREEN_ENTITY \"client.name\" AGAINST \"PEPList\" THRESHOLD 0.90\nSTEP \"FinalDecision\"\n    IF combinedRisk = \"High\" THEN\n        FLAG_FOR_REVIEW \"High risk client requires manual review\" PRIORITY High\n    ELSE\n        APPROVE_CASE WITH_CONDITIONS [\"Annual review required\"]",
+                "risk_profile": {
+                    "jurisdiction_risk": "Medium",
+                    "product_risk": "Low",
+                    "client_risk": "Medium",
+                    "combined_risk": "Medium",
+                    "risk_factors": []
+                },
+                "documents": [
+                    {
+                        "document_type": "PassportCopy",
+                        "required": true,
+                        "collected": true,
+                        "verified": false
+                    },
+                    {
+                        "document_type": "ProofOfAddress",
+                        "required": true,
+                        "collected": false,
+                        "verified": false
+                    }
+                ],
+                "screenings": [],
+                "regulatory_context": {
+                    "applicable_regulations": ["AML", "KYC", "BSA", "GDPR"],
+                    "jurisdiction": "US",
+                    "policy_overrides": {},
+                    "exemptions": []
+                },
+                "clearance_decision": null
+            }),
+            metadata: serde_json::json!({"priority": "Normal", "estimated_duration_minutes": 120}),
+            created_by: "web-demo".to_string(),
+            tags: serde_json::json!(["KYC", "Compliance", "Web Demo"]),
+        };
+
+        let sample_onboarding = ResourceSheetRecord {
+            resource_id: "web-onboarding-001".to_string(),
+            resource_type: "Orchestrator".to_string(),
+            name: "Onboarding Orchestrator for Web Demo".to_string(),
+            description: Some("Sample onboarding orchestrator for web demonstration".to_string()),
+            version: "1.0.0".to_string(),
+            client_id: Some("WEB-CLIENT-001".to_string()),
+            product_id: Some("DEMO-SUITE".to_string()),
+            status: "Executing".to_string(),
+            json_data: serde_json::json!({
+                "id": "web-onboarding-001",
+                "client_id": "WEB-CLIENT-001",
+                "products": ["DEMO-TRADING", "DEMO-CUSTODY"],
+                "resource_type": "Orchestrator",
+                "status": "Executing",
+                "metadata": {
+                    "name": "Onboarding Orchestrator for Web Demo",
+                    "description": "Sample onboarding orchestrator for web demonstration",
+                    "version": "1.0.0",
+                    "priority": "High",
+                    "estimated_duration_minutes": 240,
+                    "tags": ["Onboarding", "Orchestration", "Web Demo"]
+                },
+                "orchestration_dsl": "WORKFLOW \"WebDemoOnboarding\"\nPHASE \"Discovery\"\n    DISCOVER_DEPENDENCIES FOR_PRODUCTS [\"DEMO-TRADING\", \"DEMO-CUSTODY\"]\n    BUILD_MASTER_DICTIONARY FROM_RESOURCES [\"ProductCatalog\", \"RegulatoryRules\"]\nPHASE \"ResourceCreation\"\n    INSTANTIATE_RESOURCE \"KYC\" \"ClientKYCClearance\"\n    INSTANTIATE_RESOURCE \"AccountSetup\" \"ClientAccountSetup\"\nPHASE \"Execution\"\n    EXECUTE_RESOURCE_DSL \"ClientKYCClearance\"\n    AWAIT_RESOURCES [\"ClientKYCClearance\"] TO_BE \"Complete\"\n    EXECUTE_RESOURCE_DSL \"ClientAccountSetup\"\nPHASE \"Completion\"\n    VALIDATE_ORCHESTRATION_STATE USING [\"AllResourcesComplete\", \"NoErrors\"]\n    DERIVE_GLOBAL_STATE FROM_RESOURCES [\"ClientKYCClearance\", \"ClientAccountSetup\"]",
+                "sub_resources": {
+                    "ClientKYCClearance": {
+                        "resource_id": "web-kyc-001",
+                        "domain_type": "KYC",
+                        "status": "Pending",
+                        "dependencies": [],
+                        "data_requirements": [],
+                        "created_at": "2024-01-01T00:00:00Z"
+                    }
+                },
+                "execution_plan": {
+                    "phases": [
+                        {
+                            "name": "Discovery",
+                            "description": "Discover required resources and build master data dictionary",
+                            "resources": [],
+                            "blocking": true,
+                            "timeout_minutes": 30
+                        },
+                        {
+                            "name": "Execution",
+                            "description": "Execute domain resources in sequence",
+                            "resources": ["ClientKYCClearance"],
+                            "blocking": true,
+                            "timeout_minutes": 180
+                        }
+                    ],
+                    "current_phase": 1,
+                    "parallel_execution": false,
+                    "failure_strategy": "RequireManualReview"
+                }
+            }),
+            metadata: serde_json::json!({"priority": "High", "estimated_duration_minutes": 240}),
+            created_by: "web-demo".to_string(),
+            tags: serde_json::json!(["Onboarding", "Orchestration", "Web Demo"]),
+        };
+
+        self.sample_resource_sheets = vec![sample_kyc, sample_onboarding];
+        self.resource_sheet_manager.resource_sheets = self.sample_resource_sheets.clone();
+    }
+
+    fn show_connection_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("🔌 Connection Settings", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("gRPC Endpoint:");
+                ui.text_edit_singleline(&mut self.grpc_endpoint);
+
+                let button_text = match self.connection_status {
+                    ConnectionStatus::Connecting => "Connecting...",
+                    ConnectionStatus::Connected => "Disconnect",
+                    _ => "Connect",
+                };
+
+                if ui.button(button_text).clicked() {
+                    match self.connection_status {
+                        ConnectionStatus::Connected => {
+                            self.connection_status = ConnectionStatus::Disconnected;
+                        },
+                        _ => {
+                            self.connection_status = ConnectionStatus::Connecting;
+                            // TODO: Implement gRPC-web connection
+                            wasm_utils::console_log(&format!("Attempting to connect to: {}", self.grpc_endpoint));
+                            self.connection_status = ConnectionStatus::Failed("gRPC-web not implemented yet".to_string());
+                        }
+                    }
+                }
+            });
+
+            // Show connection status
+            let (status_text, status_color) = match &self.connection_status {
+                ConnectionStatus::Disconnected => ("Disconnected", egui::Color32::GRAY),
+                ConnectionStatus::Connecting => ("Connecting...", egui::Color32::YELLOW),
+                ConnectionStatus::Connected => ("Connected", egui::Color32::GREEN),
+                ConnectionStatus::Failed(err) => (err.as_str(), egui::Color32::RED),
+            };
+
+            ui.colored_label(status_color, format!("Status: {}", status_text));
+        });
+    }
+
+    fn render_navigation(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let current_route = self.router.current_route().clone();
+
+            if ui.selectable_label(current_route == AppRoute::Dashboard, "🏠 Dashboard").clicked() {
+                self.router.navigate_to(AppRoute::Dashboard);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::ResourceSheets, "🗂️ Resource Sheets").clicked() {
+                self.router.navigate_to(AppRoute::ResourceSheets);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::CBUs, "🏢 CBUs").clicked() {
+                self.router.navigate_to(AppRoute::CBUs);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::Rules, "⚡ Rules").clicked() {
+                self.router.navigate_to(AppRoute::Rules);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::Database, "🗄️ Database").clicked() {
+                self.router.navigate_to(AppRoute::Database);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::ProductTaxonomy, "📦 Products").clicked() {
+                self.router.navigate_to(AppRoute::ProductTaxonomy);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::InvestmentMandates, "🎯 Mandates").clicked() {
+                self.router.navigate_to(AppRoute::InvestmentMandates);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::Transpiler, "🔄 Transpiler").clicked() {
+                self.router.navigate_to(AppRoute::Transpiler);
+            }
+        });
+    }
+}
+
+impl eframe::App for DataDesignerWebApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Top panel with navigation
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.heading("🦀 Data Designer - Web Edition");
+            ui.separator();
+            self.show_connection_panel(ui);
+            ui.separator();
+            self.render_navigation(ui);
+        });
+
+        // Main content panel
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match self.router.current_route() {
+                AppRoute::Dashboard => {
+                    self.show_dashboard(ui);
+                }
+                AppRoute::ResourceSheets => {
+                    self.show_resource_sheets(ui);
+                }
+                AppRoute::CBUs => {
+                    self.show_placeholder(ui, "🏢 Client Business Units", "CBU management functionality");
+                }
+                AppRoute::Rules => {
+                    self.show_placeholder(ui, "⚡ Rule Engine", "DSL rule editing and testing");
+                }
+                AppRoute::Database => {
+                    self.show_placeholder(ui, "🗄️ Database", "Database operations and queries");
+                }
+                AppRoute::ProductTaxonomy => {
+                    self.show_placeholder(ui, "📦 Product Taxonomy", "Product hierarchy management");
+                }
+                AppRoute::InvestmentMandates => {
+                    self.show_placeholder(ui, "🎯 Investment Mandates", "Investment mandate management");
+                }
+                AppRoute::Transpiler => {
+                    self.show_placeholder(ui, "🔄 Transpiler", "DSL code generation and transpilation");
+                }
+            }
+        });
+    }
+}
+
+impl DataDesignerWebApp {
+    fn show_dashboard(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🏠 Dashboard");
+        ui.separator();
+
+        ui.label("Welcome to the Data Designer Web Edition!");
+        ui.add_space(10.0);
+
+        // Quick stats
+        ui.horizontal(|ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("📊 Quick Stats");
+                    ui.label(format!("Resource Sheets: {}", self.sample_resource_sheets.len()));
+                    ui.label("Connection: Web Demo Mode");
+                    ui.label("Build: WASM + egui");
+                });
+            });
+
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("🚀 Quick Actions");
+                    if ui.button("📋 View Resource Sheets").clicked() {
+                        self.router.navigate_to(AppRoute::ResourceSheets);
+                    }
+                    if ui.button("🔧 Test Rules Engine").clicked() {
+                        self.router.navigate_to(AppRoute::Rules);
+                    }
+                    if ui.button("🔄 Try Transpiler").clicked() {
+                        self.router.navigate_to(AppRoute::Transpiler);
+                    }
+                });
+            });
+        });
+
+        ui.add_space(20.0);
+        ui.separator();
+
+        // Web-specific info
+        ui.collapsing("ℹ️ Web Edition Information", |ui| {
+            ui.label("This is the WASM-compiled web version of Data Designer.");
+            ui.label("• Built with egui + wasm-bindgen");
+            ui.label("• Client-side routing with egui-router");
+            ui.label("• Served via miniserve for development");
+            ui.label("• Sample data included for demonstration");
+            ui.separator();
+            ui.label("Note: Full database connectivity requires gRPC-web setup");
+        });
+    }
+
+    fn show_resource_sheets(&mut self, ui: &mut egui::Ui) {
+        // Use a simplified version of resource sheet manager for web
+        self.resource_sheet_manager.render_web_version(ui);
+    }
+
+    fn show_placeholder(&mut self, ui: &mut egui::Ui, title: &str, description: &str) {
+        ui.heading(title);
+        ui.separator();
+        ui.label(description);
+        ui.add_space(10.0);
+        ui.label("🚧 This feature will be implemented in the web version soon!");
+
+        if ui.button("🏠 Back to Dashboard").clicked() {
+            self.router.navigate_to(AppRoute::Dashboard);
+        }
+    }
+}

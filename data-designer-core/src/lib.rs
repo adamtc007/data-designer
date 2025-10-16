@@ -4,6 +4,11 @@ pub mod parser;
 pub mod evaluator;
 pub mod transpiler;
 
+// Resource sheet orchestration system
+pub mod resource_sheets;
+pub mod orchestration_dsl;
+pub mod kyc_dsl;
+
 // Configuration
 pub mod config;
 

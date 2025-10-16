@@ -1,9 +1,8 @@
 [workspace]
 members = [
     "data-designer-core",
-    "egui-frontend",
-    "egui-frontend/grpc-server",
-    "egui-frontend/shared-components",
+    "grpc-server",
+    "web-ui",
 ]
 resolver = "2"
 
@@ -24,3 +23,5 @@ tower-lsp = "0.20"
 log = "0.4"
 env_logger = "0.10"
 fastrand = "2.0"
+
+# WASM compatibility handled in web-ui dependencies

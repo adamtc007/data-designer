@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-🦀 **Hybrid Desktop/Web Data Designer** - Pure Rust desktop application with gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
+🦀 **Web-First Data Designer** - Pure Rust WASM web application with gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
 
 ### Key Features
-- **Hybrid Architecture** - gRPC microservices with egui desktop client and future web support
-- **Native egui GUI** - immediate mode, 60fps, dark theme with enhanced font rendering
+- **Web-First Architecture** - gRPC microservices with WASM web client
+- **Browser-Native GUI** - egui + WASM, 60fps, dark theme with enhanced font rendering
 - **gRPC Communication** - Type-safe Protocol Buffers with automatic fallback
 - **Secure Key Management** - System keychain integration with gRPC API
 - **Dynamic Grammar System** - EBNF-based soft DSL editable through UI
@@ -18,44 +18,47 @@
 - **Enhanced Code Editor** - Professional font rendering with syntax highlighting
 
 ### Architecture
-- **Frontend**: Pure Rust egui immediate mode GUI (`egui-frontend/`)
-- **gRPC Server**: Financial taxonomy service with Protocol Buffers (`egui-frontend/grpc-server/`)
-- **Shared Components**: Common UI library with gRPC client (`egui-frontend/shared-components/`)
+- **Web UI**: Pure Rust WASM client with egui (`web-ui/`)
+- **gRPC Server**: Financial taxonomy service with Protocol Buffers (`grpc-server/`)
 - **Core Library**: Expression engine with database layer (`data-designer-core/`)
 - **Database**: PostgreSQL with pgvector for semantic similarity
 - **Communication**: gRPC-first (port 50051) with database fallback (hybrid reliability)
 - **Key Management**: System keychain with security command fallback
-- **Build System**: Clean Cargo workspace
+- **Build System**: Clean Cargo workspace with WASM support
 
 ### Development Commands
 ```bash
-# gRPC Server (run first)
-cd egui-frontend/grpc-server && cargo run
+# Quick Start - WASM Web App
+./runwasm.sh                   # One command: build + serve + open browser
 
-# Desktop Client (gRPC-enabled)
-cd egui-frontend && cargo run --release --bin data-designer-egui
+# Manual Commands
+cd grpc-server && cargo run   # Start gRPC server (port 50051)
+cd web-ui && ./build-web.sh   # Build WASM package
+cd web-ui && ./serve-web.sh   # Serve on localhost:8080
 
 # Development
-cargo build                    # Build entire workspace
-cargo test --all              # Run comprehensive test suite (16+ tests)
+cargo build                   # Build entire workspace
+cargo test --all             # Run comprehensive test suite (16+ tests)
 ```
 
 ### Key Files
-- `egui-frontend/src/main.rs` - Main egui application (gRPC-enabled)
-- `egui-frontend/grpc-server/` - gRPC server with Protocol Buffers
-- `egui-frontend/shared-components/` - Shared UI components with gRPC client
+- `web-ui/src/lib.rs` - WASM web application entry point
+- `web-ui/src/app.rs` - Main egui application logic
+- `web-ui/src/resource_sheet_ui.rs` - Resource sheet management UI
+- `grpc-server/src/main.rs` - gRPC server with Protocol Buffers
 - `data-designer-core/src/db/mod.rs` - Database operations
 - `data-designer-core/src/db/persistence.rs` - Data connection layer
 - `data-designer-core/src/config.rs` - Configuration management
 - `Cargo.toml` - Workspace configuration
+- `runwasm.sh` - One-command WASM deployment script
 
 ### Current Features - COMPLETED SYSTEM
-- ✅ **gRPC-Enabled Desktop Application** - Hybrid architecture with Protocol Buffers
-- ✅ **Microservices Architecture** - gRPC server + egui client (port 50051)
+- ✅ **WASM Web Application** - Browser-first architecture with egui + WASM
+- ✅ **Microservices Architecture** - gRPC server + web client (port 50051)
 - ✅ **Hybrid Reliability** - gRPC-first with automatic database fallback
 - ✅ **Type-Safe Communication** - Protocol Buffers with zero-copy performance
 - ✅ **Secure Key Management** - System keychain integration with gRPC API
-- ✅ Native egui desktop application with enhanced font rendering
+- ✅ Browser-native egui WASM application with enhanced font rendering
 - ✅ Clean Cargo workspace structure
 - ✅ PostgreSQL database integration with full CRUD operations
 - ✅ Configuration management with environment variable support
@@ -76,7 +79,7 @@ cargo test --all              # Run comprehensive test suite (16+ tests)
 - ✅ Professional transpiler interface with clean rendering
 - ✅ Rule testing and execution interface
 - ✅ Comprehensive database management
-- ✅ Both Tauri and Pure Rust versions fully operational
+- ✅ Pure Rust WASM web application fully operational
 - ✅ **Investment Mandate Drill-Down System** - Interactive mandate exploration with detailed views
 - ✅ **Code Quality** - Cargo clippy integration with 40+ automated fixes applied
 
@@ -110,6 +113,23 @@ cargo test --all              # Run comprehensive test suite (16+ tests)
 
 ### Database Schema
 PostgreSQL database: `data_designer` with rules, attributes, embeddings, and business entity tables.
+
+### Web-First Architecture Refactor - COMPLETED ✅
+
+**Major architecture change:** Successfully refactored from thick desktop client to web-first WASM application.
+
+**What Changed:**
+- ❌ **Removed** - Entire `egui-frontend/` thick client (thousands of lines)
+- ✅ **Promoted** - `web-ui/` as primary application
+- ✅ **Streamlined** - Clean 3-member workspace: `data-designer-core`, `grpc-server`, `web-ui`
+- ✅ **Simplified** - One-command deployment: `./runwasm.sh`
+
+**Benefits:**
+- 🌐 **Universal Access** - Works on any device with modern browser
+- ⚡ **Better Performance** - 12MB WASM bundle with 60fps egui rendering
+- 🛠️ **Easier Deployment** - Static file serving with miniserve
+- 🔧 **Simpler Maintenance** - Single UI codebase instead of two
+- 📱 **Cross-Platform** - No platform-specific builds needed
 
 ### Testing & Quality
 - **Test Coverage**: 20+ comprehensive tests including gRPC integration
