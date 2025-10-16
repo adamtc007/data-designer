@@ -63,6 +63,25 @@ else
     echo "   Port 3030 is free"
 fi
 
+# Start template API server first
+echo "🚀 Starting Template API server..."
+cd template-server
+cargo run &
+API_SERVER_PID=$!
+cd ..
+
+# Wait for API server to start
+echo "⏳ Waiting for API server to start..."
+sleep 2
+
+# Check if API server is running
+if ! curl -s http://localhost:3030/api/health >/dev/null 2>&1; then
+    echo "❌ API server failed to start"
+    kill $API_SERVER_PID 2>/dev/null || true
+    exit 1
+fi
+echo "✅ Template API server ready on port 3030"
+
 # Navigate to web-ui directory
 cd web-ui
 
@@ -70,7 +89,7 @@ cd web-ui
 echo "📦 Building WASM package..."
 ./build-web.sh
 
-# Start the server in background
+# Start the web server in background
 echo "🚀 Starting web server..."
 ./serve-web.sh &
 SERVER_PID=$!
@@ -90,12 +109,13 @@ echo "✅ Data Designer Web Edition is ready!"
 echo ""
 echo "🌐 URL: http://localhost:8080"
 echo "📁 Serving from: web-ui/dist/"
-echo "🔧 Server PID: $SERVER_PID"
+echo "🔧 Web Server PID: $SERVER_PID"
+echo "🔧 API Server PID: $API_SERVER_PID"
 echo ""
-echo "Press Ctrl+C to stop the server"
+echo "Press Ctrl+C to stop both servers"
 
 # Keep script running and handle Ctrl+C
-trap "echo ''; echo '🛑 Stopping server...'; kill $SERVER_PID 2>/dev/null || true; echo '✅ Server stopped'; exit 0" INT
+trap "echo ''; echo '🛑 Stopping servers...'; kill $SERVER_PID $API_SERVER_PID 2>/dev/null || true; echo '✅ Servers stopped'; exit 0" INT
 
-# Wait for server process
-wait $SERVER_PID
+# Wait for both server processes
+wait $SERVER_PID $API_SERVER_PID
