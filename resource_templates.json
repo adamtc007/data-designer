@@ -1,0 +1,174 @@
+{
+  "baseline_template": {
+    "id": "baseline_template",
+    "description": "A baseline template for all new resources. Includes common attributes and a default DSL.",
+    "attributes": [
+      {
+        "name": "case_id",
+        "dataType": "String",
+        "ui": { "label": "Case ID", "required": true }
+      },
+      {
+        "name": "status",
+        "dataType": "String",
+        "allowedValues": ["Pending", "InProgress", "Complete"],
+        "ui": { "label": "Status", "required": true }
+      },
+      {
+        "name": "created_by",
+        "dataType": "String",
+        "ui": { "label": "Created By", "required": true }
+      },
+      {
+        "name": "priority",
+        "dataType": "String",
+        "allowedValues": ["Low", "Normal", "High", "Critical"],
+        "ui": { "label": "Priority", "required": false }
+      }
+    ],
+    "dsl": "WORKFLOW \"DefaultWorkflow\"\n\nSTEP \"Start\"\n    # Add your logic here\n    LOG \"Starting workflow for case: \" + case_id\nPROCEED_TO STEP \"End\"\n\nSTEP \"End\"\n    LOG \"Workflow complete for case: \" + case_id\n    # Workflow complete"
+  },
+  "kyc_clearance_v1": {
+    "id": "kyc_clearance_v1",
+    "description": "Performs standard KYC due diligence on a client entity.",
+    "attributes": [
+      {
+        "name": "case_id",
+        "dataType": "String",
+        "ui": { "label": "Case ID", "required": true }
+      },
+      {
+        "name": "status",
+        "dataType": "String",
+        "allowedValues": ["Pending", "Screening", "Documentation", "Review", "Approved", "Rejected"],
+        "ui": { "label": "KYC Status", "required": true }
+      },
+      {
+        "name": "client_legal_name",
+        "dataType": "String",
+        "ui": { "label": "Client Legal Name", "required": true }
+      },
+      {
+        "name": "client_jurisdiction",
+        "dataType": "String",
+        "ui": { "label": "Client Jurisdiction", "required": true }
+      },
+      {
+        "name": "risk_rating",
+        "dataType": "String",
+        "allowedValues": ["Low", "Medium", "High"],
+        "ui": { "label": "Risk Rating", "required": false }
+      },
+      {
+        "name": "screening_results",
+        "dataType": "Object",
+        "ui": { "label": "Screening Results", "required": false }
+      }
+    ],
+    "dsl": "WORKFLOW \"StandardClientKYC\"\n\nSTEP \"InitialAssessment\"\n    LOG \"Starting KYC for client: \" + client_legal_name\n    DERIVE_REGULATORY_CONTEXT FOR_JURISDICTION client_jurisdiction WITH_PRODUCTS [\"Trading\"]\n    ASSESS_RISK USING_FACTORS [\"jurisdiction\", \"product\", \"client\"] OUTPUT \"risk_rating\"\nPROCEED_TO STEP \"Screening\"\n\nSTEP \"Screening\"\n    SCREEN_ENTITY client_legal_name AGAINST \"SanctionsList\" THRESHOLD 0.85\n    SCREEN_ENTITY client_legal_name AGAINST \"PEPList\" THRESHOLD 0.90\n    STORE_RESULTS AS \"screening_results\"\nPROCEED_TO STEP \"DocumentCollection\"\n\nSTEP \"DocumentCollection\"\n    COLLECT_DOCUMENT \"PassportCopy\" FROM Client REQUIRED true\n    COLLECT_DOCUMENT \"ProofOfAddress\" FROM Client REQUIRED true\n    COLLECT_DOCUMENT \"FinancialStatements\" FROM Client REQUIRED false\nPROCEED_TO STEP \"Decision\"\n\nSTEP \"Decision\"\n    IF risk_rating == \"High\" THEN\n        SET status TO \"Review\"\n        FLAG_FOR_REVIEW \"High risk client requires manual review\" PRIORITY High\n    ELSE IF screening_results.sanctions_match > 0.85 THEN\n        SET status TO \"Rejected\"\n        REJECT_CASE \"Client found on sanctions list\"\n    ELSE\n        SET status TO \"Approved\"\n        APPROVE_CASE WITH_CONDITIONS [\"Annual review required\"]\n    END_IF\n    LOG \"KYC completed for \" + client_legal_name + \" with status: \" + status"
+  },
+  "onboarding_orchestrator_v1": {
+    "id": "onboarding_orchestrator_v1",
+    "description": "Orchestrates the complete client onboarding process across multiple domains and products.",
+    "attributes": [
+      {
+        "name": "client_id",
+        "dataType": "String",
+        "ui": { "label": "Client ID", "required": true }
+      },
+      {
+        "name": "products",
+        "dataType": "Array",
+        "ui": { "label": "Products", "required": true }
+      },
+      {
+        "name": "orchestration_status",
+        "dataType": "String",
+        "allowedValues": ["Initializing", "Discovery", "ResourceCreation", "Execution", "Complete", "Failed"],
+        "ui": { "label": "Orchestration Status", "required": true }
+      },
+      {
+        "name": "current_phase",
+        "dataType": "Number",
+        "ui": { "label": "Current Phase", "required": false }
+      },
+      {
+        "name": "sub_resources",
+        "dataType": "Object",
+        "ui": { "label": "Sub Resources", "required": false }
+      },
+      {
+        "name": "master_dictionary",
+        "dataType": "Object",
+        "ui": { "label": "Master Dictionary", "required": false }
+      }
+    ],
+    "dsl": "WORKFLOW \"ClientOnboardingOrchestrator\"\n\nPHASE \"Discovery\"\n    LOG \"Starting onboarding orchestration for client: \" + client_id\n    SET orchestration_status TO \"Discovery\"\n    DISCOVER_DEPENDENCIES FOR_PRODUCTS products\n    BUILD_MASTER_DICTIONARY FROM_RESOURCES [\"ProductCatalog\", \"RegulatoryRules\", \"ClientRequirements\"]\n    STORE_DICTIONARY AS \"master_dictionary\"\nPROCEED_TO PHASE \"ResourceCreation\"\n\nPHASE \"ResourceCreation\"\n    SET orchestration_status TO \"ResourceCreation\"\n    FOR_EACH product IN products DO\n        IF product == \"Trading\" THEN\n            INSTANTIATE_RESOURCE \"KYC\" \"ClientKYCClearance_\" + client_id\n            INSTANTIATE_RESOURCE \"AccountSetup\" \"TradingAccountSetup_\" + client_id\n        ELSE_IF product == \"Custody\" THEN\n            INSTANTIATE_RESOURCE \"KYC\" \"ClientKYCClearance_\" + client_id\n            INSTANTIATE_RESOURCE \"AccountSetup\" \"CustodyAccountSetup_\" + client_id\n        END_IF\n    END_FOR\nPROCEED_TO PHASE \"Execution\"\n\nPHASE \"Execution\"\n    SET orchestration_status TO \"Execution\"\n    # Execute KYC first (blocking)\n    EXECUTE_RESOURCE_DSL \"ClientKYCClearance_\" + client_id\n    AWAIT_RESOURCES [\"ClientKYCClearance_\" + client_id] TO_BE \"Complete\"\n    \n    # Then execute account setup in parallel\n    FOR_EACH product IN products DO\n        IF product == \"Trading\" THEN\n            EXECUTE_RESOURCE_DSL \"TradingAccountSetup_\" + client_id ASYNC\n        ELSE_IF product == \"Custody\" THEN\n            EXECUTE_RESOURCE_DSL \"CustodyAccountSetup_\" + client_id ASYNC\n        END_IF\n    END_FOR\n    \n    AWAIT_ALL_RESOURCES TO_BE \"Complete\"\nPROCEED_TO PHASE \"Completion\"\n\nPHASE \"Completion\"\n    SET orchestration_status TO \"Complete\"\n    VALIDATE_ORCHESTRATION_STATE USING [\"AllResourcesComplete\", \"NoErrors\"]\n    DERIVE_GLOBAL_STATE FROM_ALL_RESOURCES\n    LOG \"Onboarding orchestration completed successfully for client: \" + client_id\n    NOTIFY_STAKEHOLDERS \"Client onboarding complete\" FOR client_id"
+  },
+  "account_setup_trading_v1": {
+    "id": "account_setup_trading_v1",
+    "description": "Sets up trading account infrastructure and permissions for a client.",
+    "attributes": [
+      {
+        "name": "case_id",
+        "dataType": "String",
+        "ui": { "label": "Case ID", "required": true }
+      },
+      {
+        "name": "client_id",
+        "dataType": "String",
+        "ui": { "label": "Client ID", "required": true }
+      },
+      {
+        "name": "account_number",
+        "dataType": "String",
+        "ui": { "label": "Account Number", "required": false }
+      },
+      {
+        "name": "trading_permissions",
+        "dataType": "Array",
+        "ui": { "label": "Trading Permissions", "required": false }
+      },
+      {
+        "name": "setup_status",
+        "dataType": "String",
+        "allowedValues": ["Pending", "AccountCreation", "PermissionsSetup", "Integration", "Testing", "Complete"],
+        "ui": { "label": "Setup Status", "required": true }
+      }
+    ],
+    "dsl": "WORKFLOW \"TradingAccountSetup\"\n\nSTEP \"Prerequisites\"\n    LOG \"Setting up trading account for client: \" + client_id\n    REQUIRE_RESOURCE \"ClientKYCClearance_\" + client_id STATUS \"Approved\"\n    SET setup_status TO \"AccountCreation\"\nPROCEED_TO STEP \"CreateAccount\"\n\nSTEP \"CreateAccount\"\n    GENERATE_ACCOUNT_NUMBER PREFIX \"TRD\" FOR client_id\n    STORE_RESULT AS \"account_number\"\n    CREATE_TRADING_ACCOUNT account_number FOR client_id\n    SET setup_status TO \"PermissionsSetup\"\nPROCEED_TO STEP \"SetupPermissions\"\n\nSTEP \"SetupPermissions\"\n    ASSIGN_TRADING_PERMISSIONS [\"Equities\", \"FixedIncome\", \"FX\"] TO account_number\n    STORE_PERMISSIONS AS \"trading_permissions\"\n    SET setup_status TO \"Integration\"\nPROCEED_TO STEP \"SystemIntegration\"\n\nSTEP \"SystemIntegration\"\n    INTEGRATE_WITH_SYSTEM \"TradingPlatform\" ACCOUNT account_number\n    INTEGRATE_WITH_SYSTEM \"RiskManagement\" ACCOUNT account_number\n    INTEGRATE_WITH_SYSTEM \"Settlement\" ACCOUNT account_number\n    SET setup_status TO \"Testing\"\nPROCEED_TO STEP \"Testing\"\n\nSTEP \"Testing\"\n    RUN_SYSTEM_TESTS FOR account_number\n    VALIDATE_TRADING_ACCESS FOR client_id\n    SET setup_status TO \"Complete\"\n    LOG \"Trading account setup completed for client: \" + client_id + \", account: \" + account_number"
+  },
+  "regulatory_reporting_v1": {
+    "id": "regulatory_reporting_v1",
+    "description": "Handles regulatory reporting requirements for client activities.",
+    "attributes": [
+      {
+        "name": "case_id",
+        "dataType": "String",
+        "ui": { "label": "Case ID", "required": true }
+      },
+      {
+        "name": "client_id",
+        "dataType": "String",
+        "ui": { "label": "Client ID", "required": true }
+      },
+      {
+        "name": "jurisdiction",
+        "dataType": "String",
+        "ui": { "label": "Jurisdiction", "required": true }
+      },
+      {
+        "name": "reporting_requirements",
+        "dataType": "Array",
+        "ui": { "label": "Reporting Requirements", "required": false }
+      },
+      {
+        "name": "filing_status",
+        "dataType": "String",
+        "allowedValues": ["Pending", "Preparing", "Review", "Filed", "Acknowledged"],
+        "ui": { "label": "Filing Status", "required": true }
+      }
+    ],
+    "dsl": "WORKFLOW \"RegulatoryReporting\"\n\nSTEP \"DetermineRequirements\"\n    LOG \"Determining regulatory requirements for \" + client_id + \" in \" + jurisdiction\n    LOOKUP_REGULATIONS FOR jurisdiction\n    DERIVE_REQUIREMENTS BASED_ON [\"client_type\", \"products\", \"jurisdiction\"]\n    STORE_REQUIREMENTS AS \"reporting_requirements\"\n    SET filing_status TO \"Preparing\"\nPROCEED_TO STEP \"PrepareFilings\"\n\nSTEP \"PrepareFilings\"\n    FOR_EACH requirement IN reporting_requirements DO\n        PREPARE_FILING requirement FOR client_id\n        VALIDATE_FILING_DATA requirement\n    END_FOR\n    SET filing_status TO \"Review\"\nPROCEED_TO STEP \"Review\"\n\nSTEP \"Review\"\n    REVIEW_ALL_FILINGS FOR client_id\n    IF review_passed THEN\n        SET filing_status TO \"Filed\"\n        PROCEED_TO STEP \"Submit\"\n    ELSE\n        SET filing_status TO \"Preparing\"\n        PROCEED_TO STEP \"PrepareFilings\"\n    END_IF\n\nSTEP \"Submit\"\n    FOR_EACH requirement IN reporting_requirements DO\n        SUBMIT_FILING requirement TO jurisdiction\n    END_FOR\n    AWAIT_ACKNOWLEDGMENTS\n    SET filing_status TO \"Acknowledged\"\n    LOG \"Regulatory reporting completed for client: \" + client_id"
+  }
+}

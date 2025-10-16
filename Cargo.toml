@@ -3,6 +3,7 @@ members = [
     "data-designer-core",
     "grpc-server",
     "web-ui",
+    "template-server",
 ]
 resolver = "2"
 

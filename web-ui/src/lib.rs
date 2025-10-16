@@ -1,9 +1,11 @@
-use eframe::wasm_bindgen::{self, prelude::*};
-use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 mod app;
 mod resource_sheet_ui;
 mod minimal_types;
+mod http_api_client;
+mod template_editor;
 
 use app::DataDesignerWebApp;
 
@@ -14,8 +16,10 @@ use app::DataDesignerWebApp;
 #[wasm_bindgen]
 pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
     // Redirect `log` message to `console.log` and friends:
+    #[cfg(target_arch = "wasm32")]
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
+    #[cfg(target_arch = "wasm32")]
     let web_options = eframe::WebOptions::default();
 
     let canvas_id = canvas_id.to_string();
@@ -26,6 +30,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             .expect("Failed to find canvas element");
 
+        #[cfg(target_arch = "wasm32")]
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
@@ -40,6 +45,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
             .await;
 
         // Remove the loading text and spinner:
+        #[cfg(target_arch = "wasm32")]
         if let Some(loading_text) = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id("loading_text"))

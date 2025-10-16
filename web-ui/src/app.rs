@@ -2,8 +2,7 @@ use eframe::egui;
 use crate::{AppRoute, WebRouter, wasm_utils};
 use crate::resource_sheet_ui::ResourceSheetManager;
 use crate::minimal_types::ResourceSheetRecord;
-use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use crate::http_api_client::DataDesignerHttpClient;
 
 /// Web version of the Data Designer application
 pub struct DataDesignerWebApp {
@@ -22,6 +21,10 @@ pub struct DataDesignerWebApp {
     // Web-specific state
     grpc_endpoint: String,
     connection_status: ConnectionStatus,
+    api_client: Option<DataDesignerHttpClient>,
+
+    // Template Editor
+    template_editor: crate::template_editor::TemplateEditor,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,14 +46,44 @@ impl DataDesignerWebApp {
             sample_resource_sheets: Vec::new(),
             loading: false,
             error_message: None,
-            grpc_endpoint: "http://localhost:50051".to_string(),
+            grpc_endpoint: "http://localhost:3030".to_string(),
             connection_status: ConnectionStatus::Disconnected,
+            api_client: None,
+            template_editor: crate::template_editor::TemplateEditor::new(),
         };
 
         // Load sample data
         app.load_sample_data();
 
         app
+    }
+
+    fn attempt_api_connection(&mut self) {
+        wasm_utils::console_log(&format!("🔌 Attempting to connect to: {}", self.grpc_endpoint));
+
+        let client = DataDesignerHttpClient::new(&self.grpc_endpoint);
+        let endpoint = self.grpc_endpoint.clone();
+
+        // Spawn async connection attempt
+        wasm_bindgen_futures::spawn_local(async move {
+            // Test endpoint reachability
+            let reachable = crate::http_api_client::test_api_endpoint(&endpoint).await;
+            if reachable {
+                wasm_utils::console_log("✅ API endpoint is reachable");
+            } else {
+                wasm_utils::console_log("❌ API endpoint unreachable or CORS blocked");
+            }
+        });
+
+        // Set up the template editor with the API client
+        if let Some(api_client) = &self.api_client {
+            self.template_editor.set_api_client(api_client.clone());
+        }
+
+        // Mark as connected and set up template editor
+        self.api_client = Some(client.clone());
+        self.template_editor.set_api_client(client);
+        self.connection_status = ConnectionStatus::Connected;
     }
 
     fn load_sample_data(&mut self) {
@@ -183,7 +216,7 @@ impl DataDesignerWebApp {
     fn show_connection_panel(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("🔌 Connection Settings", |ui| {
             ui.horizontal(|ui| {
-                ui.label("gRPC Endpoint:");
+                ui.label("Template API:");
                 ui.text_edit_singleline(&mut self.grpc_endpoint);
 
                 let button_text = match self.connection_status {
@@ -195,13 +228,12 @@ impl DataDesignerWebApp {
                 if ui.button(button_text).clicked() {
                     match self.connection_status {
                         ConnectionStatus::Connected => {
+                            self.api_client = None;
                             self.connection_status = ConnectionStatus::Disconnected;
                         },
                         _ => {
                             self.connection_status = ConnectionStatus::Connecting;
-                            // TODO: Implement gRPC-web connection
-                            wasm_utils::console_log(&format!("Attempting to connect to: {}", self.grpc_endpoint));
-                            self.connection_status = ConnectionStatus::Failed("gRPC-web not implemented yet".to_string());
+                            self.attempt_api_connection();
                         }
                     }
                 }
@@ -209,13 +241,13 @@ impl DataDesignerWebApp {
 
             // Show connection status
             let (status_text, status_color) = match &self.connection_status {
-                ConnectionStatus::Disconnected => ("Disconnected", egui::Color32::GRAY),
-                ConnectionStatus::Connecting => ("Connecting...", egui::Color32::YELLOW),
-                ConnectionStatus::Connected => ("Connected", egui::Color32::GREEN),
+                ConnectionStatus::Disconnected => ("Template API Disconnected", egui::Color32::GRAY),
+                ConnectionStatus::Connecting => ("Connecting to Template API...", egui::Color32::YELLOW),
+                ConnectionStatus::Connected => ("Template API Connected", egui::Color32::GREEN),
                 ConnectionStatus::Failed(err) => (err.as_str(), egui::Color32::RED),
             };
 
-            ui.colored_label(status_color, format!("Status: {}", status_text));
+            ui.colored_label(status_color, status_text);
         });
     }
 
@@ -251,7 +283,7 @@ impl DataDesignerWebApp {
                 self.router.navigate_to(AppRoute::InvestmentMandates);
             }
 
-            if ui.selectable_label(current_route == AppRoute::Transpiler, "🔄 Transpiler").clicked() {
+            if ui.selectable_label(current_route == AppRoute::Transpiler, "📝 Template Editor").clicked() {
                 self.router.navigate_to(AppRoute::Transpiler);
             }
         });
@@ -294,7 +326,7 @@ impl eframe::App for DataDesignerWebApp {
                     self.show_placeholder(ui, "🎯 Investment Mandates", "Investment mandate management");
                 }
                 AppRoute::Transpiler => {
-                    self.show_placeholder(ui, "🔄 Transpiler", "DSL code generation and transpilation");
+                    self.show_template_editor(ui);
                 }
             }
         });
@@ -306,31 +338,36 @@ impl DataDesignerWebApp {
         ui.heading("🏠 Dashboard");
         ui.separator();
 
-        ui.label("Welcome to the Data Designer Web Edition!");
+        ui.label("Welcome to the Data Designer Template Editor!");
         ui.add_space(10.0);
 
         // Quick stats
         ui.horizontal(|ui| {
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("📊 Quick Stats");
-                    ui.label(format!("Resource Sheets: {}", self.sample_resource_sheets.len()));
-                    ui.label("Connection: Web Demo Mode");
-                    ui.label("Build: WASM + egui");
+                    ui.heading("📊 System Status");
+                    ui.label(format!("Sample Resources: {}", self.sample_resource_sheets.len()));
+                    let api_status = if self.api_client.as_ref().map_or(false, |c| c.is_connected()) {
+                        "✅ Connected"
+                    } else {
+                        "❌ Disconnected"
+                    };
+                    ui.label(format!("Template API: {}", api_status));
+                    ui.label("Architecture: WASM + HTTP API");
                 });
             });
 
             ui.group(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("🚀 Quick Actions");
+                    if ui.button("📝 Template Editor").clicked() {
+                        self.router.navigate_to(AppRoute::Transpiler);
+                    }
                     if ui.button("📋 View Resource Sheets").clicked() {
                         self.router.navigate_to(AppRoute::ResourceSheets);
                     }
-                    if ui.button("🔧 Test Rules Engine").clicked() {
-                        self.router.navigate_to(AppRoute::Rules);
-                    }
-                    if ui.button("🔄 Try Transpiler").clicked() {
-                        self.router.navigate_to(AppRoute::Transpiler);
+                    if ui.button("🔗 Connect to API").clicked() {
+                        self.attempt_api_connection();
                     }
                 });
             });
@@ -339,21 +376,25 @@ impl DataDesignerWebApp {
         ui.add_space(20.0);
         ui.separator();
 
-        // Web-specific info
-        ui.collapsing("ℹ️ Web Edition Information", |ui| {
-            ui.label("This is the WASM-compiled web version of Data Designer.");
-            ui.label("• Built with egui + wasm-bindgen");
-            ui.label("• Client-side routing with egui-router");
-            ui.label("• Served via miniserve for development");
-            ui.label("• Sample data included for demonstration");
+        // Architecture info
+        ui.collapsing("ℹ️ Template Editor System", |ui| {
+            ui.label("This is the **Template Editor** for the master resource file-based system.");
+            ui.label("• WASM frontend built with egui + wasm-bindgen");
+            ui.label("• HTTP REST API for template management");
+            ui.label("• File-based templating system (resource_templates.json)");
+            ui.label("• Visual editor for DSL workflows and attributes");
             ui.separator();
-            ui.label("Note: Full database connectivity requires gRPC-web setup");
+            ui.label("🎯 Core Purpose: Edit templates that serve as 'cookie cutters' for live resources");
         });
     }
 
     fn show_resource_sheets(&mut self, ui: &mut egui::Ui) {
         // Use a simplified version of resource sheet manager for web
         self.resource_sheet_manager.render_web_version(ui);
+    }
+
+    fn show_template_editor(&mut self, ui: &mut egui::Ui) {
+        self.template_editor.render(ui);
     }
 
     fn show_placeholder(&mut self, ui: &mut egui::Ui, title: &str, description: &str) {

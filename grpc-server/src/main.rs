@@ -5,6 +5,8 @@ use std::process::Command;
 use tracing::{info, error};
 use std::collections::HashMap;
 
+mod template_api;
+
 // Generated protobuf code
 pub mod financial_taxonomy {
     tonic::include_proto!("financial_taxonomy");
@@ -263,14 +265,13 @@ impl FinancialTaxonomyService for TaxonomyServer {
                 let services: Vec<Service> = rows
                     .into_iter()
                     .map(|row| Service {
-                        id: row.get::<i32, _>("id"),
-                        service_id: row.get::<String, _>("service_id"),
-                        service_name: row.get::<String, _>("service_name"),
-                        service_category: row.get::<Option<String>, _>("service_category"),
-                        description: row.get::<Option<String>, _>("description"),
-                        service_type: row.get::<Option<String>, _>("service_type"),
-                        delivery_model: row.get::<Option<String>, _>("delivery_model"),
-                        billable: row.get::<Option<bool>, _>("billable"),
+                        id: row.get::<String, _>("service_id"),
+                        name: row.get::<String, _>("service_name"),
+                        description: row.get::<Option<String>, _>("description").unwrap_or_default(),
+                        r#type: row.get::<Option<String>, _>("service_category").unwrap_or_default(),
+                        service_type: row.get::<Option<String>, _>("service_type").unwrap_or_default(),
+                        delivery_model: row.get::<Option<String>, _>("delivery_model").unwrap_or_default(),
+                        billable: row.get::<Option<bool>, _>("billable").unwrap_or_default(),
                         status: row.get::<String, _>("status"),
                     })
                     .collect();
@@ -515,7 +516,8 @@ impl FinancialTaxonomyService for TaxonomyServer {
         info!("Health check for service: {}", req.service);
 
         let response = HealthCheckResponse {
-            status: health_check_response::ServingStatus::Serving as i32,
+            status: 1, // 1 = serving
+            message: format!("Service {} is healthy", req.service),
         };
 
         Ok(Response::new(response))
@@ -973,18 +975,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = PgPool::connect(&database_url).await?;
     info!("Database connection established");
 
-    // Create service
+    // Create gRPC service
     let taxonomy_service = TaxonomyServer::new(db_pool);
 
-    // Server address
-    let addr = "0.0.0.0:50051".parse()?;
-    info!("Starting gRPC server on {}", addr);
+    // Create HTTP template API router
+    let template_router = template_api::create_template_router();
 
-    // Start server
-    Server::builder()
+    // Server addresses
+    let grpc_addr = "0.0.0.0:50051".parse::<std::net::SocketAddr>()?;
+    let http_addr = "0.0.0.0:8080".parse::<std::net::SocketAddr>()?;
+
+    info!("Starting gRPC server on {}", grpc_addr);
+    info!("Starting HTTP template API on {}", http_addr);
+
+    // Run both servers concurrently
+    let grpc_server = Server::builder()
         .add_service(FinancialTaxonomyServiceServer::new(taxonomy_service))
-        .serve(addr)
-        .await?;
+        .serve(grpc_addr);
+
+    let http_server = axum::serve(
+        tokio::net::TcpListener::bind(http_addr).await?,
+        template_router
+    );
+
+    // Start both servers in parallel
+    tokio::select! {
+        result = grpc_server => {
+            error!("gRPC server exited: {:?}", result);
+            result?;
+        }
+        result = http_server => {
+            error!("HTTP server exited: {:?}", result);
+            result?;
+        }
+    }
 
     Ok(())
 }

@@ -12,7 +12,7 @@ message HealthCheckRequest {
 }
 
 message HealthCheckResponse {
-  string status = 1;
+  int32 status = 1;
   string message = 2;
 }
 
@@ -54,4 +54,8 @@ message Service {
   string name = 2;
   string description = 3;
   string type = 4;
+  string service_type = 5;
+  string delivery_model = 6;
+  bool billable = 7;
+  string status = 8;
 }

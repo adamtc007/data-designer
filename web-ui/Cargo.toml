@@ -6,6 +6,12 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["console_error_panic_hook"]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
+
+# No build dependencies needed for HTTP approach
+
 # Getrandom patch moved to workspace root
 
 [dependencies]
@@ -35,10 +41,14 @@ getrandom = { version = "0.2", features = ["js"] }
 
 # Error handling
 anyhow = "1.0"
+thiserror = "1.0"
 
 # Logging for web
-console_error_panic_hook = "0.1"
+console_error_panic_hook = { version = "0.1", optional = true }
 log = "0.4"
+
+# HTTP client for WASM
+reqwest = { version = "0.11", default-features = false, features = ["json"] }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -56,4 +66,9 @@ features = [
   "MessageEvent",
   "ErrorEvent",
   "CloseEvent",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Headers",
 ]

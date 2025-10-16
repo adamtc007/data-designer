@@ -1,7 +1,6 @@
 use eframe::egui;
 use crate::minimal_types::ResourceSheetRecord;
-use serde_json::{Value as JsonValue, json};
-use std::collections::HashMap;
+use serde_json::Value as JsonValue;
 use crate::wasm_utils;
 
 /// Web-compatible resource sheet management UI component
