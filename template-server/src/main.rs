@@ -4,12 +4,16 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, put},
     Router,
+    middleware,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::fs;
 use tracing::{info, error};
 use tower_http::cors::CorsLayer;
+
+mod logging;
+use logging::api_logging_middleware;
 
 // Template data structures matching the WASM client
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,7 @@ fn create_template_router() -> Router {
         .route("/api/templates", get(get_all_templates))
         .route("/api/templates/:id", get(get_template))
         .route("/api/templates/:id", put(upsert_template))
+        .layer(middleware::from_fn(api_logging_middleware))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
 
@@ -172,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Create HTTP template API router
+    // Create HTTP template API router with logging
     let template_router = create_template_router();
 
     // Server address
@@ -180,10 +185,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("🚀 Starting Template API server on {}", http_addr);
     info!("📁 Template file: {}", TEMPLATES_FILE_PATH);
+    info!("📊 API logging enabled - sending to Elasticsearch at http://localhost:9200");
 
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
-    info!("✅ Template API server ready!");
+    info!("✅ Template API server ready with comprehensive logging!");
 
     axum::serve(listener, template_router).await?;
 
