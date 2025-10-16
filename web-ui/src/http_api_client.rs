@@ -98,6 +98,15 @@ impl DataDesignerHttpClient {
         wasm_utils::console_log("🔌 Disconnected from API");
     }
 
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
+        if connected {
+            wasm_utils::console_log("✅ API client marked as connected");
+        } else {
+            wasm_utils::console_log("❌ API client marked as disconnected");
+        }
+    }
+
     pub async fn health_check(&self) -> Result<HealthCheckResponse> {
         let url = format!("{}/api/health", self.base_url);
 

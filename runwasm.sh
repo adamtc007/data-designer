@@ -8,13 +8,20 @@ set -e
 echo "🦀 Data Designer WASM Runner"
 echo "=================================="
 
-# Kill any existing processes on port 8080
+# Kill any existing processes on ports 8080 and 3030
 echo "🔧 Cleaning up existing processes..."
 if lsof -ti:8080 >/dev/null 2>&1; then
     echo "   Killing processes on port 8080..."
     lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 else
     echo "   Port 8080 is free"
+fi
+
+if lsof -ti:3030 >/dev/null 2>&1; then
+    echo "   Killing processes on port 3030..."
+    lsof -ti:3030 | xargs kill -9 2>/dev/null || true
+else
+    echo "   Port 3030 is free"
 fi
 
 # Navigate to web-ui directory

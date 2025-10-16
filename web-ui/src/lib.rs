@@ -6,6 +6,8 @@ mod resource_sheet_ui;
 mod minimal_types;
 mod http_api_client;
 mod template_editor;
+mod code_editor;
+mod dsl_syntax_test;
 
 use app::DataDesignerWebApp;
 
@@ -72,6 +74,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
 pub enum AppRoute {
     Dashboard,
     ResourceSheets,
+    Templates,
     CBUs,
     Rules,
     Database,

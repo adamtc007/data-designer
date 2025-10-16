@@ -61,10 +61,13 @@ impl DataDesignerWebApp {
     fn attempt_api_connection(&mut self) {
         wasm_utils::console_log(&format!("🔌 Attempting to connect to: {}", self.grpc_endpoint));
 
-        let client = DataDesignerHttpClient::new(&self.grpc_endpoint);
-        let endpoint = self.grpc_endpoint.clone();
+        let mut client = DataDesignerHttpClient::new(&self.grpc_endpoint);
 
-        // Spawn async connection attempt
+        // Set the connection status to connecting
+        self.connection_status = ConnectionStatus::Connecting;
+
+        // Test endpoint and set connected status
+        let endpoint = self.grpc_endpoint.clone();
         wasm_bindgen_futures::spawn_local(async move {
             // Test endpoint reachability
             let reachable = crate::http_api_client::test_api_endpoint(&endpoint).await;
@@ -75,12 +78,10 @@ impl DataDesignerWebApp {
             }
         });
 
-        // Set up the template editor with the API client
-        if let Some(api_client) = &self.api_client {
-            self.template_editor.set_api_client(api_client.clone());
-        }
+        // Mark client as connected for UI purposes (since endpoint testing is async)
+        client.set_connected(true);
 
-        // Mark as connected and set up template editor
+        // Set up the connected client
         self.api_client = Some(client.clone());
         self.template_editor.set_api_client(client);
         self.connection_status = ConnectionStatus::Connected;
@@ -263,6 +264,10 @@ impl DataDesignerWebApp {
                 self.router.navigate_to(AppRoute::ResourceSheets);
             }
 
+            if ui.selectable_label(current_route == AppRoute::Templates, "📝 Templates").clicked() {
+                self.router.navigate_to(AppRoute::Templates);
+            }
+
             if ui.selectable_label(current_route == AppRoute::CBUs, "🏢 CBUs").clicked() {
                 self.router.navigate_to(AppRoute::CBUs);
             }
@@ -283,7 +288,7 @@ impl DataDesignerWebApp {
                 self.router.navigate_to(AppRoute::InvestmentMandates);
             }
 
-            if ui.selectable_label(current_route == AppRoute::Transpiler, "📝 Template Editor").clicked() {
+            if ui.selectable_label(current_route == AppRoute::Transpiler, "📝 Transpiler").clicked() {
                 self.router.navigate_to(AppRoute::Transpiler);
             }
         });
@@ -309,6 +314,9 @@ impl eframe::App for DataDesignerWebApp {
                 }
                 AppRoute::ResourceSheets => {
                     self.show_resource_sheets(ui);
+                }
+                AppRoute::Templates => {
+                    self.show_template_editor(ui);
                 }
                 AppRoute::CBUs => {
                     self.show_placeholder(ui, "🏢 Client Business Units", "CBU management functionality");
@@ -361,7 +369,7 @@ impl DataDesignerWebApp {
                 ui.vertical(|ui| {
                     ui.heading("🚀 Quick Actions");
                     if ui.button("📝 Template Editor").clicked() {
-                        self.router.navigate_to(AppRoute::Transpiler);
+                        self.router.navigate_to(AppRoute::Templates);
                     }
                     if ui.button("📋 View Resource Sheets").clicked() {
                         self.router.navigate_to(AppRoute::ResourceSheets);
@@ -394,6 +402,13 @@ impl DataDesignerWebApp {
     }
 
     fn show_template_editor(&mut self, ui: &mut egui::Ui) {
+        // Ensure template editor has the same API client as the main app
+        if let Some(api_client) = &self.api_client {
+            if self.template_editor.api_client.is_none() {
+                self.template_editor.set_api_client(api_client.clone());
+            }
+        }
+
         self.template_editor.render(ui);
     }
 

@@ -1,0 +1,115 @@
+(* EBNF Grammar for Workflow DSL *)
+(* Captures workflow constructs used in resource templates *)
+
+workflow_dsl = workflow_definition , { step_definition | phase_definition } ;
+
+(* Main workflow definition *)
+workflow_definition = "WORKFLOW" , string_literal ;
+
+(* Step and phase definitions *)
+step_definition = "STEP" , string_literal , { statement } , [ proceed_to ] ;
+phase_definition = "PHASE" , string_literal , { statement } , [ proceed_to ] ;
+
+(* Control flow *)
+proceed_to = "PROCEED_TO" , ( "STEP" | "PHASE" ) , string_literal ;
+
+(* Statements *)
+statement = comment
+          | log_statement
+          | set_statement
+          | if_statement
+          | for_each_statement
+          | command_statement
+          | expression_statement ;
+
+(* Comments *)
+comment = "#" , { any_character - newline } , newline ;
+
+(* Log statements *)
+log_statement = "LOG" , string_literal ;
+
+(* Set statements *)
+set_statement = "SET" , identifier , "=" , expression ;
+
+(* Conditional statements *)
+if_statement = "IF" , expression , "THEN" , { statement } ,
+               [ "ELSE" , { statement } ] , "END_IF" ;
+
+(* Loop statements *)
+for_each_statement = "FOR_EACH" , identifier , "IN" , expression ,
+                     { statement } , "END_FOR" ;
+
+(* Command statements - from actual templates *)
+command_statement = regulatory_command
+                  | risk_command
+                  | screening_command
+                  | document_command
+                  | decision_command ;
+
+(* Regulatory commands *)
+regulatory_command = "DERIVE_REGULATORY_CONTEXT" , "FOR_JURISDICTION" , expression ,
+                     "WITH_PRODUCTS" , expression ;
+
+(* Risk assessment commands *)
+risk_command = "ASSESS_RISK" , "USING_FACTORS" , expression , "OUTPUT" , string_literal ;
+
+(* Screening commands *)
+screening_command = "SCREEN_ENTITY" , expression , "AGAINST" , string_literal ,
+                    "THRESHOLD" , number ;
+
+(* Document collection commands *)
+document_command = "COLLECT_DOCUMENT" , string_literal , "FROM" , identifier ,
+                   "REQUIRED" , boolean_literal ;
+
+(* Decision commands *)
+decision_command = "FLAG_FOR_REVIEW" , string_literal , "PRIORITY" , identifier
+                 | "REJECT_CASE" , string_literal
+                 | "APPROVE_CASE" , "WITH_CONDITIONS" , expression
+                 | "STORE_RESULTS" , "AS" , string_literal ;
+
+(* Expression statements *)
+expression_statement = expression ;
+
+(* Expressions - based on existing EBNF but simplified *)
+expression = logical_or_expr ;
+
+logical_or_expr = logical_and_expr , { "OR" , logical_and_expr } ;
+logical_and_expr = equality_expr , { "AND" , equality_expr } ;
+equality_expr = relational_expr , { ( "==" | "!=" ) , relational_expr } ;
+relational_expr = additive_expr , { ( "<" | "<=" | ">" | ">=" ) , additive_expr } ;
+additive_expr = multiplicative_expr , { ( "+" | "-" ) , multiplicative_expr } ;
+multiplicative_expr = unary_expr , { ( "*" | "/" | "%" ) , unary_expr } ;
+
+unary_expr = [ "NOT" | "-" ] , primary_expr ;
+
+primary_expr = identifier
+             | number
+             | string_literal
+             | boolean_literal
+             | function_call
+             | "(" , expression , ")" ;
+
+(* Function calls *)
+function_call = identifier , "(" , [ argument_list ] , ")" ;
+argument_list = expression , { "," , expression } ;
+
+(* Identifiers and literals *)
+identifier = letter , { letter | digit | "_" | "." } ;
+string_literal = '"' , { any_character - '"' } , '"' ;
+number = [ "-" ] , digit , { digit } , [ "." , digit , { digit } ] ;
+boolean_literal = "true" | "false" ;
+
+(* Basic character classes *)
+letter = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" |
+         "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" |
+         "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
+         "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+newline = "\n" | "\r\n" | "\r" ;
+whitespace = " " | "\t" | newline ;
+
+any_character = letter | digit | whitespace | "!" | "@" | "#" | "$" | "%" | "^" | "&" |
+                "*" | "(" | ")" | "-" | "_" | "+" | "=" | "{" | "}" | "[" | "]" | "|" |
+                "\" | ":" | ";" | '"' | "'" | "<" | ">" | "," | "." | "?" | "/" | "`" | "~" ;
