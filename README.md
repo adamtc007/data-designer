@@ -113,14 +113,13 @@ export DATABASE_URL="postgres://$(whoami)@localhost/data_designer"
 git clone https://github.com/yourusername/data-designer.git
 cd data-designer
 
-# Build and run the pure Rust application
-cargo build --release
+# Run the Template API server (port 3030)
+cd template-server && cargo run
 
-# Run the native egui desktop app
-cargo run --release
+# In another terminal, run the WASM web application (port 8080)
+./runwasm.sh
 
-# Or run from the frontend directory
-cd egui-frontend && cargo run --release
+# Access the Template Editor at http://localhost:8080
 ```
 
 ## 🤖 AI Assistant
