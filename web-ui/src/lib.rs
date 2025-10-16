@@ -8,6 +8,7 @@ mod http_api_client;
 mod template_editor;
 mod code_editor;
 mod dsl_syntax_test;
+mod attribute_autocomplete;
 
 use app::DataDesignerWebApp;
 

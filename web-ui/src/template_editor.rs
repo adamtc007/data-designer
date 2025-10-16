@@ -1,6 +1,7 @@
 use eframe::egui;
-use crate::http_api_client::{DataDesignerHttpClient, ResourceTemplate};
+use crate::http_api_client::{DataDesignerHttpClient, ResourceTemplate, TemplateAttribute};
 use crate::code_editor::CodeEditor;
+use crate::attribute_autocomplete::AttributeAutocomplete;
 use crate::wasm_utils;
 use std::collections::HashMap;
 
@@ -31,6 +32,10 @@ pub struct TemplateEditor {
     // Custom DSL editor
     pub code_editor: CodeEditor,
 
+    // Attribute management
+    pub attribute_autocomplete: AttributeAutocomplete,
+    pub editing_attributes: Vec<TemplateAttribute>,
+
     // Status messages
     pub status_message: String,
     pub error_message: Option<String>,
@@ -54,6 +59,8 @@ impl TemplateEditor {
             new_template_id: String::new(),
             copy_from_baseline: true,
             code_editor: CodeEditor::default(),
+            attribute_autocomplete: AttributeAutocomplete::new("template_attr"),
+            editing_attributes: Vec::new(),
             status_message: "Ready to edit templates".to_string(),
             error_message: None,
         }
@@ -134,6 +141,9 @@ impl TemplateEditor {
             // Update the custom code editor with the DSL content
             self.code_editor.set_content(template.dsl.clone());
 
+            // Load attributes for editing
+            self.editing_attributes = template.attributes.clone();
+
             // Show editor
             self.editor_visible = true;
             self.status_message = format!("Editing template: {}", template_id);
@@ -148,17 +158,19 @@ impl TemplateEditor {
                 // Update template with edited values
                 template.description = self.description_edit.clone();
                 template.dsl = self.dsl_edit.clone();
+                template.attributes = self.editing_attributes.clone();
 
                 self.saving_template = true;
                 self.status_message = format!("Saving template: {}", template_id);
 
                 let client = client.clone();
                 let id = template_id.clone();
+                let template_for_save = template.clone();
 
                 wasm_bindgen_futures::spawn_local(async move {
                     wasm_utils::console_log(&format!("💾 Saving template: {}", id));
 
-                    match client.upsert_template(&id, template).await {
+                    match client.upsert_template(&id, template_for_save).await {
                         Ok(response) => {
                             wasm_utils::console_log(&format!("✅ {}", response.message));
                         }
@@ -167,6 +179,19 @@ impl TemplateEditor {
                         }
                     }
                 });
+
+                // Reset save state after initiating the save (immediate feedback)
+                self.saving_template = false;
+                self.status_message = "Template save initiated".to_string();
+
+                // Update local template state immediately for better UX
+                self.current_template = Some(template.clone());
+                if let Some(existing_template) = self.templates.get_mut(template_id) {
+                    *existing_template = template.clone();
+                }
+
+                // Update JSON view immediately
+                self.template_json_edit = serde_json::to_string_pretty(&template).unwrap_or_default();
             }
         }
     }
@@ -372,7 +397,7 @@ impl TemplateEditor {
 
     fn render_template_editor(&mut self, ui: &mut egui::Ui) {
         if let Some(template_id) = self.selected_template_id.clone() {
-            // Top header with controls
+            // Top header with controls - improved spacing
             ui.horizontal(|ui| {
                 ui.heading(&format!("✏️ Editing: {}", template_id));
 
@@ -383,6 +408,8 @@ impl TemplateEditor {
                         self.current_template = None;
                     }
 
+                    ui.add_space(8.0); // Add spacing between buttons
+
                     if ui.button("💾 Save").clicked() {
                         self.save_current_template();
                     }
@@ -390,6 +417,7 @@ impl TemplateEditor {
             });
 
             ui.separator();
+            ui.add_space(10.0); // Add extra space after header to prevent overlap
 
             if self.saving_template {
                 ui.horizontal(|ui| {
@@ -414,16 +442,21 @@ impl TemplateEditor {
                 self.render_dsl_editor_panel(ui);
             });
 
-            ui.add_space(10.0);
+            ui.add_space(15.0); // Increased spacing before footer
 
-            // Save reminder footer
+            // Save reminder footer with proper spacing
+            ui.separator();
+            ui.add_space(5.0);
             ui.horizontal(|ui| {
                 ui.small("💡 Changes are auto-synced. Click");
+                ui.add_space(4.0);
                 if ui.small_button("💾 Save").clicked() {
                     self.save_current_template();
                 }
+                ui.add_space(4.0);
                 ui.small("to persist to server");
             });
+            ui.add_space(5.0); // Bottom padding
         }
     }
 
@@ -457,12 +490,68 @@ impl TemplateEditor {
 
         ui.add_space(10.0);
 
-        // Attributes section (placeholder for future enhancement)
+        // Enhanced Attributes section with autocomplete
         ui.collapsing("🔧 Attributes", |ui| {
-            if let Some(template) = &self.current_template {
-                ui.label(format!("Attributes: {}", template.attributes.len()));
-                ui.small("Attribute editing coming soon...");
+            ui.label(format!("Template Attributes ({})", self.editing_attributes.len()));
+            ui.separator();
+
+            // Show existing attributes
+            let mut to_remove = None;
+            for (index, attr) in self.editing_attributes.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(&attr.name);
+                    ui.small(format!("({})", attr.data_type));
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("❌").clicked() {
+                            to_remove = Some(index);
+                        }
+                    });
+                });
             }
+
+            // Remove attribute if requested
+            if let Some(index) = to_remove {
+                self.editing_attributes.remove(index);
+                // Update current template
+                if let Some(template) = &mut self.current_template {
+                    template.attributes = self.editing_attributes.clone();
+                    // Update JSON view
+                    self.template_json_edit = serde_json::to_string_pretty(template).unwrap_or_default();
+                }
+            }
+
+            ui.add_space(8.0);
+
+            // Add new attribute section
+            ui.label("Add New Attribute:");
+            if let Some(selected_attr) = self.attribute_autocomplete.show(ui, "Search Dictionary:") {
+                // Store name for logging before moving
+                let attr_name = selected_attr.name.clone();
+
+                // Convert DictionaryAttribute to TemplateAttribute
+                let new_attr = TemplateAttribute {
+                    name: selected_attr.name,
+                    data_type: selected_attr.data_type,
+                    allowed_values: selected_attr.allowed_values,
+                    ui: std::collections::HashMap::new(),
+                };
+
+                self.editing_attributes.push(new_attr);
+                self.attribute_autocomplete.clear();
+
+                // Update current template
+                if let Some(template) = &mut self.current_template {
+                    template.attributes = self.editing_attributes.clone();
+                    // Update JSON view
+                    self.template_json_edit = serde_json::to_string_pretty(template).unwrap_or_default();
+                }
+
+                wasm_utils::console_log(&format!("✅ Added attribute: {}", attr_name));
+            }
+
+            ui.add_space(8.0);
+            ui.small("💡 Start typing to search available attributes. Use Tab to autocomplete or Enter to select.");
         });
 
         ui.add_space(10.0);

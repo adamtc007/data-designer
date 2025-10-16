@@ -229,6 +229,7 @@ impl CodeEditor {
             });
 
             ui.separator();
+            ui.add_space(8.0); // Add extra spacing to prevent button overlap
 
             // Main code editor area with syntax highlighting
             let response = self.show_syntax_highlighted_editor(ui);
@@ -238,6 +239,8 @@ impl CodeEditor {
                 self.tokenize();
                 self.validate_syntax();
             }
+
+            ui.add_space(8.0); // Add bottom spacing
 
             response
         }).inner
@@ -253,12 +256,15 @@ impl CodeEditor {
                     // Show syntax highlighted version (read-only)
                     ui.label("🎨 Syntax Highlighted View:");
                     ui.separator();
+                    ui.add_space(4.0); // Add spacing
 
                     self.render_highlighted_text(ui);
 
-                    ui.add_space(10.0);
+                    ui.add_space(12.0); // Increased spacing
                     ui.separator();
+                    ui.add_space(4.0); // Add spacing
                     ui.label("✏️ Editor:");
+                    ui.add_space(6.0); // Add spacing before editor
 
                     // Regular editable text area
                     let response = ui.add(
@@ -268,6 +274,8 @@ impl CodeEditor {
                             .desired_width(f32::INFINITY)
                             .code_editor()
                     );
+
+                    ui.add_space(8.0); // Add spacing after editor
 
                     // Show syntax analysis in collapsible section
                     ui.collapsing("🔍 Token Analysis", |ui| {
