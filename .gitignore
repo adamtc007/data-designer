@@ -44,6 +44,13 @@ test-results.xml
 coverage/
 .nyc_output/
 
+# WASM build artifacts (keep dist/ but ignore large binaries)
+web-ui/pkg/
+web-ui/node_modules/
+
+# Template API logs
+template-server/*.log
+
 # Old Tauri web stack (removed)
 src-tauri/
 
