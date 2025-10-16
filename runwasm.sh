@@ -5,8 +5,47 @@
 
 set -e
 
+function check_docker() {
+    echo "🐳 Checking Docker status..."
+
+    # Check if Docker daemon is running
+    if ! docker info >/dev/null 2>&1; then
+        echo "⚠️  Docker daemon not running. Starting Docker Desktop..."
+
+        # Start Docker Desktop on macOS
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            open /Applications/Docker.app
+            echo "⏳ Waiting for Docker Desktop to start..."
+
+            # Wait up to 60 seconds for Docker to be ready
+            local count=0
+            while ! docker info >/dev/null 2>&1 && [ $count -lt 60 ]; do
+                sleep 2
+                count=$((count + 2))
+                echo -n "."
+            done
+            echo ""
+
+            if docker info >/dev/null 2>&1; then
+                echo "✅ Docker Desktop started successfully"
+            else
+                echo "❌ Failed to start Docker Desktop. Please start it manually."
+                exit 1
+            fi
+        else
+            echo "❌ Docker daemon not running. Please start Docker manually."
+            exit 1
+        fi
+    else
+        echo "✅ Docker daemon is running"
+    fi
+}
+
 echo "🦀 Data Designer WASM Runner"
 echo "=================================="
+
+# Check Docker status first
+check_docker
 
 # Kill any existing processes on ports 8080 and 3030
 echo "🔧 Cleaning up existing processes..."

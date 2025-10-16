@@ -1,0 +1,63 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: data-designer-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.name=data-designer-cluster
+      - node.name=data-designer-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      # This line maps the named volume 'esdata' to the directory where
+      # Elasticsearch stores its data inside the container.
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - data-designer-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Kibana for Elasticsearch visualization (optional)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: data-designer-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - data-designer-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+networks:
+  data-designer-network:
+    driver: bridge
+
+# This top-level section defines the volume itself.
+# Docker will manage a dedicated folder on your Mac for this volume.
+volumes:
+  esdata:
+    driver: local
