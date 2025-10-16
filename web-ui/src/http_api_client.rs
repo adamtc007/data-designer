@@ -37,7 +37,9 @@ pub struct ResourceTemplate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateAttribute {
     pub name: String,
+    #[serde(rename = "dataType")]
     pub data_type: String,
+    #[serde(rename = "allowedValues")]
     pub allowed_values: Option<Vec<String>>,
     pub ui: HashMap<String, serde_json::Value>,
 }

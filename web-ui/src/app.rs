@@ -25,6 +25,9 @@ pub struct DataDesignerWebApp {
 
     // Template Editor
     template_editor: crate::template_editor::TemplateEditor,
+
+    // Debug tools
+    show_debug_panel: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,10 +53,15 @@ impl DataDesignerWebApp {
             connection_status: ConnectionStatus::Disconnected,
             api_client: None,
             template_editor: crate::template_editor::TemplateEditor::new(),
+            show_debug_panel: false,
         };
 
         // Load sample data
         app.load_sample_data();
+
+        // Connect to API on startup for true JSON-centric sync
+        wasm_utils::console_log("🚀 Auto-connecting to Template API on startup");
+        app.attempt_api_connection();
 
         app
     }
@@ -338,6 +346,62 @@ impl eframe::App for DataDesignerWebApp {
                 }
             }
         });
+
+        // Debug panel (collapsible right panel)
+        egui::SidePanel::right("debug_panel")
+            .resizable(true)
+            .show_animated(ctx, self.show_debug_panel, |ui| {
+                ui.heading("🔍 Debug Panel");
+                ui.separator();
+
+                ui.collapsing("UI Inspector", |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ctx.inspection_ui(ui);
+                    });
+                });
+
+                ui.collapsing("Memory Usage", |ui| {
+                    ui.label("Memory info available in debug mode");
+                    if ui.button("Clear visual cache").clicked() {
+                        ctx.clear_animations();
+                    }
+                });
+
+                ui.collapsing("Settings", |ui| {
+                    egui::Grid::new("debug_settings").show(ui, |ui| {
+                        ui.label("Zoom factor:");
+                        let mut zoom = ctx.zoom_factor();
+                        if ui.add(egui::DragValue::new(&mut zoom).range(0.5..=2.0)).changed() {
+                            ctx.set_zoom_factor(zoom);
+                        }
+                        ui.end_row();
+
+                        ui.label("Pixels per point:");
+                        ui.label(format!("{:.1}", ctx.pixels_per_point()));
+                        ui.end_row();
+                    });
+                });
+
+                ui.collapsing("Style", |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ctx.style_ui(ui, egui::Theme::Dark);
+                    });
+                });
+            });
+
+        // Debug panel toggle button (floating)
+        egui::Window::new("Debug")
+            .collapsible(false)
+            .resizable(false)
+            .default_pos([10.0, 100.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button(if self.show_debug_panel { "Hide Debug" } else { "Show Debug" }).clicked() {
+                        self.show_debug_panel = !self.show_debug_panel;
+                    }
+                    ui.label("Panel");
+                });
+            });
     }
 }
 

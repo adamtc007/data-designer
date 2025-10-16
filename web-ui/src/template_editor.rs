@@ -2,13 +2,24 @@ use eframe::egui;
 use crate::http_api_client::{DataDesignerHttpClient, ResourceTemplate, TemplateAttribute};
 use crate::code_editor::CodeEditor;
 use crate::attribute_autocomplete::AttributeAutocomplete;
+use crate::attribute_palette::AttributePalette;
 use crate::wasm_utils;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::cell::RefCell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum ViewMode {
+    SyntaxHighlighted,
+    ASTTree,
+    RawJSON,
+}
+
+#[derive(Debug)]
 pub struct TemplateEditor {
-    // Connection to API
+    // Connection to API with shared state for async updates
     pub api_client: Option<DataDesignerHttpClient>,
+    pub shared_state: Rc<RefCell<SharedTemplateState>>,
 
     // Templates data
     pub templates: HashMap<String, ResourceTemplate>,
@@ -22,10 +33,7 @@ pub struct TemplateEditor {
     pub editor_visible: bool,
     pub show_create_dialog: bool,
 
-    // Editor state
-    pub template_json_edit: String,
-    pub dsl_edit: String,
-    pub description_edit: String,
+    // Editor state - no redundant fields, all read from current_template
     pub new_template_id: String,
     pub copy_from_baseline: bool,
 
@@ -34,17 +42,38 @@ pub struct TemplateEditor {
 
     // Attribute management
     pub attribute_autocomplete: AttributeAutocomplete,
-    pub editing_attributes: Vec<TemplateAttribute>,
+    pub attribute_palette: AttributePalette,
+    pub show_attribute_palette: bool,
 
     // Status messages
     pub status_message: String,
     pub error_message: Option<String>,
+
+    // View mode for the 3 synchronized views
+    pub view_mode: ViewMode,
+}
+
+// Shared state for async operations to update UI
+#[derive(Debug, Clone)]
+pub struct SharedTemplateState {
+    pub pending_template_update: Option<ResourceTemplate>,
+    pub pending_templates_update: Option<HashMap<String, ResourceTemplate>>,
+    pub async_loading: bool,
+    pub async_error: Option<String>,
 }
 
 impl TemplateEditor {
     pub fn new() -> Self {
+        let shared_state = Rc::new(RefCell::new(SharedTemplateState {
+            pending_template_update: None,
+            pending_templates_update: None,
+            async_loading: false,
+            async_error: None,
+        }));
+
         Self {
             api_client: None,
+            shared_state,
             templates: HashMap::new(),
             selected_template_id: None,
             current_template: None,
@@ -53,33 +82,56 @@ impl TemplateEditor {
             template_list_visible: true,
             editor_visible: false,
             show_create_dialog: false,
-            template_json_edit: String::new(),
-            dsl_edit: String::new(),
-            description_edit: String::new(),
             new_template_id: String::new(),
             copy_from_baseline: true,
             code_editor: CodeEditor::default(),
             attribute_autocomplete: AttributeAutocomplete::new("template_attr"),
-            editing_attributes: Vec::new(),
+            attribute_palette: AttributePalette::new(),
+            show_attribute_palette: true,
             status_message: "Ready to edit templates".to_string(),
             error_message: None,
+            view_mode: ViewMode::SyntaxHighlighted,
         }
     }
 
     pub fn set_api_client(&mut self, client: DataDesignerHttpClient) {
+        wasm_utils::console_log("🔌 Template Editor: Setting API client");
         self.api_client = Some(client);
+        wasm_utils::console_log("🔌 Template Editor: API client set, calling load_all_templates");
         self.load_all_templates();
     }
 
     pub fn load_all_templates(&mut self) {
+        wasm_utils::console_log(&format!("🔄 load_all_templates called, api_client exists: {}", self.api_client.is_some()));
         if let Some(client) = &self.api_client {
             self.loading_templates = true;
-            self.status_message = "Loading templates...".to_string();
+            self.status_message = "Loading templates from API...".to_string();
             self.error_message = None;
 
-            // For now, let's simulate loading with known template IDs
-            // In a real implementation, we'd use proper async state management
             wasm_utils::console_log("🔄 Loading all templates from API");
+
+            let client_for_async = client.clone();
+            let shared_state = self.shared_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                // Set loading state
+                shared_state.borrow_mut().async_loading = true;
+
+                match client_for_async.get_all_templates().await {
+                    Ok(response) => {
+                        wasm_utils::console_log(&format!("✅ Loaded {} templates from API", response.templates.len()));
+
+                        // Store templates for UI update
+                        shared_state.borrow_mut().pending_templates_update = Some(response.templates);
+                        shared_state.borrow_mut().async_loading = false;
+                        shared_state.borrow_mut().async_error = None;
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ Failed to load templates: {:?}", e));
+                        shared_state.borrow_mut().async_loading = false;
+                        shared_state.borrow_mut().async_error = Some(format!("Failed to load templates: {:?}", e));
+                    }
+                }
+            });
 
             // Simulate the 5 templates we know exist
             let mut templates = std::collections::HashMap::new();
@@ -129,36 +181,50 @@ impl TemplateEditor {
     }
 
     pub fn select_template(&mut self, template_id: &str) {
-        if let Some(template) = self.templates.get(template_id) {
-            self.selected_template_id = Some(template_id.to_string());
-            self.current_template = Some(template.clone());
+        wasm_utils::console_log(&format!("📡 Loading template from API: {}", template_id));
 
-            // Populate editor fields
-            self.description_edit = template.description.clone();
-            self.dsl_edit = template.dsl.clone();
-            self.template_json_edit = serde_json::to_string_pretty(template).unwrap_or_default();
+        self.selected_template_id = Some(template_id.to_string());
+        self.status_message = format!("📥 Starting edit session - loading from backend: {}...", template_id);
 
-            // Update the custom code editor with the DSL content
-            self.code_editor.set_content(template.dsl.clone());
+        if let Some(client) = &self.api_client {
+            let client_for_async = client.clone();
+            let template_id_for_async = template_id.to_string();
+            let shared_state = self.shared_state.clone();
 
-            // Load attributes for editing
-            self.editing_attributes = template.attributes.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                shared_state.borrow_mut().async_loading = true;
 
-            // Show editor
-            self.editor_visible = true;
-            self.status_message = format!("Editing template: {}", template_id);
+                match client_for_async.get_template(&template_id_for_async).await {
+                    Ok(template) => {
+                        wasm_utils::console_log(&format!("✅ API returned session JSON for template: {}", template_id_for_async));
+                        wasm_utils::console_log(&format!("📄 Session JSON: {}", serde_json::to_string_pretty(&template).unwrap_or_default()));
 
-            wasm_utils::console_log(&format!("📝 Selected template for editing: {}", template_id));
+                        // Store the single source JSON from API for UI update
+                        shared_state.borrow_mut().pending_template_update = Some(template);
+                        shared_state.borrow_mut().async_loading = false;
+                        shared_state.borrow_mut().async_error = None;
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ Failed to load template {}: {:?}", template_id_for_async, e));
+                        shared_state.borrow_mut().async_loading = false;
+                        shared_state.borrow_mut().async_error = Some(format!("Failed to load template: {:?}", e));
+                    }
+                }
+            });
         }
+
+        // SINGLE SOURCE OF TRUTH: Only use backend API data - no local placeholders
+        // This ensures all panels sync from the same authoritative JSON source
+        self.current_template = None; // Clear any stale session data
+        self.code_editor.set_content("".to_string()); // Clear editor until backend loads
+        self.editor_visible = true; // Show editor but with loading state
+        wasm_utils::console_log("🚫 Eliminated placeholder data - waiting for authoritative backend JSON only");
     }
 
     pub fn save_current_template(&mut self) {
         if let (Some(template_id), Some(client)) = (&self.selected_template_id, &self.api_client) {
-            if let Some(mut template) = self.current_template.clone() {
-                // Update template with edited values
-                template.description = self.description_edit.clone();
-                template.dsl = self.dsl_edit.clone();
-                template.attributes = self.editing_attributes.clone();
+            if let Some(template) = self.current_template.clone() {
+                // Template is already up-to-date (single source of truth)
 
                 self.saving_template = true;
                 self.status_message = format!("Saving template: {}", template_id);
@@ -190,8 +256,7 @@ impl TemplateEditor {
                     *existing_template = template.clone();
                 }
 
-                // Update JSON view immediately
-                self.template_json_edit = serde_json::to_string_pretty(&template).unwrap_or_default();
+                // JSON view will auto-generate from current_template
             }
         }
     }
@@ -253,8 +318,11 @@ impl TemplateEditor {
     }
 
     pub fn render(&mut self, ui: &mut egui::Ui) {
+        // Check for async updates first - pass UI context for forced repaints
+        self.check_async_updates(ui);
+
         crate::wasm_utils::console_log("🚨 Template Editor render() called!");
-        ui.heading("📝 Template Editor - ENHANCED WITH SYNTAX HIGHLIGHTING");
+        ui.heading("📝 Template Editor - JSON-CENTRIC SYNC");
         ui.separator();
 
         // Connection status and controls
@@ -397,9 +465,9 @@ impl TemplateEditor {
 
     fn render_template_editor(&mut self, ui: &mut egui::Ui) {
         if let Some(template_id) = self.selected_template_id.clone() {
-            // Top header with controls - improved spacing
+            // Header with controls
             ui.horizontal(|ui| {
-                ui.heading(&format!("✏️ Editing: {}", template_id));
+                ui.heading(&format!("✏️ Single-Source Template Editor: {}", template_id));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("❌ Close").clicked() {
@@ -408,16 +476,16 @@ impl TemplateEditor {
                         self.current_template = None;
                     }
 
-                    ui.add_space(8.0); // Add spacing between buttons
+                    ui.add_space(8.0);
 
-                    if ui.button("💾 Save").clicked() {
+                    if ui.button("💾 Save to PostgreSQL").on_hover_text("Persist current session changes to the database").clicked() {
                         self.save_current_template();
                     }
                 });
             });
 
             ui.separator();
-            ui.add_space(10.0); // Add extra space after header to prevent overlap
+            ui.add_space(5.0);
 
             if self.saving_template {
                 ui.horizontal(|ui| {
@@ -427,36 +495,28 @@ impl TemplateEditor {
                 return;
             }
 
-            // Two-pane layout: Metadata on left, DSL editor on right (full height)
-            // Left panel: Metadata editor
-            egui::SidePanel::left("metadata_panel")
-                .resizable(true)
-                .default_width(300.0)
-                .width_range(250.0..=500.0)
-                .show_inside(ui, |ui| {
-                    self.render_metadata_panel(ui);
-                });
+            // Single source of truth check - ensure we have template data
+            if self.current_template.is_none() {
+                ui.label("Loading template from backend...");
+                return;
+            }
 
-            // Central panel: Custom DSL code editor (takes all remaining space)
+            // Core JSON view - single source of truth
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                self.render_dsl_editor_panel(ui);
+                self.render_core_json_view(ui);
             });
 
-            ui.add_space(15.0); // Increased spacing before footer
-
-            // Save reminder footer with proper spacing
+            // Footer
             ui.separator();
             ui.add_space(5.0);
             ui.horizontal(|ui| {
-                ui.small("💡 Changes are auto-synced. Click");
+                ui.small("💡 All views sync from single backend JSON source - changes saved to session until:");
                 ui.add_space(4.0);
-                if ui.small_button("💾 Save").clicked() {
+                if ui.small_button("💾 Save to PostgreSQL").clicked() {
                     self.save_current_template();
                 }
-                ui.add_space(4.0);
-                ui.small("to persist to server");
             });
-            ui.add_space(5.0); // Bottom padding
+            ui.add_space(5.0);
         }
     }
 
@@ -473,31 +533,42 @@ impl TemplateEditor {
 
         ui.add_space(8.0);
 
-        // Description editor
+        // Description editor - read/write directly from current_template (single source of truth)
         ui.label("Description:");
-        let desc_response = ui.add(
-            egui::TextEdit::multiline(&mut self.description_edit)
-                .desired_rows(4)
-                .desired_width(f32::INFINITY)
-        );
+        if let Some(template) = &mut self.current_template {
+            let desc_response = ui.add(
+                egui::TextEdit::multiline(&mut template.description)
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY)
+            );
 
-        if desc_response.changed() {
-            // Update the current template's description
-            if let Some(template) = &mut self.current_template {
-                template.description = self.description_edit.clone();
+            if desc_response.changed() {
+                // Description is already updated in the master template
+                // Force UI repaint so JSON panel refreshes immediately
+                ui.ctx().request_repaint();
+                wasm_utils::console_log("📝 Description updated in master template - All panels refreshed");
             }
         }
 
         ui.add_space(10.0);
 
-        // Enhanced Attributes section with autocomplete
-        ui.collapsing("🔧 Attributes", |ui| {
-            ui.label(format!("Template Attributes ({})", self.editing_attributes.len()));
+        // Enhanced Attributes section with autocomplete - read from current_template (single source of truth)
+        let attribute_count = if let Some(template) = &self.current_template {
+            template.attributes.len()
+        } else {
+            0
+        };
+        let attributes_expanded = attribute_count > 0;
+        egui::CollapsingHeader::new(format!("🔧 Attributes ({})", attribute_count))
+            .default_open(attributes_expanded)
+            .show(ui, |ui| {
+            ui.label(format!("Template Attributes: {} defined", attribute_count));
             ui.separator();
 
-            // Show existing attributes
+            // Show existing attributes from current_template (single source of truth)
             let mut to_remove = None;
-            for (index, attr) in self.editing_attributes.iter().enumerate() {
+            if let Some(template) = &self.current_template {
+                for (index, attr) in template.attributes.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(&attr.name);
                     ui.small(format!("({})", attr.data_type));
@@ -508,16 +579,20 @@ impl TemplateEditor {
                         }
                     });
                 });
+                }
             }
 
-            // Remove attribute if requested
+            // Remove attribute if requested - update current_template FIRST (single source of truth)
             if let Some(index) = to_remove {
-                self.editing_attributes.remove(index);
-                // Update current template
                 if let Some(template) = &mut self.current_template {
-                    template.attributes = self.editing_attributes.clone();
-                    // Update JSON view
-                    self.template_json_edit = serde_json::to_string_pretty(template).unwrap_or_default();
+                    template.attributes.remove(index);
+
+                    // Force UI repaint so all panels refresh immediately
+                    ui.ctx().request_repaint();
+
+                    wasm_utils::console_log("🗑️ Removed attribute - All panels refreshed");
+
+                    // No redundant fields - everything reads from current_template
                 }
             }
 
@@ -537,17 +612,19 @@ impl TemplateEditor {
                     ui: std::collections::HashMap::new(),
                 };
 
-                self.editing_attributes.push(new_attr);
-                self.attribute_autocomplete.clear();
-
-                // Update current template
+                // Update current template FIRST (single source of truth)
                 if let Some(template) = &mut self.current_template {
-                    template.attributes = self.editing_attributes.clone();
-                    // Update JSON view
-                    self.template_json_edit = serde_json::to_string_pretty(template).unwrap_or_default();
+                    template.attributes.push(new_attr.clone());
+
+                    // No redundant fields - everything reads from current_template
                 }
 
-                wasm_utils::console_log(&format!("✅ Added attribute: {}", attr_name));
+                self.attribute_autocomplete.clear();
+
+                // Force UI repaint so all panels refresh immediately
+                ui.ctx().request_repaint();
+
+                wasm_utils::console_log(&format!("✅ Added attribute: {} - All panels refreshed", attr_name));
             }
 
             ui.add_space(8.0);
@@ -556,29 +633,53 @@ impl TemplateEditor {
 
         ui.add_space(10.0);
 
-        // JSON view (collapsible)
+        // JSON view (collapsible) - auto-generated from current_template (single source of truth)
         ui.collapsing("📄 Raw JSON", |ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut self.template_json_edit)
-                    .font(egui::TextStyle::Monospace)
-                    .desired_rows(8)
-                    .desired_width(f32::INFINITY)
-            );
+            if let Some(template) = &self.current_template {
+                // Generate JSON fresh every frame from current_template (single source of truth)
+                let mut json_display = serde_json::to_string_pretty(template).unwrap_or_default();
+                ui.add(
+                    egui::TextEdit::multiline(&mut json_display)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_rows(8)
+                        .desired_width(f32::INFINITY)
+                        .interactive(false)  // Read-only, auto-generated fresh every frame
+                );
+                ui.small("💡 This JSON view is auto-generated from the master template each frame");
+            } else {
+                ui.label("No template selected");
+            }
         });
     }
 
     /// Render the custom DSL editor panel
     fn render_dsl_editor_panel(&mut self, ui: &mut egui::Ui) {
+        // Ensure DSL editor content is synced with current template (single source of truth)
+        if let Some(template) = &self.current_template {
+            // Check if the code editor content differs from the master template
+            let current_dsl = &template.dsl;
+            let editor_content = self.code_editor.get_content();
+
+            if editor_content != current_dsl {
+                // Sync the editor to match the master template (happens when attributes change the template)
+                self.code_editor.set_content(current_dsl.clone());
+                wasm_utils::console_log("🔄 DSL editor synced with master template");
+            }
+        }
+
         // Use our custom code editor
         let code_response = self.code_editor.show(ui);
 
-        // Sync changes back to the template
+        // Sync changes back to the master template (single source of truth)
         if code_response.changed() {
-            self.dsl_edit = self.code_editor.get_content().to_string();
+            let dsl_content = self.code_editor.get_content().to_string();
 
-            // Update the current template's DSL
+            // Update the current template's DSL directly
             if let Some(template) = &mut self.current_template {
-                template.dsl = self.dsl_edit.clone();
+                template.dsl = dsl_content;
+                // Force UI repaint so JSON panel refreshes immediately
+                ui.ctx().request_repaint();
+                wasm_utils::console_log("📝 DSL updated in master template - All panels refreshed");
             }
         }
     }
@@ -630,6 +731,195 @@ impl TemplateEditor {
                     }
                 });
             });
+    }
+
+    /// Render the attribute palette panel
+    fn render_attribute_palette_panel(&mut self, ui: &mut egui::Ui) {
+        // Show the attribute palette and handle attribute additions - pass current template attributes as source of truth
+        let current_attributes = if let Some(template) = &self.current_template {
+            &template.attributes
+        } else {
+            &Vec::new()
+        };
+
+        if let Some(added_attribute) = self.attribute_palette.show(ui, current_attributes) {
+            // Update current template FIRST (single source of truth)
+            if let Some(template) = &mut self.current_template {
+                template.attributes.push(added_attribute.clone());
+
+                // No redundant fields - everything reads from current_template
+            }
+
+            // Force UI repaint so all panels refresh immediately
+            ui.ctx().request_repaint();
+
+            // Clear recently added after a delay (handled by the palette itself)
+            // Log the addition
+            crate::wasm_utils::console_log(&format!("✅ Added attribute from palette: {} - All panels refreshed", added_attribute.name));
+        }
+    }
+
+    /// Check for async updates and apply them to UI state
+    fn check_async_updates(&mut self, ui: &mut egui::Ui) {
+        let mut shared_state = self.shared_state.borrow_mut();
+
+        // Check for template update
+        if let Some(template) = shared_state.pending_template_update.take() {
+            wasm_utils::console_log(&format!("🔄 Applying API session JSON as single source of truth: {}", template.id));
+
+            // Update the master template (single source of truth) with API data
+            self.current_template = Some(template.clone());
+            self.code_editor.set_content(template.dsl.clone());
+            self.editor_visible = true;
+            self.status_message = format!("✅ Loaded session JSON for template: {} - All panels synced", template.id);
+
+            // FORCE ALL PANELS TO REFRESH from single source of truth
+            ui.ctx().request_repaint();
+            wasm_utils::console_log("🔄 FORCED PANEL REFRESH - All panels now sync from single backend JSON source");
+
+            // Update local templates cache
+            self.templates.insert(template.id.clone(), template);
+        }
+
+        // Check for templates list update
+        if let Some(templates) = shared_state.pending_templates_update.take() {
+            wasm_utils::console_log(&format!("🔄 Applying {} templates from API", templates.len()));
+
+            self.templates = templates;
+            self.loading_templates = false;
+            self.status_message = format!("✅ Loaded {} templates from API - Connected to single source", self.templates.len());
+        }
+
+        // Check for async errors
+        if let Some(error) = shared_state.async_error.take() {
+            self.error_message = Some(error);
+            self.loading_templates = false;
+        }
+
+        // Update loading state
+        if shared_state.async_loading {
+            if !self.loading_templates {
+                self.loading_templates = true;
+            }
+        } else {
+            if self.loading_templates && shared_state.pending_template_update.is_none() && shared_state.pending_templates_update.is_none() {
+                self.loading_templates = false;
+            }
+        }
+    }
+
+    // Split-screen view: DSL editor (top) + JSON viewer (bottom)
+    fn render_core_json_view(&mut self, ui: &mut egui::Ui) {
+        if self.current_template.is_none() {
+            ui.label("No template loaded from backend");
+            return;
+        }
+
+        // Clone template to avoid borrow conflicts
+        let mut template = self.current_template.clone().unwrap();
+
+        ui.vertical(|ui| {
+            ui.heading("📄 Split Template Editor - DSL + JSON");
+            ui.label("🎨 Top: Syntax-highlighted DSL editor | 📋 Bottom: Live JSON source");
+            ui.separator();
+
+            // Split screen horizontally
+            let available_height = ui.available_height() - 100.0; // Reserve space for controls
+            let top_height = available_height * 0.5;
+            let bottom_height = available_height * 0.5;
+
+            // TOP HALF: Syntax-highlighted DSL editor
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("🎨 DSL Editor (Syntax Highlighted)");
+                        ui.label("- Edit your template's DSL with semantic coloring");
+                    });
+                    ui.separator();
+
+                    // Use code editor for syntax highlighting
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), top_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.label("🎨 DSL Editor with Syntax Highlighting:");
+                            ui.separator();
+                            ui.add_space(4.0);
+
+                            // Use a simple, editable text area with syntax highlighting
+                            let response = ui.add(
+                                egui::TextEdit::multiline(&mut template.dsl)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_rows(20)
+                                    .desired_width(f32::INFINITY)
+                                    .code_editor()
+                            );
+
+                            if response.changed() {
+                                // Update current_template when DSL changes
+                                if let Some(template_mut) = &mut self.current_template {
+                                    template_mut.dsl = template.dsl.clone();
+                                    ui.ctx().request_repaint();
+                                    wasm_utils::console_log("🔄 DSL updated - syncing to JSON below");
+                                }
+                            }
+                        }
+                    );
+                });
+            });
+
+            ui.add_space(5.0);
+
+            // BOTTOM HALF: Live JSON view
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("📋 Live JSON Source");
+                        ui.label("- Real-time reflection of your template changes");
+                    });
+                    ui.separator();
+
+                    // Get current template state for JSON display
+                    let current_template = self.current_template.as_ref().unwrap();
+                    let json_content = match serde_json::to_string_pretty(current_template) {
+                        Ok(json) => json,
+                        Err(e) => format!("Error serializing template: {}", e),
+                    };
+
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(ui.available_width(), bottom_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                egui::ScrollArea::horizontal().show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut json_content.as_str())
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(f32::INFINITY)
+                                            .interactive(false) // Read-only reflection
+                                    );
+                                });
+                            });
+                        }
+                    );
+                });
+            });
+
+            ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.label("💡 Edit DSL above - see JSON update below in real-time");
+                if ui.button("📋 Copy JSON").clicked() {
+                    let json_content = serde_json::to_string_pretty(self.current_template.as_ref().unwrap()).unwrap_or_default();
+                    ui.ctx().copy_text(json_content);
+                    wasm_utils::console_log("📋 JSON copied to clipboard");
+                }
+                if ui.button("🔄 Reload from Backend").clicked() {
+                    if self.selected_template_id.is_some() {
+                        self.load_all_templates();
+                    }
+                }
+            });
+        });
     }
 }
 
