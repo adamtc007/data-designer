@@ -298,7 +298,7 @@ impl DataDesignerIDE {
                     // Data type
                     ui.horizontal(|ui| {
                         ui.label("Data Type:");
-                        egui::ComboBox::from_label("")
+                        egui::ComboBox::from_id_salt("edit_data_type")
                             .selected_text(&selected_attr.data_type)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut selected_attr.data_type, "String".to_string(), "String");
@@ -318,7 +318,7 @@ impl DataDesignerIDE {
                     // Visibility scope
                     ui.horizontal(|ui| {
                         ui.label("Visibility:");
-                        egui::ComboBox::from_label("")
+                        egui::ComboBox::from_id_salt("edit_visibility")
                             .selected_text(&selected_attr.visibility_scope)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut selected_attr.visibility_scope, "Private".to_string(), "Private");
@@ -330,7 +330,7 @@ impl DataDesignerIDE {
                     // Attribute class
                     ui.horizontal(|ui| {
                         ui.label("Class:");
-                        egui::ComboBox::from_label("")
+                        egui::ComboBox::from_id_salt("edit_class")
                             .selected_text(&selected_attr.attribute_class)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut selected_attr.attribute_class, "Calculated".to_string(), "Calculated");
@@ -343,7 +343,7 @@ impl DataDesignerIDE {
                     // Materialization strategy
                     ui.horizontal(|ui| {
                         ui.label("Materialization:");
-                        egui::ComboBox::from_label("")
+                        egui::ComboBox::from_id_salt("edit_materialization")
                             .selected_text(&selected_attr.materialization_strategy)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut selected_attr.materialization_strategy, "OnDemand".to_string(), "On Demand");
@@ -479,7 +479,7 @@ impl DataDesignerIDE {
                     ui.end_row();
 
                     ui.label("Data Type:");
-                    egui::ComboBox::from_label("")
+                    egui::ComboBox::from_id_salt("create_data_type")
                         .selected_text(&self.new_attribute.data_type)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut self.new_attribute.data_type, "String".to_string(), "String");
