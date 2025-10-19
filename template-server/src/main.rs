@@ -151,6 +151,52 @@ pub struct ExecutionSummaryResponse {
     pub execution_time_ms: i64,
 }
 
+// Private Attributes API data structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateAttributeDefinition {
+    pub id: Option<i32>,
+    pub attribute_name: String,
+    pub description: String,
+    pub data_type: String,
+    pub visibility_scope: String,
+    pub attribute_class: String,
+    pub source_attributes: Vec<String>,
+    pub filter_expression: Option<String>,
+    pub transformation_logic: Option<String>,
+    pub regex_pattern: Option<String>,
+    pub validation_tests: Option<String>,
+    pub materialization_strategy: String,
+    pub derivation_rule_ebnf: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePrivateAttributeRequest {
+    pub attribute_name: String,
+    pub description: String,
+    pub data_type: String,
+    pub source_attributes: Vec<String>,
+    pub filter_expression: Option<String>,
+    pub transformation_logic: Option<String>,
+    pub regex_pattern: Option<String>,
+    pub validation_tests: Option<String>,
+    pub materialization_strategy: String,
+    pub derivation_rule_ebnf: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePrivateAttributeResponse {
+    pub success: bool,
+    pub attribute_id: i32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetPrivateAttributesResponse {
+    pub attributes: Vec<PrivateAttributeDefinition>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitDataRequest {
     pub instance_id: String,
@@ -175,6 +221,12 @@ fn create_template_router() -> Router {
         .route("/api/templates/:id", put(upsert_template))
         .route("/api/templates/create", put(create_template))
         .route("/api/ebnf-templates", get(get_ebnf_templates))
+        // Private attributes endpoints
+        .route("/api/private-attributes", get(get_private_attributes))
+        .route("/api/private-attributes", post(create_private_attribute))
+        .route("/api/private-attributes/:id", get(get_private_attribute))
+        .route("/api/private-attributes/:id", put(update_private_attribute))
+        .route("/api/private-attributes/:id", axum::routing::delete(delete_private_attribute))
         // Runtime execution endpoints
         .route("/api/runtime/workflows/start", post(start_workflow))
         .route("/api/runtime/workflows/status", get(get_workflow_status))
@@ -383,7 +435,7 @@ async fn create_template(Json(request): Json<CreateTemplateRequest>) -> Result<R
     info!("  - Attributes Count: {}", request.attributes.len());
 
     // Build the full template data structure for storage
-    let template_data = serde_json::json!({
+    let _template_data = serde_json::json!({
         "resource_id": resource_id,
         "resource_type": "template",
         "name": request.template_name,
@@ -424,6 +476,227 @@ async fn create_template(Json(request): Json<CreateTemplateRequest>) -> Result<R
     info!("✅ Template creation completed: {}", resource_id);
 
     Ok(ResponseJson(response))
+}
+
+// Private Attributes API endpoints
+
+// In-memory store for private attributes (in production, this would be in database)
+static mut PRIVATE_ATTRIBUTES: std::sync::OnceLock<std::sync::Mutex<Vec<PrivateAttributeDefinition>>> = std::sync::OnceLock::new();
+static mut NEXT_ATTRIBUTE_ID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+
+fn get_private_attributes_store() -> &'static std::sync::Mutex<Vec<PrivateAttributeDefinition>> {
+    unsafe {
+        PRIVATE_ATTRIBUTES.get_or_init(|| {
+            // Initialize with some sample data
+            let sample_attributes = vec![
+                PrivateAttributeDefinition {
+                    id: Some(1),
+                    attribute_name: "internal_risk_tier".to_string(),
+                    description: "Internal risk classification tier derived from multiple risk factors".to_string(),
+                    data_type: "Enum".to_string(),
+                    visibility_scope: "private".to_string(),
+                    attribute_class: "derived".to_string(),
+                    source_attributes: vec!["Client.credit_score".to_string(), "Client.income_level".to_string()],
+                    filter_expression: Some("credit_score > 600".to_string()),
+                    transformation_logic: Some("risk calculation based on multiple factors".to_string()),
+                    regex_pattern: None,
+                    validation_tests: Some("value in ['Low', 'Medium', 'High']".to_string()),
+                    materialization_strategy: "lazy".to_string(),
+                    derivation_rule_ebnf: "risk_tier ::= DERIVE internal_risk_tier FROM Client.credit_score, Client.income_level WHERE credit_score > 600".to_string(),
+                    created_at: Some(chrono::Utc::now().to_rfc3339()),
+                    updated_at: Some(chrono::Utc::now().to_rfc3339()),
+                },
+                PrivateAttributeDefinition {
+                    id: Some(2),
+                    attribute_name: "composite_score".to_string(),
+                    description: "Composite scoring algorithm result".to_string(),
+                    data_type: "Decimal".to_string(),
+                    visibility_scope: "private".to_string(),
+                    attribute_class: "derived".to_string(),
+                    source_attributes: vec!["Client.age".to_string(), "Client.annual_income".to_string()],
+                    filter_expression: None,
+                    transformation_logic: Some("weighted average calculation".to_string()),
+                    regex_pattern: None,
+                    validation_tests: Some("value >= 0 and value <= 100".to_string()),
+                    materialization_strategy: "eager".to_string(),
+                    derivation_rule_ebnf: "composite_score ::= DERIVE composite_score FROM Client.age, Client.annual_income WITH weighted_avg".to_string(),
+                    created_at: Some(chrono::Utc::now().to_rfc3339()),
+                    updated_at: Some(chrono::Utc::now().to_rfc3339()),
+                },
+            ];
+            unsafe { NEXT_ATTRIBUTE_ID.store(3, std::sync::atomic::Ordering::SeqCst); }
+            std::sync::Mutex::new(sample_attributes)
+        })
+    }
+}
+
+#[axum::debug_handler]
+async fn get_private_attributes() -> Result<ResponseJson<GetPrivateAttributesResponse>, StatusCode> {
+    info!("📊 Getting all private attributes");
+
+    let attributes_store = get_private_attributes_store();
+    match attributes_store.lock() {
+        Ok(attributes) => {
+            let response = GetPrivateAttributesResponse {
+                attributes: attributes.clone(),
+            };
+            info!("✅ Retrieved {} private attributes", attributes.len());
+            Ok(ResponseJson(response))
+        }
+        Err(e) => {
+            error!("❌ Failed to lock private attributes store: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+#[axum::debug_handler]
+async fn get_private_attribute(Path(id): Path<i32>) -> Result<ResponseJson<PrivateAttributeDefinition>, StatusCode> {
+    info!("📊 Getting private attribute with id: {}", id);
+
+    let attributes_store = get_private_attributes_store();
+    match attributes_store.lock() {
+        Ok(attributes) => {
+            match attributes.iter().find(|attr| attr.id == Some(id)) {
+                Some(attribute) => {
+                    info!("✅ Found private attribute: {}", attribute.attribute_name);
+                    Ok(ResponseJson(attribute.clone()))
+                }
+                None => {
+                    error!("❌ Private attribute not found: {}", id);
+                    Err(StatusCode::NOT_FOUND)
+                }
+            }
+        }
+        Err(e) => {
+            error!("❌ Failed to lock private attributes store: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+#[axum::debug_handler]
+async fn create_private_attribute(Json(request): Json<CreatePrivateAttributeRequest>) -> Result<ResponseJson<CreatePrivateAttributeResponse>, StatusCode> {
+    info!("➕ Creating private attribute: {}", request.attribute_name);
+
+    let attributes_store = get_private_attributes_store();
+    match attributes_store.lock() {
+        Ok(mut attributes) => {
+            // Generate new ID
+            let new_id = unsafe { NEXT_ATTRIBUTE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) };
+
+            // Create new attribute
+            let new_attribute = PrivateAttributeDefinition {
+                id: Some(new_id),
+                attribute_name: request.attribute_name.clone(),
+                description: request.description,
+                data_type: request.data_type,
+                visibility_scope: "private".to_string(),
+                attribute_class: "derived".to_string(),
+                source_attributes: request.source_attributes,
+                filter_expression: request.filter_expression,
+                transformation_logic: request.transformation_logic,
+                regex_pattern: request.regex_pattern,
+                validation_tests: request.validation_tests,
+                materialization_strategy: request.materialization_strategy,
+                derivation_rule_ebnf: request.derivation_rule_ebnf,
+                created_at: Some(chrono::Utc::now().to_rfc3339()),
+                updated_at: Some(chrono::Utc::now().to_rfc3339()),
+            };
+
+            // Add to store
+            attributes.push(new_attribute);
+
+            let response = CreatePrivateAttributeResponse {
+                success: true,
+                attribute_id: new_id,
+                message: format!("Private attribute '{}' created successfully", request.attribute_name),
+            };
+
+            info!("✅ Private attribute created with ID: {}", new_id);
+            Ok(ResponseJson(response))
+        }
+        Err(e) => {
+            error!("❌ Failed to lock private attributes store: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+#[axum::debug_handler]
+async fn update_private_attribute(
+    Path(id): Path<i32>,
+    Json(request): Json<CreatePrivateAttributeRequest>,
+) -> Result<ResponseJson<CreatePrivateAttributeResponse>, StatusCode> {
+    info!("✏️ Updating private attribute: {}", id);
+
+    let attributes_store = get_private_attributes_store();
+    match attributes_store.lock() {
+        Ok(mut attributes) => {
+            match attributes.iter_mut().find(|attr| attr.id == Some(id)) {
+                Some(attribute) => {
+                    // Update the attribute
+                    attribute.attribute_name = request.attribute_name.clone();
+                    attribute.description = request.description;
+                    attribute.data_type = request.data_type;
+                    attribute.source_attributes = request.source_attributes;
+                    attribute.filter_expression = request.filter_expression;
+                    attribute.transformation_logic = request.transformation_logic;
+                    attribute.regex_pattern = request.regex_pattern;
+                    attribute.validation_tests = request.validation_tests;
+                    attribute.materialization_strategy = request.materialization_strategy;
+                    attribute.derivation_rule_ebnf = request.derivation_rule_ebnf;
+                    attribute.updated_at = Some(chrono::Utc::now().to_rfc3339());
+
+                    let response = CreatePrivateAttributeResponse {
+                        success: true,
+                        attribute_id: id,
+                        message: format!("Private attribute '{}' updated successfully", request.attribute_name),
+                    };
+
+                    info!("✅ Private attribute {} updated successfully", id);
+                    Ok(ResponseJson(response))
+                }
+                None => {
+                    error!("❌ Private attribute not found: {}", id);
+                    Err(StatusCode::NOT_FOUND)
+                }
+            }
+        }
+        Err(e) => {
+            error!("❌ Failed to lock private attributes store: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+#[axum::debug_handler]
+async fn delete_private_attribute(Path(id): Path<i32>) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("🗑️ Deleting private attribute: {}", id);
+
+    let attributes_store = get_private_attributes_store();
+    match attributes_store.lock() {
+        Ok(mut attributes) => {
+            let original_len = attributes.len();
+            attributes.retain(|attr| attr.id != Some(id));
+
+            if attributes.len() < original_len {
+                let response = serde_json::json!({
+                    "success": true,
+                    "message": format!("Private attribute {} deleted successfully", id)
+                });
+                info!("✅ Private attribute {} deleted successfully", id);
+                Ok(ResponseJson(response))
+            } else {
+                error!("❌ Private attribute not found: {}", id);
+                Err(StatusCode::NOT_FOUND)
+            }
+        }
+        Err(e) => {
+            error!("❌ Failed to lock private attributes store: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 // Runtime execution API endpoints

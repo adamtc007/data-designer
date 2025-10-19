@@ -42,7 +42,7 @@ mod tests {
         };
 
         // Create rules engine and evaluate
-        let engine = RulesEngine::new(&dictionary).unwrap();
+        let engine = RulesEngine::new(dictionary.clone()).unwrap();
         let result = engine.evaluate_chain(&["age_category".to_string()], &facts).unwrap();
 
         // Check the result
@@ -82,7 +82,7 @@ mod tests {
             axes: vec![],
         };
 
-        let engine = RulesEngine::new(&dictionary).unwrap();
+        let engine = RulesEngine::new(dictionary.clone()).unwrap();
         let result = engine.evaluate_chain(&["total_compensation".to_string()], &facts).unwrap();
 
         // 50000 + (50000 * 0.1) = 55000
@@ -122,7 +122,7 @@ mod tests {
             axes: vec![],
         };
 
-        let engine = RulesEngine::new(&dictionary).unwrap();
+        let engine = RulesEngine::new(dictionary.clone()).unwrap();
         let result = engine.evaluate_chain(&["full_name".to_string()], &facts).unwrap();
 
         assert_eq!(result.get("full_name"), Some(&Value::String("John Doe".to_string())));

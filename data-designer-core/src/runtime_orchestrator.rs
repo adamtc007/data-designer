@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;
+use sqlx::Row;
 
 /// Helper structs for template loading
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,10 +429,10 @@ impl RuntimeOrchestrator {
             // Merge private attributes with template scoping
             for (path, attr) in template_dict.private_attributes {
                 let scoped_path = format!("{}::{}", template_id, path);
-                aggregated_private.insert(scoped_path, attr);
+                aggregated_private.insert(scoped_path, attr.clone());
 
                 // Also add unscoped for easy lookup (last template wins)
-                aggregated_private.insert(path, attr.clone());
+                aggregated_private.insert(path, attr);
             }
         }
 
@@ -756,7 +757,8 @@ impl RuntimeOrchestrator {
         self.execution_context.workflow_state = WorkflowState::CollectingData;
         let mut execution_results = Vec::new();
 
-        for template_id in &self.template_dependencies {
+        let template_deps = self.template_dependencies.clone();
+        for template_id in &template_deps {
             tracing::info!("🎯 Executing template: {}", template_id);
             self.execution_context.current_step = format!("template_execution:{}", template_id);
 

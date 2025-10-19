@@ -815,7 +815,7 @@ impl eframe::App for DataDesignerWebApp {
                     self.template_designer.render(ui);
                 }
                 AppRoute::DataDesigner => {
-                    self.data_designer.show(ui);
+                    self.data_designer.show(ui, self.api_client.as_ref());
                 }
                 AppRoute::Database => {
                     self.show_placeholder(ui, "🗄️ Database", "Database operations and queries");

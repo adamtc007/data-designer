@@ -55,6 +55,52 @@ pub struct UpsertTemplateResponse {
     pub message: String,
 }
 
+// Private Attributes API data structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateAttributeDefinition {
+    pub id: Option<i32>,
+    pub attribute_name: String,
+    pub description: String,
+    pub data_type: String,
+    pub visibility_scope: String,
+    pub attribute_class: String,
+    pub source_attributes: Vec<String>,
+    pub filter_expression: Option<String>,
+    pub transformation_logic: Option<String>,
+    pub regex_pattern: Option<String>,
+    pub validation_tests: Option<String>,
+    pub materialization_strategy: String,
+    pub derivation_rule_ebnf: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePrivateAttributeRequest {
+    pub attribute_name: String,
+    pub description: String,
+    pub data_type: String,
+    pub source_attributes: Vec<String>,
+    pub filter_expression: Option<String>,
+    pub transformation_logic: Option<String>,
+    pub regex_pattern: Option<String>,
+    pub validation_tests: Option<String>,
+    pub materialization_strategy: String,
+    pub derivation_rule_ebnf: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePrivateAttributeResponse {
+    pub success: bool,
+    pub attribute_id: i32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetPrivateAttributesResponse {
+    pub attributes: Vec<PrivateAttributeDefinition>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DataDesignerHttpClient {
     client: Client,
@@ -218,6 +264,133 @@ impl DataDesignerHttpClient {
         };
 
         Ok(new_template)
+    }
+
+    // Private Attributes API methods
+
+    pub async fn get_private_attributes(&self) -> Result<GetPrivateAttributesResponse> {
+        if !self.connected {
+            return Err(HttpApiError::NotConnected);
+        }
+
+        let url = format!("{}/api/private-attributes", self.base_url);
+
+        wasm_utils::console_log(&format!("📊 Fetching private attributes: {}", url));
+
+        let response = self.client
+            .get(&url)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(HttpApiError::ServerError {
+                status: response.status().as_u16(),
+            });
+        }
+
+        let attributes_response: GetPrivateAttributesResponse = response.json().await?;
+        wasm_utils::console_log(&format!("✅ Retrieved {} private attributes", attributes_response.attributes.len()));
+        Ok(attributes_response)
+    }
+
+    pub async fn create_private_attribute(&self, request: CreatePrivateAttributeRequest) -> Result<CreatePrivateAttributeResponse> {
+        if !self.connected {
+            return Err(HttpApiError::NotConnected);
+        }
+
+        let url = format!("{}/api/private-attributes", self.base_url);
+
+        wasm_utils::console_log(&format!("➕ Creating private attribute '{}': {}", request.attribute_name, url));
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(HttpApiError::ServerError {
+                status: response.status().as_u16(),
+            });
+        }
+
+        let create_response: CreatePrivateAttributeResponse = response.json().await?;
+        wasm_utils::console_log(&format!("✅ Created private attribute with ID: {}", create_response.attribute_id));
+        Ok(create_response)
+    }
+
+    pub async fn get_private_attribute(&self, id: i32) -> Result<PrivateAttributeDefinition> {
+        if !self.connected {
+            return Err(HttpApiError::NotConnected);
+        }
+
+        let url = format!("{}/api/private-attributes/{}", self.base_url, id);
+
+        wasm_utils::console_log(&format!("📄 Fetching private attribute {}: {}", id, url));
+
+        let response = self.client
+            .get(&url)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(HttpApiError::ServerError {
+                status: response.status().as_u16(),
+            });
+        }
+
+        let attribute: PrivateAttributeDefinition = response.json().await?;
+        Ok(attribute)
+    }
+
+    pub async fn update_private_attribute(&self, id: i32, request: CreatePrivateAttributeRequest) -> Result<CreatePrivateAttributeResponse> {
+        if !self.connected {
+            return Err(HttpApiError::NotConnected);
+        }
+
+        let url = format!("{}/api/private-attributes/{}", self.base_url, id);
+
+        wasm_utils::console_log(&format!("✏️ Updating private attribute {}: {}", id, url));
+
+        let response = self.client
+            .put(&url)
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(HttpApiError::ServerError {
+                status: response.status().as_u16(),
+            });
+        }
+
+        let update_response: CreatePrivateAttributeResponse = response.json().await?;
+        wasm_utils::console_log(&format!("✅ Updated private attribute {}", id));
+        Ok(update_response)
+    }
+
+    pub async fn delete_private_attribute(&self, id: i32) -> Result<()> {
+        if !self.connected {
+            return Err(HttpApiError::NotConnected);
+        }
+
+        let url = format!("{}/api/private-attributes/{}", self.base_url, id);
+
+        wasm_utils::console_log(&format!("🗑️ Deleting private attribute {}: {}", id, url));
+
+        let response = self.client
+            .delete(&url)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(HttpApiError::ServerError {
+                status: response.status().as_u16(),
+            });
+        }
+
+        wasm_utils::console_log(&format!("✅ Deleted private attribute {}", id));
+        Ok(())
     }
 }
 
