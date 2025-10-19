@@ -1,4 +1,4 @@
-use crate::db::{DbPool, DbOperations};
+use crate::db::DbPool;
 use crate::resource_sheets::*;
 use anyhow::Result;
 use serde_json::{Value as JsonValue, json};
@@ -332,7 +332,7 @@ impl ResourceSheetDb {
         sqlx::query(sql)
             .bind(resource_id)
             .bind(execution_id)
-            .bind(&log_entry.timestamp)
+            .bind(log_entry.timestamp)
             .bind(&log_entry.step)
             .bind(&log_entry.message)
             .bind(level_str)

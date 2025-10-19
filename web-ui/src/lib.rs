@@ -5,14 +5,12 @@ mod app;
 mod resource_sheet_ui;
 mod minimal_types;
 mod http_api_client;
-mod template_editor;
-mod code_editor;
 mod dsl_syntax_test;
-mod attribute_autocomplete;
-mod attribute_palette;
 mod grpc_client;
+mod debug_ui;
+mod template_designer;
+mod data_designer;
 
-use app::DataDesignerWebApp;
 
 /// This is the entry-point for all the web-assembly.
 /// This is called once from the HTML.
@@ -44,7 +42,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
                     // Set up dark theme
                     cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-                    Ok(Box::new(DataDesignerWebApp::new(cc)))
+                    Ok(Box::new(app::DataDesignerWebApp::new(cc)))
                 }),
             )
             .await;
@@ -76,18 +74,26 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppRoute {
     Dashboard,
-    ResourceSheets,
-    Templates,
-    CBUs,
-    Rules,
+    // Main functional areas
+    ResourceTemplates,     // Manage Resource Templates
+    PrivateData,          // Manage Private Data
+    OnboardingRequests,   // Create Onboarding Request
+    // Design tools (accessed from main areas)
+    TemplateDesigner,     // Template creation tool
+    DataDesigner,         // Data design tool
+    // Supporting areas
     Database,
-    ProductTaxonomy,
-    InvestmentMandates,
     Transpiler,
 }
 
 pub struct WebRouter {
     current_route: AppRoute,
+}
+
+impl Default for WebRouter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WebRouter {

@@ -1,6 +1,6 @@
-use crate::models::{Expression, Value, BinaryOperator};
+use crate::models::{Expression, Value};
 use crate::resource_sheets::*;
-use crate::evaluator::{Facts, FunctionLibrary};
+use crate::evaluator::FunctionLibrary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use anyhow::{Result, bail};
@@ -105,6 +105,12 @@ pub enum FailureHandlingStrategy {
 pub struct OrchestrationFunctionLibrary {
     pub base: FunctionLibrary,
     pub resource_registry: ResourceRegistry,
+}
+
+impl Default for OrchestrationFunctionLibrary {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OrchestrationFunctionLibrary {
@@ -357,7 +363,7 @@ impl OrchestrationFunctionLibrary {
 
     fn build_master_dictionary(&mut self, args: &[Value], context: &mut ExecutionContext) -> Result<Value> {
         // Combine data dictionaries from multiple resources
-        let mut combined_requirements: Vec<String> = Vec::new();
+        let combined_requirements: Vec<String> = Vec::new();
         let mut field_count = 0;
 
         if !args.is_empty() {
@@ -406,7 +412,7 @@ impl OrchestrationFunctionLibrary {
         };
 
         // Update resource status to executing
-        if let Some(mut resource) = self.resource_registry.get_resource_mut(&resource_name) {
+        if let Some(resource) = self.resource_registry.get_resource_mut(&resource_name) {
             resource.status = ResourceStatus::Executing;
         }
 
@@ -521,7 +527,7 @@ impl OrchestrationFunctionLibrary {
         };
 
         // Update resource status to review
-        if let Some(mut resource) = self.resource_registry.get_resource_mut(&resource_name) {
+        if let Some(resource) = self.resource_registry.get_resource_mut(&resource_name) {
             resource.status = ResourceStatus::Review;
         }
 
@@ -579,6 +585,12 @@ pub struct ResourceRegistry {
     pub active_resources: HashMap<String, SubResourceReference>,
     pub product_definitions: HashMap<String, ProductDefinition>,
     pub terminated_resources: Vec<String>,
+}
+
+impl Default for ResourceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ResourceRegistry {

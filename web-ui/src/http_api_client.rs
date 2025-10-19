@@ -230,7 +230,7 @@ pub async fn test_api_endpoint(endpoint: &str) -> bool {
         Ok(response) => {
             let status = response.status().as_u16();
             wasm_utils::console_log(&format!("✅ API endpoint {} returned status: {}", endpoint, status));
-            status >= 200 && status < 300
+            (200..300).contains(&status)
         }
         Err(e) => {
             wasm_utils::console_log(&format!("❌ API endpoint {} unreachable: {:?}", endpoint, e));

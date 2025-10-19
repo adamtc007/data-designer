@@ -85,6 +85,46 @@ pub enum UnaryOperator {
 pub struct DataDictionary {
     pub datasets: Vec<Dataset>,
     pub lookup_tables: HashMap<String, HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub derived_attributes: Vec<DerivedAttribute>,
+    #[serde(default)]
+    pub canonical_models: Vec<CanonicalModel>,
+    #[serde(default)]
+    pub solicitation_packs: Vec<SolicitationPack>,
+    #[serde(default)]
+    pub axes: Vec<Axis>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalModel {
+    pub entity_name: String,
+    pub description: String,
+    pub attributes: Vec<CanonicalAttribute>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalAttribute {
+    pub name: String,
+    pub data_type: String,
+    pub description: String,
+    pub embedding: Option<Vec<f32>>,
+    pub governance: Governance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolicitationPack {
+    pub name: String,
+    pub description: String,
+    pub process: String,
+    pub audience: String,
+    pub attributes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Axis {
+    pub name: String,
+    pub description: String,
+    pub embedding: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,8 +211,7 @@ impl DataDictionary {
             .map(|d| d.attributes.len())
             .sum();
         let lookup_tables_count = self.lookup_tables.len();
-        let total_lookup_entries = self.lookup_tables.iter()
-            .map(|(_, table)| table.len())
+        let total_lookup_entries = self.lookup_tables.values().map(|table| table.len())
             .sum();
 
         DataDictionaryStats {
@@ -266,3 +305,44 @@ impl ViewerState {
         !self.search_query.is_empty() || self.filter_by_type.is_some()
     }
 }
+
+// Simple models for testing and engine functionality
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rule {
+    pub description: String,
+    pub condition: Option<String>,
+    pub value: Option<String>,
+    pub otherwise_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DerivedAttribute {
+    pub name: String,
+    pub attribute_type: String,
+    pub visibility: String,
+    pub description: String,
+    pub embedding: Option<Vec<f32>>,
+    pub dependencies: Vec<String>,
+    pub rules: Vec<Rule>,
+    pub governance: Governance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Governance {
+    pub source_type: Option<String>,
+    pub authorized_source: Option<AuthorizedSource>,
+    pub consumers: Vec<Consumer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizedSource {
+    pub source_type: String,
+    pub lineage_uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Consumer {
+    pub name: String,
+    pub uri: String,
+}
+

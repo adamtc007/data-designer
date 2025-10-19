@@ -293,6 +293,12 @@ pub struct CompositePersistenceService {
     services: Vec<Box<dyn PersistenceService>>,
 }
 
+impl Default for CompositePersistenceService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CompositePersistenceService {
     pub fn new() -> Self {
         Self {

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::models::{Expression, DataDictionary, Value};
 
@@ -9,7 +8,6 @@ use crate::models::{Expression, DataDictionary, Value};
 /// This module implements the two-level resource sheet concept:
 /// 1. Onboarding Resource Sheet - The orchestrator/general contractor
 /// 2. Domain-Specific Resource Sheets - Specialized agents (KYC, Account Setup, etc.)
-
 // ===== CORE RESOURCE SHEET FRAMEWORK =====
 
 /// Base trait for all resource sheet types

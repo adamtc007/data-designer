@@ -1,6 +1,6 @@
-use crate::models::{Expression, Value, BinaryOperator};
+use crate::models::{Expression, Value};
 use crate::resource_sheets::*;
-use crate::evaluator::{Facts, FunctionLibrary};
+use crate::evaluator::FunctionLibrary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use anyhow::{Result, bail};
@@ -183,6 +183,12 @@ pub struct KYCFunctionLibrary {
     pub screening_databases: HashMap<String, ScreeningDatabase>,
     pub risk_models: HashMap<String, RiskModel>,
     pub regulatory_rules: HashMap<String, RegulatoryRule>,
+}
+
+impl Default for KYCFunctionLibrary {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KYCFunctionLibrary {

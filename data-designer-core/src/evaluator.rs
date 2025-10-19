@@ -10,6 +10,12 @@ pub struct FunctionLibrary {
     pub lookup_tables: HashMap<String, HashMap<String, String>>,
 }
 
+impl Default for FunctionLibrary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FunctionLibrary {
     pub fn new() -> Self {
         Self {
@@ -56,7 +62,7 @@ impl FunctionLibrary {
     fn concat(&self, args: &[Value]) -> Result<Value> {
         let result = args
             .iter()
-            .map(|v| value_to_string(v))
+            .map(value_to_string)
             .collect::<Vec<_>>()
             .join("");
         Ok(Value::String(result))

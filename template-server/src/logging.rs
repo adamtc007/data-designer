@@ -1,12 +1,10 @@
 use axum::{
-    body::Body,
     extract::{Request, MatchedPath},
-    http::{StatusCode, HeaderMap, Method, Uri},
+    http::HeaderMap,
     middleware::Next,
     response::Response,
 };
 use chrono::{DateTime, Utc};
-use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Instant;

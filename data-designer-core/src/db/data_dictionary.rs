@@ -116,7 +116,7 @@ impl DataDictionaryOperations {
             RETURNING id
         "#;
 
-        let tags_json = request.tags.map(|t| serde_json::to_value(t))
+        let tags_json = request.tags.map(serde_json::to_value)
             .transpose()
             .map_err(|e| format!("Failed to serialize tags: {}", e))?;
 

@@ -1,8 +1,8 @@
 use axum::{
-    extract::{Path, Json},
+    extract::{Path, Json, Query},
     http::StatusCode,
     response::Json as ResponseJson,
-    routing::{get, put},
+    routing::{get, put, post},
     Router,
     middleware,
 };
@@ -51,6 +51,120 @@ pub struct UpsertTemplateResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EbnfTemplate {
+    pub id: i32,
+    pub template_name: String,
+    pub description: String,
+    pub ebnf_pattern: String,
+    pub complexity_level: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTemplateRequest {
+    pub template_name: String,
+    pub description: String,
+    pub domain_id: i32,
+    pub ebnf_template_id: i32,
+    pub dsl_code: String,
+    pub attributes: Vec<TemplateAttribute>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTemplateResponse {
+    pub success: bool,
+    pub resource_id: String,
+    pub message: String,
+}
+
+// Runtime execution data structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartWorkflowRequest {
+    pub workflow_type: String,
+    pub jurisdiction: String,
+    pub initial_data: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartWorkflowResponse {
+    pub success: bool,
+    pub instance_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStatusQuery {
+    pub instance_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStatusResponse {
+    pub instance_id: String,
+    pub status: String,
+    pub collected_data: HashMap<String, serde_json::Value>,
+    pub pending_solicitations: Vec<DataSolicitationResponse>,
+    pub validation_results: Vec<ValidationResponse>,
+    pub next_actions: Vec<String>,
+    pub execution_summary: ExecutionSummaryResponse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataSolicitationResponse {
+    pub instance_id: String,
+    pub attribute_path: String,
+    pub data_type: String,
+    pub required: bool,
+    pub description: String,
+    pub ui_hints: UIHintsResponse,
+    pub template_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UIHintsResponse {
+    pub input_type: String,
+    pub placeholder: Option<String>,
+    pub help_text: Option<String>,
+    pub allowed_values: Option<Vec<String>>,
+    pub validation_pattern: Option<String>,
+    pub max_length: Option<i32>,
+    pub min_length: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResponse {
+    pub attribute_path: String,
+    pub validation_rule: String,
+    pub passed: bool,
+    pub error_message: Option<String>,
+    pub validated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionSummaryResponse {
+    pub total_templates: i32,
+    pub executed_templates: i32,
+    pub total_attributes: i32,
+    pub collected_attributes: i32,
+    pub derived_attributes: i32,
+    pub pending_solicitations: i32,
+    pub validation_errors: i32,
+    pub execution_time_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitDataRequest {
+    pub instance_id: String,
+    pub attribute_data: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitDataResponse {
+    pub success: bool,
+    pub message: String,
+    pub updated_solicitations: Vec<String>,
+    pub validation_results: Vec<ValidationResponse>,
+}
+
 const TEMPLATES_FILE_PATH: &str = "../resource_templates.json";
 
 fn create_template_router() -> Router {
@@ -59,6 +173,13 @@ fn create_template_router() -> Router {
         .route("/api/templates", get(get_all_templates))
         .route("/api/templates/:id", get(get_template))
         .route("/api/templates/:id", put(upsert_template))
+        .route("/api/templates/create", put(create_template))
+        .route("/api/ebnf-templates", get(get_ebnf_templates))
+        // Runtime execution endpoints
+        .route("/api/runtime/workflows/start", post(start_workflow))
+        .route("/api/runtime/workflows/status", get(get_workflow_status))
+        .route("/api/runtime/workflows/submit-data", post(submit_workflow_data))
+        .route("/api/runtime/workflows/:instance_id/stop", post(stop_workflow))
         .layer(middleware::from_fn(api_logging_middleware))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
@@ -170,6 +291,341 @@ async fn save_templates_to_file(templates: &HashMap<String, ResourceTemplate>) -
     let content = serde_json::to_string_pretty(templates)?;
     fs::write(TEMPLATES_FILE_PATH, content).await?;
     Ok(())
+}
+
+#[axum::debug_handler]
+async fn get_ebnf_templates() -> Result<ResponseJson<Vec<EbnfTemplate>>, StatusCode> {
+    info!("EBNF templates endpoint called");
+
+    // In production, this would query the database
+    // For now, return hardcoded data that matches the database
+    let ebnf_templates = vec![
+        EbnfTemplate {
+            id: 1,
+            template_name: "simple_concatenation".to_string(),
+            description: "Concatenate two or more string attributes".to_string(),
+            ebnf_pattern: "result ::= {source_attr} (\" \" {source_attr})*".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 2,
+            template_name: "conditional_assignment".to_string(),
+            description: "Assign value based on condition".to_string(),
+            ebnf_pattern: "result ::= IF {condition} THEN {true_value} ELSE {false_value}".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 3,
+            template_name: "lookup_transformation".to_string(),
+            description: "Transform value using lookup table".to_string(),
+            ebnf_pattern: "result ::= LOOKUP({source_attr}, {lookup_table})".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 4,
+            template_name: "arithmetic_calculation".to_string(),
+            description: "Perform arithmetic operations".to_string(),
+            ebnf_pattern: "result ::= {operand1} {operator} {operand2}".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 5,
+            template_name: "validation_rule".to_string(),
+            description: "Validate data against business rules".to_string(),
+            ebnf_pattern: "result ::= VALIDATE({source_attr}, {rule_expr})".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 6,
+            template_name: "aggregation_rule".to_string(),
+            description: "Aggregate data using functions".to_string(),
+            ebnf_pattern: "result ::= {agg_function}({source_attrs})".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 7,
+            template_name: "data_dictionary_lookup".to_string(),
+            description: "Retrieve data from the data dictionary using GET-DATA verb".to_string(),
+            ebnf_pattern: "result ::= GET-DATA {attribute_path} FROM {data_source} [WHERE {condition}]".to_string(),
+            complexity_level: "simple".to_string(),
+        },
+        EbnfTemplate {
+            id: 8,
+            template_name: "data_attribute_derivation".to_string(),
+            description: "Define private data attributes through ETL pipeline with sources, filters, and tests".to_string(),
+            ebnf_pattern: "derived_attr ::= DERIVE {target_name} FROM {source_spec} [WHERE {filter_expr}] [WITH {transformation_spec}] [EXTRACT REGEX {pattern}] [TEST {validation_expr}] [MATERIALIZE {strategy}]".to_string(),
+            complexity_level: "moderate".to_string(),
+        },
+    ];
+
+    info!("📝 Returning {} EBNF templates", ebnf_templates.len());
+
+    Ok(ResponseJson(ebnf_templates))
+}
+
+#[axum::debug_handler]
+async fn create_template(Json(request): Json<CreateTemplateRequest>) -> Result<ResponseJson<CreateTemplateResponse>, StatusCode> {
+    info!("Create template endpoint called for: {}", request.template_name);
+
+    // In production, this would insert into the database with proper FK relationships
+    // For now, simulate the database insert and return success
+
+    let resource_id = format!("{}_{}", request.template_name.to_lowercase().replace(" ", "_"), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+
+    // Simulate database insert
+    info!("💾 Creating template in database:");
+    info!("  - Resource ID: {}", resource_id);
+    info!("  - Template Name: {}", request.template_name);
+    info!("  - Description: {}", request.description);
+    info!("  - Domain ID: {}", request.domain_id);
+    info!("  - EBNF Template ID: {}", request.ebnf_template_id);
+    info!("  - DSL Code Length: {} characters", request.dsl_code.len());
+    info!("  - Attributes Count: {}", request.attributes.len());
+
+    // Build the full template data structure for storage
+    let template_data = serde_json::json!({
+        "resource_id": resource_id,
+        "resource_type": "template",
+        "name": request.template_name,
+        "description": request.description,
+        "version": "1.0.0",
+        "status": "Active",
+        "domain_id": request.domain_id,
+        "ebnf_template_id": request.ebnf_template_id,
+        "dsl_code": request.dsl_code,
+        "json_data": {
+            "id": resource_id,
+            "description": request.description,
+            "attributes": request.attributes,
+            "dsl": request.dsl_code
+        },
+        "metadata": {
+            "created_via": "template_designer",
+            "domain_id": request.domain_id,
+            "ebnf_template_id": request.ebnf_template_id
+        },
+        "created_by": "template_designer",
+        "created_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        "tags": ["user_created", "template_designer"]
+    });
+
+    info!("📊 Template data structure prepared for database insertion");
+
+    // TODO: Insert into database with proper SQL
+    // INSERT INTO resource_sheets (resource_id, resource_type, name, description, domain_id, ebnf_template_id, dsl_code, json_data, metadata, created_by)
+    // VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+
+    let response = CreateTemplateResponse {
+        success: true,
+        resource_id: resource_id.clone(),
+        message: format!("Template '{}' created successfully with domain linkage", request.template_name),
+    };
+
+    info!("✅ Template creation completed: {}", resource_id);
+
+    Ok(ResponseJson(response))
+}
+
+// Runtime execution API endpoints
+
+#[axum::debug_handler]
+async fn start_workflow(Json(request): Json<StartWorkflowRequest>) -> Result<ResponseJson<StartWorkflowResponse>, StatusCode> {
+    info!("🚀 Starting workflow: {} for jurisdiction: {}", request.workflow_type, request.jurisdiction);
+
+    // Generate unique instance ID
+    let instance_id = format!("ONBOARD_{}_{}",
+        request.workflow_type.to_uppercase(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    );
+
+    // In production, this would:
+    // 1. Create RuntimeOrchestrator instance
+    // 2. Initialize with database connection
+    // 3. Start workflow execution asynchronously
+    // 4. Store instance state in database/memory
+
+    info!("💾 Created workflow instance: {}", instance_id);
+    info!("📊 Workflow configuration:");
+    info!("  - Type: {}", request.workflow_type);
+    info!("  - Jurisdiction: {}", request.jurisdiction);
+    info!("  - Initial Data Points: {}", request.initial_data.as_ref().map_or(0, |d| d.len()));
+
+    // Simulate workflow initialization
+    let response = StartWorkflowResponse {
+        success: true,
+        instance_id: instance_id.clone(),
+        message: format!("Workflow instance {} started successfully", instance_id),
+    };
+
+    info!("✅ Workflow startup completed: {}", instance_id);
+
+    Ok(ResponseJson(response))
+}
+
+#[axum::debug_handler]
+async fn get_workflow_status(Query(params): Query<WorkflowStatusQuery>) -> Result<ResponseJson<WorkflowStatusResponse>, StatusCode> {
+    info!("📊 Getting workflow status for instance: {}", params.instance_id);
+
+    // In production, this would:
+    // 1. Load RuntimeOrchestrator instance from storage
+    // 2. Get current execution state
+    // 3. Return comprehensive status
+
+    // Mock workflow status
+    let status_response = WorkflowStatusResponse {
+        instance_id: params.instance_id.clone(),
+        status: "CollectingData".to_string(),
+        collected_data: {
+            let mut data = HashMap::new();
+            data.insert("Client.legal_entity_name".to_string(), serde_json::Value::String("Example Corp Ltd".to_string()));
+            data.insert("Client.client_id".to_string(), serde_json::Value::String(format!("CLIENT_{}", params.instance_id)));
+            data
+        },
+        pending_solicitations: vec![
+            DataSolicitationResponse {
+                instance_id: params.instance_id.clone(),
+                attribute_path: "Client.incorporation_date".to_string(),
+                data_type: "date".to_string(),
+                required: true,
+                description: "Date of incorporation for the legal entity".to_string(),
+                ui_hints: UIHintsResponse {
+                    input_type: "date".to_string(),
+                    placeholder: Some("YYYY-MM-DD".to_string()),
+                    help_text: Some("Enter the official incorporation date".to_string()),
+                    allowed_values: None,
+                    validation_pattern: Some(r"^\d{4}-\d{2}-\d{2}$".to_string()),
+                    max_length: None,
+                    min_length: None,
+                },
+                template_source: "legal_entity_template".to_string(),
+            },
+            DataSolicitationResponse {
+                instance_id: params.instance_id.clone(),
+                attribute_path: "Client.business_type".to_string(),
+                data_type: "string".to_string(),
+                required: true,
+                description: "Type of business entity".to_string(),
+                ui_hints: UIHintsResponse {
+                    input_type: "dropdown".to_string(),
+                    placeholder: Some("Select business type".to_string()),
+                    help_text: Some("Choose the appropriate business entity type".to_string()),
+                    allowed_values: Some(vec![
+                        "Corporation".to_string(),
+                        "LLC".to_string(),
+                        "Partnership".to_string(),
+                        "Sole Proprietorship".to_string(),
+                    ]),
+                    validation_pattern: None,
+                    max_length: None,
+                    min_length: None,
+                },
+                template_source: "business_classification_template".to_string(),
+            },
+        ],
+        validation_results: vec![
+            ValidationResponse {
+                attribute_path: "Client.legal_entity_name".to_string(),
+                validation_rule: "required".to_string(),
+                passed: true,
+                error_message: None,
+                validated_at: chrono::Utc::now().to_rfc3339(),
+            },
+        ],
+        next_actions: vec![
+            "Complete 2 pending data solicitations".to_string(),
+            "Provide incorporation date".to_string(),
+            "Select business type".to_string(),
+        ],
+        execution_summary: ExecutionSummaryResponse {
+            total_templates: 5,
+            executed_templates: 2,
+            total_attributes: 15,
+            collected_attributes: 2,
+            derived_attributes: 3,
+            pending_solicitations: 2,
+            validation_errors: 0,
+            execution_time_ms: 1250,
+        },
+    };
+
+    info!("📈 Status retrieved for {}: {} collected, {} pending solicitations",
+        params.instance_id,
+        status_response.collected_data.len(),
+        status_response.pending_solicitations.len()
+    );
+
+    Ok(ResponseJson(status_response))
+}
+
+#[axum::debug_handler]
+async fn submit_workflow_data(Json(request): Json<SubmitDataRequest>) -> Result<ResponseJson<SubmitDataResponse>, StatusCode> {
+    info!("📝 Submitting data for workflow instance: {}", request.instance_id);
+    info!("📊 Received {} data attributes", request.attribute_data.len());
+
+    // Log submitted data attributes
+    for (attr_path, value) in &request.attribute_data {
+        info!("  - {}: {:?}", attr_path, value);
+    }
+
+    // In production, this would:
+    // 1. Load RuntimeOrchestrator instance
+    // 2. Update collected data
+    // 3. Re-run validation
+    // 4. Update solicitation status
+    // 5. Continue workflow execution if possible
+
+    // Mock validation results
+    let validation_results = request.attribute_data.iter().map(|(attr_path, value)| {
+        let passed = !value.is_null() && !value.as_str().unwrap_or("").is_empty();
+        ValidationResponse {
+            attribute_path: attr_path.clone(),
+            validation_rule: "required".to_string(),
+            passed,
+            error_message: if passed { None } else { Some("Value is required".to_string()) },
+            validated_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }).collect();
+
+    let updated_solicitations: Vec<String> = request.attribute_data.keys().cloned().collect();
+
+    let response = SubmitDataResponse {
+        success: true,
+        message: format!("Successfully updated {} attributes for instance {}",
+            request.attribute_data.len(),
+            request.instance_id
+        ),
+        updated_solicitations,
+        validation_results,
+    };
+
+    info!("✅ Data submission completed for {}: {} attributes processed",
+        request.instance_id,
+        request.attribute_data.len()
+    );
+
+    Ok(ResponseJson(response))
+}
+
+#[axum::debug_handler]
+async fn stop_workflow(Path(instance_id): Path<String>) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("🛑 Stopping workflow instance: {}", instance_id);
+
+    // In production, this would:
+    // 1. Load RuntimeOrchestrator instance
+    // 2. Set workflow state to stopped/suspended
+    // 3. Clean up resources
+    // 4. Save final state
+
+    let response = serde_json::json!({
+        "success": true,
+        "instance_id": instance_id,
+        "message": format!("Workflow instance {} stopped successfully", instance_id),
+        "final_status": "Suspended"
+    });
+
+    info!("✅ Workflow {} stopped successfully", instance_id);
+
+    Ok(ResponseJson(response))
 }
 
 #[tokio::main]

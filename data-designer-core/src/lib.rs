@@ -9,6 +9,9 @@ pub mod resource_sheets;
 pub mod orchestration_dsl;
 pub mod kyc_dsl;
 
+// Runtime execution system
+pub mod runtime_orchestrator;
+
 // Configuration
 pub mod config;
 

@@ -39,6 +39,7 @@ pub struct GrammarConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Config {
     pub database: DatabaseConfig,
     pub application: ApplicationConfig,
@@ -93,16 +94,6 @@ impl Default for GrammarConfig {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            database: DatabaseConfig::default(),
-            application: ApplicationConfig::default(),
-            lsp: LspConfig::default(),
-            grammar: GrammarConfig::default(),
-        }
-    }
-}
 
 impl Config {
     /// Load configuration from file with environment variable overrides

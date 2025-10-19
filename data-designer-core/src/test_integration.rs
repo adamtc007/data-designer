@@ -33,6 +33,8 @@ mod tests {
         };
 
         let dictionary = DataDictionary {
+            datasets: vec![],
+            lookup_tables: std::collections::HashMap::new(),
             canonical_models: vec![],
             derived_attributes: vec![derived_attr],
             solicitation_packs: vec![],
@@ -72,6 +74,8 @@ mod tests {
         };
 
         let dictionary = DataDictionary {
+            datasets: vec![],
+            lookup_tables: std::collections::HashMap::new(),
             canonical_models: vec![],
             derived_attributes: vec![derived_attr],
             solicitation_packs: vec![],
@@ -110,6 +114,8 @@ mod tests {
         };
 
         let dictionary = DataDictionary {
+            datasets: vec![],
+            lookup_tables: std::collections::HashMap::new(),
             canonical_models: vec![],
             derived_attributes: vec![derived_attr],
             solicitation_packs: vec![],

@@ -2,7 +2,8 @@
 /target/
 **/target/
 **/*.rs.bk
-Cargo.lock
+# Note: Cargo.lock should be included for applications, excluded for libraries
+# Keeping Cargo.lock for reproducible builds
 
 # Configuration files
 config.toml
@@ -43,10 +44,27 @@ dev_db.sqlite
 test-results.xml
 coverage/
 .nyc_output/
+test-logs/
+**/test-data/generated/
+**/test-output/
+junit.xml
 
-# WASM build artifacts (keep dist/ but ignore large binaries)
+# Elasticsearch test data
+elasticsearch-data/
+.elasticsearch/
+kibana-logs/
+
+# WASM build artifacts
 web-ui/pkg/
 web-ui/node_modules/
+web-ui/dist/*.wasm
+web-ui/dist/*.js
+# Keep dist/ directory structure but ignore large binaries
+
+# Runtime orchestrator artifacts
+**/runtime-instances/
+**/execution-logs/
+**/onboarding-data/
 
 # Template API logs
 template-server/*.log
@@ -66,3 +84,26 @@ src-tauri/
 database/SCHEMA_CHANGE_TEMPLATES.md
 *_local.md
 *_private.md
+
+# Docker volumes and data
+docker-data/
+postgres-data/
+elasticsearch-data/
+
+# Performance test results
+benchmark-results/
+*.prof
+*.perf
+
+# Credentials and sensitive data
+*.key
+*.pem
+*.crt
+api-keys.json
+secrets.yaml
+
+# IDE and editor artifacts
+.fleet/
+.run/
+*.code-workspace
+.history/

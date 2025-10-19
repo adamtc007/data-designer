@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package financial_taxonomy;
 
+import "google/protobuf/timestamp.proto";
+
 // Health check service
 service HealthService {
   rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
@@ -18,13 +20,40 @@ message HealthCheckResponse {
 
 // Financial taxonomy service
 service FinancialTaxonomyService {
+  // Existing taxonomy methods
   rpc GetProducts(GetProductsRequest) returns (GetProductsResponse);
+  rpc GetProductOptions(GetProductOptionsRequest) returns (GetProductOptionsResponse);
   rpc GetServices(GetServicesRequest) returns (GetServicesResponse);
+  rpc GetCbuMandateStructure(GetCbuMandateStructureRequest) returns (GetCbuMandateStructureResponse);
+  rpc GetCbuMemberRoles(GetCbuMemberRolesRequest) returns (GetCbuMemberRolesResponse);
+  rpc GetTaxonomyHierarchy(GetTaxonomyHierarchyRequest) returns (GetTaxonomyHierarchyResponse);
+
+  // Health and status methods
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc GetDatabaseStatus(DatabaseStatusRequest) returns (DatabaseStatusResponse);
+
+  // AI assistant methods
+  rpc GetAiSuggestions(GetAiSuggestionsRequest) returns (GetAiSuggestionsResponse);
+
+  // API key management methods
+  rpc StoreApiKey(StoreApiKeyRequest) returns (StoreApiKeyResponse);
+  rpc GetApiKey(GetApiKeyRequest) returns (GetApiKeyResponse);
+  rpc DeleteApiKey(DeleteApiKeyRequest) returns (DeleteApiKeyResponse);
+  rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
+
+  // WHITE TRUFFLE #1: Template Instantiation Service
+  rpc InstantiateResource(InstantiateResourceRequest) returns (InstantiateResourceResponse);
+
+  // WHITE TRUFFLE #2: DSL Execution Engine
+  rpc ExecuteDsl(ExecuteDslRequest) returns (ExecuteDslResponse);
 }
 
+// === EXISTING MESSAGES ===
+
 message GetProductsRequest {
-  int32 page = 1;
-  int32 page_size = 2;
+  optional string status_filter = 1;
+  optional int32 limit = 2;
+  optional int32 offset = 3;
 }
 
 message GetProductsResponse {
@@ -32,9 +61,22 @@ message GetProductsResponse {
   int32 total_count = 2;
 }
 
+message GetProductOptionsRequest {
+  optional string product_id = 1;
+  optional string status_filter = 2;
+  optional int32 limit = 3;
+  optional int32 offset = 4;
+}
+
+message GetProductOptionsResponse {
+  repeated ProductOption product_options = 1;
+  int32 total_count = 2;
+}
+
 message GetServicesRequest {
-  int32 page = 1;
-  int32 page_size = 2;
+  optional string status_filter = 1;
+  optional int32 limit = 2;
+  optional int32 offset = 3;
 }
 
 message GetServicesResponse {
@@ -42,11 +84,60 @@ message GetServicesResponse {
   int32 total_count = 2;
 }
 
+message GetCbuMandateStructureRequest {
+  optional int32 limit = 1;
+  optional int32 offset = 2;
+}
+
+message GetCbuMandateStructureResponse {
+  repeated CbuInvestmentMandateStructure structures = 1;
+  int32 total_count = 2;
+}
+
+message GetCbuMemberRolesRequest {
+  optional int32 limit = 1;
+  optional int32 offset = 2;
+}
+
+message GetCbuMemberRolesResponse {
+  repeated CbuMemberInvestmentRole roles = 1;
+  int32 total_count = 2;
+}
+
+message GetTaxonomyHierarchyRequest {
+  optional string item_type = 1;
+  optional int32 parent_id = 2;
+}
+
+message GetTaxonomyHierarchyResponse {
+  repeated TaxonomyHierarchyItem items = 1;
+}
+
 message Product {
-  string id = 1;
-  string name = 2;
-  string description = 3;
-  string category = 4;
+  int32 id = 1;
+  string product_id = 2;
+  string product_name = 3;
+  string line_of_business = 4;
+  optional string description = 5;
+  string status = 6;
+  optional string contract_type = 7;
+  optional string commercial_status = 8;
+  optional string pricing_model = 9;
+  optional string target_market = 10;
+}
+
+message ProductOption {
+  int32 id = 1;
+  string option_id = 2;
+  string product_id = 3;
+  string option_name = 4;
+  string option_category = 5;
+  string option_type = 6;
+  optional string option_value = 7;
+  optional string display_name = 8;
+  optional string description = 9;
+  optional double pricing_impact = 10;
+  string status = 11;
 }
 
 message Service {
@@ -58,4 +149,174 @@ message Service {
   string delivery_model = 6;
   bool billable = 7;
   string status = 8;
+}
+
+message CbuInvestmentMandateStructure {
+  string cbu_id = 1;
+  string cbu_name = 2;
+  optional string mandate_id = 3;
+  optional string asset_owner_name = 4;
+  optional string investment_manager_name = 5;
+  optional string base_currency = 6;
+  optional int32 total_instruments = 7;
+  optional string families = 8;
+  optional double total_exposure_pct = 9;
+}
+
+message CbuMemberInvestmentRole {
+  string cbu_id = 1;
+  string cbu_name = 2;
+  string entity_name = 3;
+  optional string entity_lei = 4;
+  string role_name = 5;
+  string role_code = 6;
+  string investment_responsibility = 7;
+  optional string mandate_id = 8;
+  optional bool has_trading_authority = 9;
+  optional bool has_settlement_authority = 10;
+}
+
+message TaxonomyHierarchyItem {
+  int32 level = 1;
+  string item_type = 2;
+  int32 item_id = 3;
+  string item_name = 4;
+  optional string item_description = 5;
+  optional int32 parent_id = 6;
+  optional string configuration = 7;
+  optional string metadata = 8;
+}
+
+// === AI ASSISTANT MESSAGES ===
+
+message GetAiSuggestionsRequest {
+  string query = 1;
+  optional string context = 2;
+  optional AiProviderConfig ai_provider = 3;
+}
+
+message GetAiSuggestionsResponse {
+  repeated AiSuggestion suggestions = 1;
+  string status_message = 2;
+}
+
+message AiProviderConfig {
+  int32 provider_type = 1; // 0=OpenAI, 1=Anthropic, 2=Offline
+  optional string api_key = 2;
+}
+
+message AiSuggestion {
+  string title = 1;
+  string description = 2;
+  string category = 3;
+  double confidence = 4;
+  repeated string applicable_contexts = 5;
+}
+
+// === DATABASE STATUS MESSAGES ===
+
+message DatabaseStatusRequest {}
+
+message DatabaseStatusResponse {
+  bool connected = 1;
+  string database_name = 2;
+  string host = 3;
+  int32 port = 4;
+  string status_message = 5;
+  optional google.protobuf.Timestamp last_check = 6;
+  optional string error_message = 7;
+  int32 total_tables = 8;
+  int32 total_products = 9;
+  int32 total_services = 10;
+  int32 total_mandates = 11;
+}
+
+// === API KEY MANAGEMENT MESSAGES ===
+
+message StoreApiKeyRequest {
+  string provider = 1;
+  string api_key = 2;
+}
+
+message StoreApiKeyResponse {
+  bool success = 1;
+  string message = 2;
+  string key_id = 3;
+}
+
+message GetApiKeyRequest {
+  string provider = 1;
+}
+
+message GetApiKeyResponse {
+  bool success = 1;
+  string api_key = 2;
+  string message = 3;
+  bool key_exists = 4;
+}
+
+message DeleteApiKeyRequest {
+  string provider = 1;
+}
+
+message DeleteApiKeyResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListApiKeysRequest {}
+
+message ListApiKeysResponse {
+  repeated string providers = 1;
+  string message = 2;
+}
+
+// === WHITE TRUFFLE #1: TEMPLATE INSTANTIATION MESSAGES ===
+
+message InstantiateResourceRequest {
+  string template_id = 1;
+  string onboarding_request_id = 2;
+  optional string context = 3;
+  optional string initial_data = 4;  // JSON string for initial instance data
+}
+
+message InstantiateResourceResponse {
+  bool success = 1;
+  string message = 2;
+  optional ResourceInstance instance = 3;
+}
+
+message ResourceInstance {
+  string instance_id = 1;
+  string onboarding_request_id = 2;
+  string template_id = 3;
+  string status = 4;  // "pending", "active", "completed", "failed"
+  string instance_data = 5;  // JSON string containing the instance's specific data
+  google.protobuf.Timestamp created_at = 6;
+  optional google.protobuf.Timestamp updated_at = 7;
+  optional string error_message = 8;
+}
+
+// === WHITE TRUFFLE #2: DSL EXECUTION MESSAGES ===
+
+message ExecuteDslRequest {
+  string instance_id = 1;
+  optional string execution_context = 2;  // Additional context for execution
+  optional string input_data = 3;  // JSON string for execution input
+}
+
+message ExecuteDslResponse {
+  bool success = 1;
+  string message = 2;
+  optional DslExecutionResult result = 3;
+}
+
+message DslExecutionResult {
+  string instance_id = 1;
+  string execution_status = 2;  // "success", "failed", "partial"
+  string output_data = 3;  // JSON string containing execution results
+  repeated string log_messages = 4;
+  optional string error_details = 5;
+  google.protobuf.Timestamp executed_at = 6;
+  double execution_time_ms = 7;
 }

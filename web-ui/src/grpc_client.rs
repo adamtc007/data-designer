@@ -1,6 +1,5 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen_futures::spawn_local;
 use crate::wasm_utils;
 
 // Message types matching the gRPC proto definitions
@@ -161,7 +160,7 @@ impl GrpcClient {
                 let req: InstantiateResourceRequest = serde_json::from_str(&request_json)?;
                 let response = InstantiateResourceResponse {
                     success: true,
-                    message: format!("Resource instance created successfully"),
+                    message: "Resource instance created successfully".to_string(),
                     instance: Some(ResourceInstance {
                         instance_id: format!("wasm-instance-{}", uuid::Uuid::new_v4()),
                         onboarding_request_id: req.onboarding_request_id,
