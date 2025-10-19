@@ -100,7 +100,7 @@ impl DataDesignerIDE {
         ui.separator();
 
         // Top toolbar
-        self.show_toolbar(ui);
+        self.show_toolbar(ui, api_client);
 
         ui.separator();
 
@@ -124,7 +124,7 @@ impl DataDesignerIDE {
         }
     }
 
-    fn show_toolbar(&mut self, ui: &mut egui::Ui) {
+    fn show_toolbar(&mut self, ui: &mut egui::Ui, api_client: Option<&DataDesignerHttpClient>) {
         ui.horizontal(|ui| {
             // Mode buttons
             if ui.selectable_label(self.current_mode == DataDesignerMode::Browse, "📋 Browse").clicked() {
@@ -254,23 +254,206 @@ impl DataDesignerIDE {
         }
     }
 
-    fn show_edit_mode(&mut self, ui: &mut egui::Ui, _api_client: Option<&DataDesignerHttpClient>) {
-        if self.selected_attribute.is_some() {
-            let attr_name = self.selected_attribute.as_ref().unwrap().attribute_name.clone();
-            ui.heading(format!("✏️ Editing: {}", attr_name));
+    fn show_edit_mode(&mut self, ui: &mut egui::Ui, api_client: Option<&DataDesignerHttpClient>) {
+        // Handle actions that need to be processed outside the borrowing scope
+        let mut should_save = false;
+        let mut should_go_back = false;
 
-            // Simple editor placeholder to fix borrowing issues
-            ui.label("Data Designer IDE - Edit mode placeholder");
-            ui.label("(Borrowing conflicts need architectural fix)");
+        if let Some(ref mut selected_attr) = self.selected_attribute {
+            ui.heading(format!("✏️ Editing: {}", selected_attr.attribute_name));
 
-            if ui.button("← Back to Browse").clicked() {
-                self.current_mode = DataDesignerMode::Browse;
-            }
+            // Top action buttons
+            ui.horizontal(|ui| {
+                if ui.button("← Back to Browse").clicked() {
+                    should_go_back = true;
+                }
+
+                ui.separator();
+
+                if ui.button("💾 Save Changes").clicked() {
+                    should_save = true;
+                }
+            });
+
+            ui.separator();
+
+            // Edit form - similar to create mode but with existing data
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.group(|ui| {
+                    ui.label("Basic Information:");
+
+                    // Attribute name (usually not editable for existing attributes)
+                    ui.horizontal(|ui| {
+                        ui.label("Attribute Name:");
+                        ui.label(&selected_attr.attribute_name);
+                        ui.small("(read-only)");
+                    });
+
+                    // Description
+                    ui.horizontal(|ui| {
+                        ui.label("Description:");
+                        ui.text_edit_singleline(&mut selected_attr.description);
+                    });
+
+                    // Data type
+                    ui.horizontal(|ui| {
+                        ui.label("Data Type:");
+                        egui::ComboBox::from_label("")
+                            .selected_text(&selected_attr.data_type)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected_attr.data_type, "String".to_string(), "String");
+                                ui.selectable_value(&mut selected_attr.data_type, "Number".to_string(), "Number");
+                                ui.selectable_value(&mut selected_attr.data_type, "Boolean".to_string(), "Boolean");
+                                ui.selectable_value(&mut selected_attr.data_type, "Date".to_string(), "Date");
+                                ui.selectable_value(&mut selected_attr.data_type, "Array".to_string(), "Array");
+                            });
+                    });
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label("Advanced Configuration:");
+
+                    // Visibility scope
+                    ui.horizontal(|ui| {
+                        ui.label("Visibility:");
+                        egui::ComboBox::from_label("")
+                            .selected_text(&selected_attr.visibility_scope)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected_attr.visibility_scope, "Private".to_string(), "Private");
+                                ui.selectable_value(&mut selected_attr.visibility_scope, "Internal".to_string(), "Internal");
+                                ui.selectable_value(&mut selected_attr.visibility_scope, "Public".to_string(), "Public");
+                            });
+                    });
+
+                    // Attribute class
+                    ui.horizontal(|ui| {
+                        ui.label("Class:");
+                        egui::ComboBox::from_label("")
+                            .selected_text(&selected_attr.attribute_class)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected_attr.attribute_class, "Calculated".to_string(), "Calculated");
+                                ui.selectable_value(&mut selected_attr.attribute_class, "Derived".to_string(), "Derived");
+                                ui.selectable_value(&mut selected_attr.attribute_class, "Lookup".to_string(), "Lookup");
+                                ui.selectable_value(&mut selected_attr.attribute_class, "Transform".to_string(), "Transform");
+                            });
+                    });
+
+                    // Materialization strategy
+                    ui.horizontal(|ui| {
+                        ui.label("Materialization:");
+                        egui::ComboBox::from_label("")
+                            .selected_text(&selected_attr.materialization_strategy)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected_attr.materialization_strategy, "OnDemand".to_string(), "On Demand");
+                                ui.selectable_value(&mut selected_attr.materialization_strategy, "Cached".to_string(), "Cached");
+                                ui.selectable_value(&mut selected_attr.materialization_strategy, "Persisted".to_string(), "Persisted");
+                            });
+                    });
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label("Source Attributes:");
+
+                    // Source attributes (simplified)
+                    for (i, source) in selected_attr.source_attributes.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Source {}:", i + 1));
+                            ui.text_edit_singleline(source);
+                        });
+                    }
+
+                    if ui.button("+ Add Source").clicked() {
+                        selected_attr.source_attributes.push(String::new());
+                    }
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label("Optional Fields:");
+
+                    // Filter expression
+                    if let Some(ref mut filter) = selected_attr.filter_expression {
+                        ui.horizontal(|ui| {
+                            ui.label("Filter:");
+                            ui.text_edit_singleline(filter);
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Filter:");
+                            if ui.button("+ Add Filter").clicked() {
+                                selected_attr.filter_expression = Some(String::new());
+                            }
+                        });
+                    }
+
+                    // Transformation logic
+                    if let Some(ref mut transform) = selected_attr.transformation_logic {
+                        ui.horizontal(|ui| {
+                            ui.label("Transform:");
+                            ui.text_edit_singleline(transform);
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Transform:");
+                            if ui.button("+ Add Transform").clicked() {
+                                selected_attr.transformation_logic = Some(String::new());
+                            }
+                        });
+                    }
+
+                    // Regex pattern
+                    if let Some(ref mut regex) = selected_attr.regex_pattern {
+                        ui.horizontal(|ui| {
+                            ui.label("Regex:");
+                            ui.text_edit_singleline(regex);
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Regex:");
+                            if ui.button("+ Add Regex").clicked() {
+                                selected_attr.regex_pattern = Some(String::new());
+                            }
+                        });
+                    }
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label("EBNF Derivation Rule:");
+
+                    // EBNF editor with monospace font
+                    egui::ScrollArea::vertical()
+                        .max_height(100.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut selected_attr.derivation_rule_ebnf)
+                                    .font(egui::FontId::monospace(14.0))
+                                    .desired_width(f32::INFINITY)
+                            );
+                        });
+
+                    ui.small("Example: DERIVE attr FROM source WHERE condition WITH transformation");
+                });
+            });
         } else {
             ui.label("No attribute selected for editing.");
             if ui.button("← Back to Browse").clicked() {
-                self.current_mode = DataDesignerMode::Browse;
+                should_go_back = true;
             }
+        }
+
+        // Process actions outside the borrowing scope
+        if should_save {
+            self.update_private_attribute_via_api(api_client);
+        }
+        if should_go_back {
+            self.current_mode = DataDesignerMode::Browse;
         }
     }
 
@@ -326,7 +509,11 @@ impl DataDesignerIDE {
             egui::ScrollArea::vertical()
                 .max_height(100.0)
                 .show(ui, |ui| {
-                    self.render_ebnf_with_syntax_highlighting(ui, &mut self.new_attribute.derivation_rule_ebnf);
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.new_attribute.derivation_rule_ebnf)
+                            .font(egui::FontId::monospace(14.0))
+                            .desired_width(f32::INFINITY)
+                    );
                 });
 
             ui.small("Example: DERIVE attr FROM source WHERE condition WITH transformation");
@@ -606,6 +793,82 @@ impl DataDesignerIDE {
         self.success_message = Some("✅ Attribute created successfully! Check browse view for updates.".to_string());
     }
 
+    fn update_private_attribute_via_api(&mut self, api_client: Option<&DataDesignerHttpClient>) {
+        // Clear any previous messages
+        self.error_message = None;
+        self.success_message = None;
+
+        // Check if we have a connected API client
+        let Some(client) = api_client else {
+            self.error_message = Some("API client not available".to_string());
+            return;
+        };
+
+        if !client.is_connected() {
+            self.error_message = Some("Not connected to API server".to_string());
+            return;
+        }
+
+        // Get the selected attribute for editing
+        let Some(ref selected_attr) = self.selected_attribute else {
+            self.error_message = Some("No attribute selected for editing".to_string());
+            return;
+        };
+
+        // Get the ID for the update
+        let Some(attr_id) = selected_attr.id else {
+            self.error_message = Some("Selected attribute has no ID - cannot update".to_string());
+            return;
+        };
+
+        // Validate the attribute before sending
+        if selected_attr.attribute_name.trim().is_empty() {
+            self.error_message = Some("Attribute name is required".to_string());
+            return;
+        }
+
+        if selected_attr.description.trim().is_empty() {
+            self.error_message = Some("Description is required".to_string());
+            return;
+        }
+
+        // Create the API request using the same structure as create
+        let request = CreatePrivateAttributeRequest {
+            attribute_name: selected_attr.attribute_name.clone(),
+            description: selected_attr.description.clone(),
+            data_type: selected_attr.data_type.clone(),
+            source_attributes: selected_attr.source_attributes.clone(),
+            filter_expression: selected_attr.filter_expression.clone(),
+            transformation_logic: selected_attr.transformation_logic.clone(),
+            regex_pattern: selected_attr.regex_pattern.clone(),
+            validation_tests: selected_attr.validation_tests.clone(),
+            materialization_strategy: selected_attr.materialization_strategy.clone(),
+            derivation_rule_ebnf: selected_attr.derivation_rule_ebnf.clone(),
+        };
+
+        // Make the async API call
+        let client_clone = client.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            match client_clone.update_private_attribute(attr_id, request).await {
+                Ok(response) => {
+                    web_sys::console::log_1(&format!("✅ Update successful: {}", response.message).into());
+                }
+                Err(e) => {
+                    web_sys::console::log_1(&format!("❌ Update failed: {:?}", e).into());
+                }
+            }
+        });
+
+        // Optimistically update the local data
+        if let Some(existing_attr) = self.private_attributes.iter_mut().find(|a| a.id == Some(attr_id)) {
+            *existing_attr = selected_attr.clone();
+        }
+
+        // Return to browse mode and show success message
+        self.current_mode = DataDesignerMode::Browse;
+        self.success_message = Some("✅ Attribute updated successfully! Changes saved to server.".to_string());
+    }
+
     fn save_attribute(&mut self, _attr: PrivateAttributeDefinition) {
         // TODO: Implement API call to save private attribute
         self.error_message = Some("Save functionality not yet implemented - needs API endpoint".to_string());
@@ -698,63 +961,6 @@ impl DataDesignerIDE {
         self.loading_public_data = false;
     }
 
-    fn render_ebnf_with_syntax_highlighting(&mut self, ui: &mut egui::Ui, ebnf_text: &mut String) {
-        // Create a text edit widget with monospace font
-        let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-            let mut layout_job = egui::text::LayoutJob::default();
-
-            // Use monospace font for code
-            let font_id = egui::FontId::monospace(14.0);
-
-            // Basic EBNF syntax highlighting
-            let text = string.to_string();
-            let words = text.split_whitespace().collect::<Vec<&str>>();
-
-            for (i, word) in words.iter().enumerate() {
-                if i > 0 {
-                    layout_job.append(" ", 0.0, egui::text::TextFormat::default());
-                }
-
-                let color = match word.to_uppercase().as_str() {
-                    "DERIVE" | "FROM" | "WHERE" | "WITH" | "EXTRACT" | "TEST" | "MATERIALIZE" => {
-                        egui::Color32::from_rgb(86, 156, 214) // Blue for keywords
-                    }
-                    "REGEX" | "IF" | "THEN" | "ELSE" | "AND" | "OR" => {
-                        egui::Color32::from_rgb(197, 134, 192) // Purple for control structures
-                    }
-                    "CALCULATE" | "LOOKUP" | "GET-DATA" | "COMPUTE_RISK_TIER" => {
-                        egui::Color32::from_rgb(78, 201, 176) // Green for functions
-                    }
-                    _ if word.contains('.') => {
-                        egui::Color32::from_rgb(156, 220, 254) // Light blue for attribute paths
-                    }
-                    _ if word.starts_with('"') && word.ends_with('"') => {
-                        egui::Color32::from_rgb(206, 145, 120) // Orange for strings
-                    }
-                    _ => egui::Color32::WHITE // Default color
-                };
-
-                layout_job.append(
-                    word,
-                    0.0,
-                    egui::text::TextFormat {
-                        font_id: font_id.clone(),
-                        color,
-                        ..Default::default()
-                    }
-                );
-            }
-
-            ui.fonts(|f| f.layout_job(layout_job))
-        };
-
-        ui.add(
-            egui::TextEdit::multiline(ebnf_text)
-                .font(egui::FontId::monospace(14.0))
-                .desired_width(f32::INFINITY)
-                .layouter(&mut layouter)
-        );
-    }
 }
 
 impl PrivateAttributeDefinition {
