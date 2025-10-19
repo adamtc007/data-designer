@@ -86,7 +86,7 @@ impl DataDesignerWebApp {
             selected_template_id: None,
             template_details: None,
             available_templates: Vec::new(),
-            grpc_endpoint: "http://localhost:8080".to_string(),
+            grpc_endpoint: "http://localhost:3030".to_string(),
             connection_status: ConnectionStatus::Disconnected,
             api_client: None,
             grpc_client: Some(GrpcClient::new("http://localhost:50051")),
@@ -1518,6 +1518,11 @@ impl DataDesignerWebApp {
         ui.heading("📋 Resource Templates Management");
         ui.separator();
 
+        // Auto-connect on first visit
+        if self.connection_status == ConnectionStatus::Disconnected {
+            self.attempt_api_connection();
+        }
+
         // Template Designer Integration
         ui.horizontal(|ui| {
             ui.label("Template Operations:");
@@ -1527,6 +1532,9 @@ impl DataDesignerWebApp {
             }
             if ui.button("Import Template").clicked() {
                 // TODO: Implement template import
+            }
+            if ui.button("🔄 Refresh Templates").clicked() {
+                self.load_templates_from_api();
             }
         });
 
@@ -1538,6 +1546,10 @@ impl DataDesignerWebApp {
             ui.separator();
 
             if self.connection_status == ConnectionStatus::Connected {
+                // Auto-load templates if we haven't yet
+                if self.available_templates.is_empty() && self.api_client.is_some() {
+                    self.load_templates_from_api();
+                }
                 // Use existing template list from backend
                 self.show_simple_templates(ui);
             } else {
@@ -1706,10 +1718,10 @@ impl DataDesignerWebApp {
 
     /// Start a new onboarding workflow
     fn start_workflow(&mut self) {
-        if let Some(api_client) = &self.api_client {
+        if let Some(_api_client) = &self.api_client {
             let workflow_type = self.workflow_type.clone();
             let jurisdiction = self.jurisdiction.clone();
-            let initial_data: Option<serde_json::Value> = if self.initial_data_json.trim().is_empty() {
+            let _initial_data: Option<serde_json::Value> = if self.initial_data_json.trim().is_empty() {
                 None
             } else {
                 match serde_json::from_str(&self.initial_data_json) {

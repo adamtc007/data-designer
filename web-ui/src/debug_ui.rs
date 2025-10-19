@@ -221,7 +221,7 @@ impl DebugTestInterface {
             // Active tests
             if !self.active_tests.is_empty() {
                 ui.heading("🔄 Running Tests");
-                for (test_id, test) in &self.active_tests {
+                for (_test_id, test) in &self.active_tests {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(&test.test_name);
@@ -513,7 +513,7 @@ impl DebugTestInterface {
                                             ui.label(format!("{}ms", duration));
                                         });
                                     }
-                                    if let Some(error) = &component.error {
+                                    if let Some(_error) = &component.error {
                                         ui.colored_label(egui::Color32::RED, "❌");
                                     }
                                 });
