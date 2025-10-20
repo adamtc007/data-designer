@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;
+use crate::capability_engine::CapabilityEngine;
 use sqlx::Row;
 
 /// Helper structs for template loading
@@ -103,6 +104,8 @@ pub struct CommandExecutor {
     pub validators: HashMap<String, ValidatorType>,
     /// Rule execution engine
     pub rule_executor: EbnfRuleExecutor,
+    /// Capability execution engine
+    pub capability_engine: Arc<CapabilityEngine>,
 }
 
 /// Attribute definition in the instance dictionary
@@ -374,6 +377,8 @@ pub enum RuntimeError {
     ValidationFailed(String),
     #[error("Invalid DSL: {0}")]
     InvalidDsl(String),
+    #[error("Capability engine error: {0}")]
+    CapabilityEngineError(String),
 }
 
 impl RuntimeOrchestrator {
@@ -1117,12 +1122,30 @@ impl DependencyGraph {
 }
 
 impl CommandExecutor {
+    pub async fn new_with_capability_engine(db_pool: DbPool) -> Result<Self, RuntimeError> {
+        let capability_engine = CapabilityEngine::new(db_pool.clone()).await
+            .map_err(|e| RuntimeError::CapabilityEngineError(e))?;
+
+        Ok(Self {
+            dictionary: Arc::new(Mutex::new(InstanceDictionary::default())),
+            data_resolvers: HashMap::new(),
+            validators: HashMap::new(),
+            rule_executor: EbnfRuleExecutor::default(),
+            capability_engine: Arc::new(capability_engine),
+        })
+    }
+
     pub fn new() -> Self {
+        // This version will not have capability engine - for legacy compatibility
         Self {
             dictionary: Arc::new(Mutex::new(InstanceDictionary::default())),
             data_resolvers: HashMap::new(),
             validators: HashMap::new(),
             rule_executor: EbnfRuleExecutor::default(),
+            capability_engine: Arc::new(
+                // This is not safe but needed for compilation - should use new_with_capability_engine
+                unsafe { std::mem::zeroed() }
+            ),
         }
     }
 

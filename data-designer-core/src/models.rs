@@ -46,6 +46,27 @@ pub enum Expression {
         expr: Box<Expression>,
         data_type: String,
     }, // Added for type casting
+    // Fund Accounting Workflow Verbs
+    ConfigureSystem {
+        capability_name: String,
+        arguments: Vec<Expression>,
+    },
+    Activate {
+        target: Option<String>,
+        arguments: Vec<Expression>,
+    },
+    RunHealthCheck {
+        check_type: String,
+        arguments: Vec<Expression>,
+    },
+    SetStatus {
+        status: String,
+        target: Option<String>,
+    },
+    Workflow {
+        name: String,
+        steps: Vec<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

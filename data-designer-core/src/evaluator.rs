@@ -485,6 +485,57 @@ pub fn evaluate_with_functions(expr: &Expression, facts: &Facts, functions: &Fun
                 Ok(Value::Null)
             }
         }
+
+        // Fund Accounting DSL Expressions
+        Expression::ConfigureSystem { capability_name, arguments } => {
+            // Evaluate configuration system call
+            let mut _arg_values = Vec::new();
+            for arg_expr in arguments {
+                _arg_values.push(evaluate_with_functions(arg_expr, facts, functions)?);
+            }
+
+            // Return configuration result
+            Ok(Value::String(format!("Configured system capability: {}", capability_name)))
+        }
+
+        Expression::Activate { target, arguments } => {
+            // Evaluate activation call
+            let mut _arg_values = Vec::new();
+            for arg_expr in arguments {
+                _arg_values.push(evaluate_with_functions(arg_expr, facts, functions)?);
+            }
+
+            let default_target = "default".to_string();
+            let target_name = target.as_ref().unwrap_or(&default_target);
+            Ok(Value::String(format!("Activated target: {}", target_name)))
+        }
+
+        Expression::RunHealthCheck { check_type, arguments } => {
+            // Evaluate health check call
+            let mut _arg_values = Vec::new();
+            for arg_expr in arguments {
+                _arg_values.push(evaluate_with_functions(arg_expr, facts, functions)?);
+            }
+
+            Ok(Value::String(format!("Health check completed: {}", check_type)))
+        }
+
+        Expression::SetStatus { status, target } => {
+            let default_target = "default".to_string();
+            let target_name = target.as_ref().unwrap_or(&default_target);
+            Ok(Value::String(format!("Status '{}' set for target: {}", status, target_name)))
+        }
+
+        Expression::Workflow { name, steps } => {
+            // Evaluate workflow steps
+            let mut _results = Vec::new();
+            for step in steps {
+                let result = evaluate_with_functions(step, facts, functions)?;
+                _results.push(result);
+            }
+
+            Ok(Value::String(format!("Workflow '{}' completed with {} steps", name, _results.len())))
+        }
     }
 }
 

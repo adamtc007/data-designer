@@ -20,5 +20,8 @@ pub mod db;
 pub mod embeddings;
 pub mod schema_visualizer;
 
+// Capability execution engine
+pub mod capability_engine;
+
 #[cfg(test)]
 mod test_integration;

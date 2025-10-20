@@ -10,6 +10,7 @@ mod grpc_client;
 mod debug_ui;
 mod template_designer;
 mod data_designer;
+mod entity_management;
 
 
 /// This is the entry-point for all the web-assembly.
@@ -81,6 +82,12 @@ pub enum AppRoute {
     // Design tools (accessed from main areas)
     TemplateDesigner,     // Template creation tool
     DataDesigner,         // Data design tool
+    // Entity Management (CRUD)
+    CbuManagement,        // CBU entity CRUD
+    ProductManagement,    // Product entity CRUD
+    ServiceManagement,    // Service entity CRUD
+    ResourceManagement,   // Resource entity CRUD
+    WorkflowManagement,   // Onboarding workflow CRUD
     // Supporting areas
     Database,
     Transpiler,

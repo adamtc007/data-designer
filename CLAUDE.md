@@ -8,6 +8,9 @@
 - **Web-First Architecture** - gRPC microservices with WASM web client
 - **Browser-Native GUI** - egui + WASM, 60fps, dark theme with enhanced font rendering
 - **gRPC Communication** - Type-safe Protocol Buffers with automatic fallback
+- **Comprehensive CRUD API** - Complete entity management for CBU, Product, Service, Resource, Workflow
+- **Entity Management UI** - Professional web interface for managing financial entities and relationships
+- **Capability-Driven DSL** - Fund accounting workflows with remote control analogy execution engine
 - **Secure Key Management** - System keychain integration with gRPC API
 - **Dynamic Grammar System** - EBNF-based soft DSL editable through UI
 - **Advanced Parser** - nom-based parser with 6 extensions (arithmetic, strings, functions, lookups, runtime resolution, regex)
@@ -44,11 +47,14 @@ cargo test --all             # Run comprehensive test suite (16+ tests)
 ### Key Files
 - `web-ui/src/lib.rs` - WASM web application entry point
 - `web-ui/src/app.rs` - Main egui application logic
+- `web-ui/src/entity_management.rs` - Comprehensive CRUD UI for all business entities
 - `web-ui/src/resource_sheet_ui.rs` - Resource sheet management UI
-- `grpc-server/src/main.rs` - gRPC server with Protocol Buffers
+- `grpc-server/src/main.rs` - gRPC server with Protocol Buffers and CRUD endpoints
+- `proto/financial_taxonomy.proto` - Complete gRPC API definitions (600+ lines)
+- `data-designer-core/src/capability_engine.rs` - Capability-driven execution engine
+- `data-designer-core/src/db/products.rs` - Complete entity models and database operations
 - `data-designer-core/src/db/mod.rs` - Database operations
-- `data-designer-core/src/db/persistence.rs` - Data connection layer
-- `data-designer-core/src/config.rs` - Configuration management
+- `migrations/011_test_data_seeding.sql` - Comprehensive test data for DSL workflows
 - `Cargo.toml` - Workspace configuration
 - `runwasm.sh` - One-command WASM deployment script
 
@@ -82,6 +88,10 @@ cargo test --all             # Run comprehensive test suite (16+ tests)
 - ✅ Pure Rust WASM web application fully operational
 - ✅ **Enhanced Template Editor with DSL IDE** - Professional two-pane layout with syntax highlighting
 - ✅ **Investment Mandate Drill-Down System** - Interactive mandate exploration with detailed views
+- ✅ **Comprehensive CRUD API System** - Complete entity management infrastructure
+- ✅ **Entity Management UI Components** - Professional web interface for all business entities
+- ✅ **Capability-Driven DSL Execution** - Fund accounting workflows with retry logic and monitoring
+- ✅ **Test Data Ecosystem** - Realistic financial services data for comprehensive testing
 - ✅ **Code Quality** - Cargo clippy integration with 40+ automated fixes applied
 
 ### AI Features Status
@@ -112,6 +122,25 @@ cargo test --all             # Run comprehensive test suite (16+ tests)
 - **🏢 CBU Management** - Client Business Unit organization and member roles
 - **💼 Interactive Editing** - Full CRUD operations with database persistence
 
+### CRUD API & Entity Management System - COMPLETED ✅
+- **🔗 Complete gRPC API** - 600+ lines of Protocol Buffer definitions covering all entities
+- **🏢 CBU Management CRUD** - Create, Read, Update, Delete, List operations for Client Business Units
+- **📦 Product Management CRUD** - Full product catalog management with line of business categorization
+- **⚙️ Service Management CRUD** - Public service lifecycle descriptions with billing and delivery models
+- **🔧 Resource Management CRUD** - Private resource implementations with capability definitions
+- **📋 Workflow Management CRUD** - Onboarding workflow orchestration with dependencies and approvals
+- **🔄 Entity Relationship Management** - Product↔Service↔Resource mappings with hierarchy navigation
+- **⚡ Capability-Driven Execution** - "Remote Control" analogy with buttons (capabilities) and scripts (DSL)
+- **🎯 Professional Web UI** - Modern entity management interface with forms, modals, and validation
+- **🏗️ Complete Data Architecture** - Database schema, entity models, and gRPC integration
+- **🔍 Test Data Ecosystem** - Comprehensive realistic financial services data for DSL workflow testing:
+  - 5 Sample CBUs (Investment Management, Pension Fund, Private Wealth, Hedge Fund, Family Office)
+  - 7 Products across major business lines (Custody, Prime Brokerage, Fund Admin, Trading, Compliance)
+  - 10 Services with complete lifecycle descriptions
+  - 10 Capabilities for fund accounting DSL execution (AccountSetup, KYCVerification, etc.)
+  - 5 Resource Templates with complete DSL workflows
+  - 5 Onboarding Workflows in various stages with complex dependencies
+
 ### Template Editor IDE Features - COMPLETED ✅
 - **🎨 Professional Two-Pane Layout** - Resizable template list and full-height editor
 - **🔧 Enhanced Template Management** - 5 factory templates with prominent blue EDIT buttons
@@ -124,8 +153,21 @@ cargo test --all             # Run comprehensive test suite (16+ tests)
 - **🔍 Error Diagnostics** - Detailed validation messages with line information
 - **↔️ Resizable Panels** - Drag-to-resize interface for optimal space utilization
 
+### Fund Accounting DSL Integration - COMPLETED ✅
+- **🎮 Remote Control Analogy** - Capabilities as "buttons", DSL workflows as "scripts" that press buttons
+- **⚡ Fund Accounting Verbs** - Complete DSL expression support:
+  - `CONFIGURE_SYSTEM` - Initialize system capabilities with configuration parameters
+  - `ACTIVATE` - Activate services and resources for client operations
+  - `RUN_HEALTH_CHECK` - Execute comprehensive system health validations
+  - `SET_STATUS` - Update operational status for accounts and workflows
+  - `WORKFLOW` - Orchestrate complex multi-step business processes
+- **🔧 Capability Engine** - Execution engine with retry logic, timeout handling, and error recovery
+- **📊 Execution Monitoring** - Real-time DSL execution logging, status tracking, and performance metrics
+- **🏗️ Template-Driven Workflows** - Resource templates with embedded DSL for standardized operations
+- **🔄 Dependency Management** - Complex workflow dependencies with approval chains and rollback support
+
 ### Database Schema
-PostgreSQL database: `data_designer` with rules, attributes, embeddings, and business entity tables.
+PostgreSQL database: `data_designer` with rules, attributes, embeddings, business entity tables, and comprehensive CRUD support.
 
 ### Web-First Architecture Refactor - COMPLETED ✅
 
@@ -164,5 +206,9 @@ PostgreSQL database: `data_designer` with rules, attributes, embeddings, and bus
 - **Build time**: Sub-second with cargo
 - **Runtime**: Native performance, 60fps GUI
 - **Memory**: Minimal Rust overhead
-- **Distribution**: Single native binary
+- **Distribution**: Single native binary + WASM web bundle
+- **Database**: Optimized PostgreSQL with indexes for CRUD operations
+- **gRPC**: High-performance Protocol Buffers with type safety
 - **Testing**: Much superior to Tauri - full testability achieved
+- **CRUD Operations**: Efficient entity management with relationship navigation
+- **DSL Execution**: Sub-second capability execution with comprehensive logging

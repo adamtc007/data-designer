@@ -7,6 +7,7 @@ use crate::grpc_client::{GrpcClient, GetAiSuggestionsRequest, GetAiSuggestionsRe
 use crate::debug_ui::DebugTestInterface;
 use crate::template_designer::TemplateDesignerIDE;
 use crate::data_designer::DataDesignerIDE;
+use crate::entity_management::EntityManagementUI;
 
 /// Web version of the Data Designer application
 pub struct DataDesignerWebApp {
@@ -46,6 +47,9 @@ pub struct DataDesignerWebApp {
 
     // Data Designer IDE
     data_designer: DataDesignerIDE,
+
+    // Entity Management UI
+    entity_management: EntityManagementUI,
 
     // AI Command Palette
     show_ai_palette: bool,
@@ -94,6 +98,7 @@ impl DataDesignerWebApp {
             debug_interface: DebugTestInterface::new(),
             template_designer: TemplateDesignerIDE::new(),
             data_designer: DataDesignerIDE::new(),
+            entity_management: EntityManagementUI::new(),
 
             // AI Command Palette
             show_ai_palette: false,
@@ -396,6 +401,29 @@ impl DataDesignerWebApp {
 
             if ui.selectable_label(current_route == AppRoute::OnboardingRequests, "🚀 Onboarding Requests").clicked() {
                 self.router.navigate_to(AppRoute::OnboardingRequests);
+            }
+
+            ui.separator();
+
+            // Entity Management
+            if ui.selectable_label(current_route == AppRoute::CbuManagement, "🏢 CBU Mgmt").clicked() {
+                self.router.navigate_to(AppRoute::CbuManagement);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::ProductManagement, "📦 Products").clicked() {
+                self.router.navigate_to(AppRoute::ProductManagement);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::ServiceManagement, "⚙️ Services").clicked() {
+                self.router.navigate_to(AppRoute::ServiceManagement);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::ResourceManagement, "🔧 Resources").clicked() {
+                self.router.navigate_to(AppRoute::ResourceManagement);
+            }
+
+            if ui.selectable_label(current_route == AppRoute::WorkflowManagement, "📋 Workflows").clicked() {
+                self.router.navigate_to(AppRoute::WorkflowManagement);
             }
 
             ui.separator();
@@ -816,6 +844,21 @@ impl eframe::App for DataDesignerWebApp {
                 }
                 AppRoute::DataDesigner => {
                     self.data_designer.show(ui, self.api_client.as_ref());
+                }
+                AppRoute::CbuManagement => {
+                    self.entity_management.show_cbu_management(ui, self.grpc_client.as_ref());
+                }
+                AppRoute::ProductManagement => {
+                    self.entity_management.show_product_management(ui, self.grpc_client.as_ref());
+                }
+                AppRoute::ServiceManagement => {
+                    self.entity_management.show_service_management(ui, self.grpc_client.as_ref());
+                }
+                AppRoute::ResourceManagement => {
+                    self.entity_management.show_resource_management(ui, self.grpc_client.as_ref());
+                }
+                AppRoute::WorkflowManagement => {
+                    self.show_placeholder(ui, "📋 Workflow Management", "Onboarding workflow CRUD operations");
                 }
                 AppRoute::Database => {
                     self.show_placeholder(ui, "🗄️ Database", "Database operations and queries");
