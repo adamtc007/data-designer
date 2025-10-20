@@ -5,6 +5,13 @@ use std::process::Command;
 use tracing::{info, error};
 use std::collections::HashMap;
 
+// Import the capability execution engine
+use data_designer_core::capability_execution_engine::{
+    CapabilityExecutionEngine, ExecutionContext, ExecutionStatus
+};
+use data_designer_core::parser::parse_expression;
+use serde_json::Value;
+
 mod template_api;
 
 // Generated protobuf code
@@ -81,57 +88,21 @@ fn get_api_key_via_security(service: &str, account: &str) -> Result<String, Stri
 pub struct TaxonomyServer {
     db_pool: PgPool,
     pool: PgPool, // For AI assistant
+    capability_engine: CapabilityExecutionEngine,
 }
 
 impl TaxonomyServer {
     pub fn new(db_pool: PgPool) -> Self {
+        // Initialize capability engine with built-in capabilities
+        let capability_engine = CapabilityExecutionEngine::new();
+
         Self {
             db_pool: db_pool.clone(),
-            pool: db_pool
+            pool: db_pool,
+            capability_engine,
         }
     }
 
-    fn simulate_dsl_execution(&self, dsl_code: &str, input_data: &Option<String>) -> Result<serde_json::Value, String> {
-        // Simulate DSL execution for now
-        // TODO: Replace with actual transpiler integration
-
-        let mut result = serde_json::json!({
-            "dsl_executed": dsl_code,
-            "simulation": true,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        });
-
-        if let Some(input) = input_data {
-            if let Ok(input_json) = serde_json::from_str::<serde_json::Value>(input) {
-                result["input"] = input_json;
-            }
-        }
-
-        // Simple DSL simulation based on content
-        if dsl_code.contains("validate") {
-            result["validation_result"] = serde_json::json!({
-                "status": "passed",
-                "checks": ["syntax", "semantics", "runtime"]
-            });
-        }
-
-        if dsl_code.contains("calculate") || dsl_code.contains("compute") {
-            result["computation_result"] = serde_json::json!({
-                "value": 42.0,
-                "formula": dsl_code
-            });
-        }
-
-        if dsl_code.contains("kyc") || dsl_code.contains("onboarding") {
-            result["kyc_result"] = serde_json::json!({
-                "status": "approved",
-                "score": 0.85,
-                "requirements_met": true
-            });
-        }
-
-        Ok(result)
-    }
 }
 
 #[tonic::async_trait]
@@ -938,17 +909,43 @@ impl FinancialTaxonomyService for TaxonomyServer {
         } else {
             log_messages.push(format!("Executing DSL: {}", dsl_code));
 
-            // TODO: Integrate with actual DSL transpiler and execution engine
-            // For now, simulate execution
-            match self.simulate_dsl_execution(dsl_code, &req.input_data) {
-                Ok(result) => {
-                    output_data = result;
-                    log_messages.push("DSL execution completed successfully".to_string());
+            // Parse and execute DSL using the capability execution engine
+            match parse_expression(dsl_code) {
+                Ok(expression) => {
+                    // Create execution context from input data and instance
+                    let mut context_data = HashMap::new();
+                    context_data.insert("instance_id".to_string(), Value::String(req.instance_id.clone()));
+
+                    // Add input data to context if provided
+                    if let Some(input) = &req.input_data {
+                        if let Ok(input_json) = serde_json::from_str::<Value>(input) {
+                            if let Value::Object(map) = input_json {
+                                for (key, value) in map {
+                                    context_data.insert(key, value);
+                                }
+                            }
+                        }
+                    }
+
+                    let context = ExecutionContext::new(req.instance_id.clone(), context_data);
+
+                    // Execute using capability engine
+                    match self.capability_engine.execute_expression(&expression, &context).await {
+                        Ok(result) => {
+                            output_data = result.unwrap_or_else(|| serde_json::json!({"success": true}));
+                            log_messages.push("DSL execution completed successfully using capability engine".to_string());
+                        }
+                        Err(e) => {
+                            execution_status = "failed".to_string();
+                            error_details = Some(format!("Capability execution error: {}", e));
+                            log_messages.push("DSL execution failed".to_string());
+                        }
+                    }
                 }
                 Err(e) => {
                     execution_status = "failed".to_string();
-                    error_details = Some(e);
-                    log_messages.push("DSL execution failed".to_string());
+                    error_details = Some(format!("DSL parsing error: {}", e));
+                    log_messages.push("DSL parsing failed".to_string());
                 }
             }
         }
