@@ -8,6 +8,7 @@ use crate::debug_ui::DebugTestInterface;
 use crate::template_designer::TemplateDesignerIDE;
 use crate::data_designer::DataDesignerIDE;
 use crate::entity_management::EntityManagementUI;
+use crate::capability_ui::CapabilityManagerUI;
 
 /// Web version of the Data Designer application
 pub struct DataDesignerWebApp {
@@ -50,6 +51,9 @@ pub struct DataDesignerWebApp {
 
     // Entity Management UI
     entity_management: EntityManagementUI,
+
+    // Capability Management UI
+    capability_manager: CapabilityManagerUI,
 
     // AI Command Palette
     show_ai_palette: bool,
@@ -99,6 +103,7 @@ impl DataDesignerWebApp {
             template_designer: TemplateDesignerIDE::new(),
             data_designer: DataDesignerIDE::new(),
             entity_management: EntityManagementUI::new(),
+            capability_manager: CapabilityManagerUI::new(),
 
             // AI Command Palette
             show_ai_palette: false,
@@ -405,6 +410,13 @@ impl DataDesignerWebApp {
 
             ui.separator();
 
+            // Capability Management
+            if ui.selectable_label(current_route == AppRoute::CapabilityManagement, "🎛️ Capabilities").clicked() {
+                self.router.navigate_to(AppRoute::CapabilityManagement);
+            }
+
+            ui.separator();
+
             // Entity Management
             if ui.selectable_label(current_route == AppRoute::CbuManagement, "🏢 CBU Mgmt").clicked() {
                 self.router.navigate_to(AppRoute::CbuManagement);
@@ -429,9 +441,6 @@ impl DataDesignerWebApp {
             ui.separator();
 
             // Supporting tools
-            if ui.selectable_label(current_route == AppRoute::Database, "🗄️ Database").clicked() {
-                self.router.navigate_to(AppRoute::Database);
-            }
 
             if ui.selectable_label(current_route == AppRoute::Transpiler, "📝 Transpiler").clicked() {
                 self.router.navigate_to(AppRoute::Transpiler);
@@ -461,11 +470,14 @@ impl DataDesignerWebApp {
                 .selected_text(&self.ai_context)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.ai_context, "general".to_string(), "🔧 General");
+                    ui.selectable_value(&mut self.ai_context, "rag_capabilities".to_string(), "⚡ Capability-Aware RAG");
                     ui.selectable_value(&mut self.ai_context, "kyc".to_string(), "🔍 KYC");
                     ui.selectable_value(&mut self.ai_context, "onboarding".to_string(), "📋 Onboarding");
                     ui.selectable_value(&mut self.ai_context, "dsl".to_string(), "⚡ DSL Help");
                     ui.selectable_value(&mut self.ai_context, "transpiler".to_string(), "📝 Transpiler");
                     ui.selectable_value(&mut self.ai_context, "validation".to_string(), "✅ Validation");
+                    ui.selectable_value(&mut self.ai_context, "code_completion".to_string(), "🤖 Code Completion");
+                    ui.selectable_value(&mut self.ai_context, "error_analysis".to_string(), "🔍 Error Analysis");
                 });
         });
 
@@ -476,7 +488,7 @@ impl DataDesignerWebApp {
         let _prompt_response = ui.add(
             egui::TextEdit::multiline(&mut self.ai_prompt)
                 .desired_rows(4)
-                .hint_text("Ask the AI assistant to generate DSL code, explain concepts, or help with data modeling...")
+                .hint_text("Ask about capabilities, generate DSL code, analyze errors, or get contextual suggestions. Try: 'Set up account', 'Configure trade feed', 'Validate client data'...")
         );
 
         ui.add_space(10.0);
@@ -630,7 +642,7 @@ impl DataDesignerWebApp {
                 query: prompt,
                 context: Some(context),
                 ai_provider: Some(AiProviderConfig {
-                    provider_type: 2, // Offline for now
+                    provider_type: 2, // Offline but enhanced with capability-aware features
                     api_key: None,
                 }),
             };
@@ -857,11 +869,11 @@ impl eframe::App for DataDesignerWebApp {
                 AppRoute::ResourceManagement => {
                     self.entity_management.show_resource_management(ui, self.grpc_client.as_ref());
                 }
+                AppRoute::CapabilityManagement => {
+                    self.capability_manager.render(ui);
+                }
                 AppRoute::WorkflowManagement => {
                     self.show_placeholder(ui, "📋 Workflow Management", "Onboarding workflow CRUD operations");
-                }
-                AppRoute::Database => {
-                    self.show_placeholder(ui, "🗄️ Database", "Database operations and queries");
                 }
                 AppRoute::Transpiler => {
                     self.show_ai_command_palette(ui);

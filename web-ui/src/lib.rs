@@ -11,6 +11,7 @@ mod debug_ui;
 mod template_designer;
 mod data_designer;
 mod entity_management;
+mod capability_ui;
 
 
 /// This is the entry-point for all the web-assembly.
@@ -82,6 +83,8 @@ pub enum AppRoute {
     // Design tools (accessed from main areas)
     TemplateDesigner,     // Template creation tool
     DataDesigner,         // Data design tool
+    // Capability Management
+    CapabilityManagement, // Smart UI for capabilities with structured rendering
     // Entity Management (CRUD)
     CbuManagement,        // CBU entity CRUD
     ProductManagement,    // Product entity CRUD
@@ -89,7 +92,6 @@ pub enum AppRoute {
     ResourceManagement,   // Resource entity CRUD
     WorkflowManagement,   // Onboarding workflow CRUD
     // Supporting areas
-    Database,
     Transpiler,
 }
 
