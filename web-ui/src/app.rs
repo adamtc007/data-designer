@@ -8,7 +8,7 @@ use crate::debug_ui::DebugTestInterface;
 use crate::template_designer::TemplateDesignerIDE;
 use crate::data_designer::DataDesignerIDE;
 use crate::entity_management::EntityManagementUI;
-use crate::capability_ui::CapabilityManagerUI;
+use crate::cbu_dsl_ide::CbuDslIDE;
 
 /// Web version of the Data Designer application
 pub struct DataDesignerWebApp {
@@ -52,8 +52,9 @@ pub struct DataDesignerWebApp {
     // Entity Management UI
     entity_management: EntityManagementUI,
 
-    // Capability Management UI
-    capability_manager: CapabilityManagerUI,
+
+    // CBU DSL IDE
+    cbu_dsl_ide: CbuDslIDE,
 
     // AI Command Palette
     show_ai_palette: bool,
@@ -103,7 +104,7 @@ impl DataDesignerWebApp {
             template_designer: TemplateDesignerIDE::new(),
             data_designer: DataDesignerIDE::new(),
             entity_management: EntityManagementUI::new(),
-            capability_manager: CapabilityManagerUI::new(),
+            cbu_dsl_ide: CbuDslIDE::new(),
 
             // AI Command Palette
             show_ai_palette: false,
@@ -410,16 +411,12 @@ impl DataDesignerWebApp {
 
             ui.separator();
 
-            // Capability Management
-            if ui.selectable_label(current_route == AppRoute::CapabilityManagement, "🎛️ Capabilities").clicked() {
-                self.router.navigate_to(AppRoute::CapabilityManagement);
-            }
 
             ui.separator();
 
             // Entity Management
-            if ui.selectable_label(current_route == AppRoute::CbuManagement, "🏢 CBU Mgmt").clicked() {
-                self.router.navigate_to(AppRoute::CbuManagement);
+            if ui.selectable_label(current_route == AppRoute::CbuDslIde, "🏢 CBU DSL IDE").clicked() {
+                self.router.navigate_to(AppRoute::CbuDslIde);
             }
 
             if ui.selectable_label(current_route == AppRoute::ProductManagement, "📦 Products").clicked() {
@@ -857,8 +854,8 @@ impl eframe::App for DataDesignerWebApp {
                 AppRoute::DataDesigner => {
                     self.data_designer.show(ui, self.api_client.as_ref());
                 }
-                AppRoute::CbuManagement => {
-                    self.entity_management.show_cbu_management(ui, self.grpc_client.as_ref());
+                AppRoute::CbuDslIde => {
+                    self.cbu_dsl_ide.render(ui, self.grpc_client.as_ref());
                 }
                 AppRoute::ProductManagement => {
                     self.entity_management.show_product_management(ui, self.grpc_client.as_ref());
@@ -868,9 +865,6 @@ impl eframe::App for DataDesignerWebApp {
                 }
                 AppRoute::ResourceManagement => {
                     self.entity_management.show_resource_management(ui, self.grpc_client.as_ref());
-                }
-                AppRoute::CapabilityManagement => {
-                    self.capability_manager.render(ui);
                 }
                 AppRoute::WorkflowManagement => {
                     self.show_placeholder(ui, "📋 Workflow Management", "Onboarding workflow CRUD operations");
