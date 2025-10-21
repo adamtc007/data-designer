@@ -22,6 +22,19 @@ pub mod schema_visualizer;
 
 // Capability execution engine
 pub mod capability_engine;
+pub mod capability_execution_engine;
+
+// Onboarding orchestration engine
+pub mod onboarding_orchestrator;
+
+// CBU DSL for CRUD operations
+pub mod cbu_dsl;
+
+// Onboarding Request DSL for CRUD operations with Deal Record integration
+pub mod onboarding_request_dsl;
+
+// Deal Record DSL - Master orchestrator for comprehensive business relationship management
+pub mod deal_record_dsl;
 
 #[cfg(test)]
 mod test_integration;

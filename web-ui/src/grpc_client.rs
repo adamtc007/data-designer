@@ -38,6 +38,29 @@ pub struct ExecuteDslRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetEntitiesRequest {
+    pub jurisdiction: Option<String>,
+    pub entity_type: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetEntitiesResponse {
+    pub entities: Vec<ClientEntity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientEntity {
+    pub entity_id: String,
+    pub entity_name: String,
+    pub entity_type: String,
+    pub jurisdiction: String,
+    pub country_code: String,
+    pub lei_code: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecuteDslResponse {
     pub success: bool,
     pub message: String,
@@ -123,6 +146,7 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/InstantiateResource" => "/api/instantiate",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteDsl" => "/api/execute-dsl",
             "financial_taxonomy.FinancialTaxonomyService/GetAiSuggestions" => "/api/ai-suggestions",
+            "financial_taxonomy.FinancialTaxonomyService/GetEntities" => "/api/entities",
             _ => return Err(anyhow::anyhow!("Unknown service method: {}", service_method)),
         };
 
@@ -207,6 +231,106 @@ impl GrpcClient {
                 };
                 serde_json::to_string(&response)?
             }
+            "financial_taxonomy.FinancialTaxonomyService/GetEntities" => {
+                let response = GetEntitiesResponse {
+                    entities: vec![
+                        // US Entities
+                        ClientEntity {
+                            entity_id: "US001".to_string(),
+                            entity_name: "Manhattan Asset Management LLC".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "Delaware".to_string(),
+                            country_code: "US".to_string(),
+                            lei_code: Some("549300VPLTI2JI1A8N82".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "US002".to_string(),
+                            entity_name: "Goldman Sachs Asset Management".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "New York".to_string(),
+                            country_code: "US".to_string(),
+                            lei_code: Some("784F5XWPLTWKTBV3E584".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "US003".to_string(),
+                            entity_name: "BlackRock Institutional Trust".to_string(),
+                            entity_type: "Asset Owner".to_string(),
+                            jurisdiction: "Delaware".to_string(),
+                            country_code: "US".to_string(),
+                            lei_code: Some("549300WOTC9L6FP6DY29".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "US004".to_string(),
+                            entity_name: "State Street Global Services".to_string(),
+                            entity_type: "Service Provider".to_string(),
+                            jurisdiction: "Massachusetts".to_string(),
+                            country_code: "US".to_string(),
+                            lei_code: Some("571474TGEMMWANRLN572".to_string()),
+                            status: "active".to_string(),
+                        },
+                        // EU Entities
+                        ClientEntity {
+                            entity_id: "EU001".to_string(),
+                            entity_name: "Deutsche Asset Management".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "Germany".to_string(),
+                            country_code: "DE".to_string(),
+                            lei_code: Some("529900T8BM49AURSDO55".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "EU002".to_string(),
+                            entity_name: "BNP Paribas Asset Management".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "France".to_string(),
+                            country_code: "FR".to_string(),
+                            lei_code: Some("969500UP76J52A9OXU27".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "EU003".to_string(),
+                            entity_name: "UBS Asset Management AG".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "Switzerland".to_string(),
+                            country_code: "CH".to_string(),
+                            lei_code: Some("549300ZZK73H1MR76N74".to_string()),
+                            status: "active".to_string(),
+                        },
+                        // APAC Entities
+                        ClientEntity {
+                            entity_id: "AP001".to_string(),
+                            entity_name: "Nomura Asset Management".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "Japan".to_string(),
+                            country_code: "JP".to_string(),
+                            lei_code: Some("353800MLJIGSLQ3JGP81".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "AP002".to_string(),
+                            entity_name: "China Asset Management Co".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "China".to_string(),
+                            country_code: "CN".to_string(),
+                            lei_code: Some("300300S39XTBSNH66F17".to_string()),
+                            status: "active".to_string(),
+                        },
+                        ClientEntity {
+                            entity_id: "AP003".to_string(),
+                            entity_name: "DBS Asset Management".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            jurisdiction: "Singapore".to_string(),
+                            country_code: "SG".to_string(),
+                            lei_code: Some("549300F4WH7V9NCKXX55".to_string()),
+                            status: "active".to_string(),
+                        },
+                    ],
+                };
+                serde_json::to_string(&response)?
+            }
             _ => return Err(anyhow::anyhow!("Unknown service method: {}", service_method)),
         };
 
@@ -235,6 +359,14 @@ impl GrpcClient {
         request: GetAiSuggestionsRequest,
     ) -> Result<GetAiSuggestionsResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetAiSuggestions", &request)
+            .await
+    }
+
+    pub async fn get_entities(
+        &self,
+        request: GetEntitiesRequest,
+    ) -> Result<GetEntitiesResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetEntities", &request)
             .await
     }
 }

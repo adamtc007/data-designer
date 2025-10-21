@@ -1121,10 +1121,16 @@ impl DependencyGraph {
     }
 }
 
+impl Default for CommandExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandExecutor {
     pub async fn new_with_capability_engine(db_pool: DbPool) -> Result<Self, RuntimeError> {
         let capability_engine = CapabilityEngine::new(db_pool.clone()).await
-            .map_err(|e| RuntimeError::CapabilityEngineError(e))?;
+            .map_err(RuntimeError::CapabilityEngineError)?;
 
         Ok(Self {
             dictionary: Arc::new(Mutex::new(InstanceDictionary::default())),
@@ -1540,17 +1546,17 @@ impl CommandExecutor {
         Ok(())
     }
 
-    async fn get_attribute_data_type(&self, attribute_path: &str) -> Result<String, RuntimeError> {
+    async fn get_attribute_data_type(&self, _attribute_path: &str) -> Result<String, RuntimeError> {
         // Mock implementation - would query data dictionary
         Ok("string".to_string())
     }
 
-    async fn get_attribute_validation_rules(&self, attribute_path: &str) -> Result<Vec<String>, RuntimeError> {
+    async fn get_attribute_validation_rules(&self, _attribute_path: &str) -> Result<Vec<String>, RuntimeError> {
         // Mock implementation - would query validation rules
         Ok(vec!["required".to_string()])
     }
 
-    async fn is_attribute_required(&self, attribute_path: &str) -> Result<bool, RuntimeError> {
+    async fn is_attribute_required(&self, _attribute_path: &str) -> Result<bool, RuntimeError> {
         // Mock implementation - would check attribute definition
         Ok(true)
     }
@@ -1677,7 +1683,7 @@ impl EbnfRuleExecutor {
         let mut result = String::new();
 
         // Simple concatenation of all string values
-        for (_, value) in source_values {
+        for value in source_values.values() {
             if let Some(s) = value.as_str() {
                 if !result.is_empty() {
                     result.push(' ');
@@ -1699,7 +1705,7 @@ impl EbnfRuleExecutor {
         let mut sum = 0.0;
         let mut count = 0;
 
-        for (_, value) in source_values {
+        for value in source_values.values() {
             if let Some(num) = value.as_f64() {
                 sum += num;
                 count += 1;
@@ -1720,7 +1726,7 @@ impl EbnfRuleExecutor {
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Simple conditional: if any value is true-ish, return "true", else "false"
-        for (_, value) in source_values {
+        for value in source_values.values() {
             match value {
                 serde_json::Value::Bool(true) => return Ok(serde_json::Value::String("true".to_string())),
                 serde_json::Value::String(s) if !s.is_empty() => return Ok(serde_json::Value::String("true".to_string())),
@@ -1748,7 +1754,7 @@ impl EbnfRuleExecutor {
         ].iter().cloned().collect();
 
         // Look up the first string value
-        for (_, value) in source_values {
+        for value in source_values.values() {
             if let Some(key) = value.as_str() {
                 if let Some(&result) = lookup_table.get(key) {
                     return Ok(serde_json::Value::String(result.to_string()));
@@ -1766,7 +1772,7 @@ impl EbnfRuleExecutor {
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Simple validation: check if all values are non-null and non-empty
-        for (_, value) in source_values {
+        for value in source_values.values() {
             match value {
                 serde_json::Value::Null => return Ok(serde_json::Value::String("INVALID: null value".to_string())),
                 serde_json::Value::String(s) if s.is_empty() => return Ok(serde_json::Value::String("INVALID: empty string".to_string())),

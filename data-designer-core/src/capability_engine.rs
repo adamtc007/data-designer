@@ -124,7 +124,7 @@ impl CapabilityEngine {
         // Get capability definition from database
         let capability = DbOperations::get_resource_capability_by_id(capability_name)
             .await
-            .map_err(|e| CapabilityError::SystemError(e))?
+            .map_err(CapabilityError::SystemError)?
             .ok_or_else(|| CapabilityError::NotFound(capability_name.to_string()))?;
 
         // Validate required attributes
@@ -164,7 +164,7 @@ impl CapabilityEngine {
 
         let capability = DbOperations::get_resource_capability_by_id(capability_id)
             .await
-            .map_err(|e| CapabilityError::SystemError(e))?
+            .map_err(CapabilityError::SystemError)?
             .ok_or_else(|| CapabilityError::NotFound(capability_id.to_string()))?;
 
         let input_attributes = self.evaluate_arguments(arguments).await?;
@@ -203,7 +203,7 @@ impl CapabilityEngine {
 
         let capability = DbOperations::get_resource_capability_by_id(capability_id)
             .await
-            .map_err(|e| CapabilityError::SystemError(e))?
+            .map_err(CapabilityError::SystemError)?
             .ok_or_else(|| CapabilityError::NotFound(capability_id.to_string()))?;
 
         let input_attributes = self.evaluate_arguments(arguments).await?;
@@ -297,7 +297,7 @@ impl CapabilityEngine {
 
             for attr in required_attrs {
                 if let Some(attr_name) = attr.as_str() {
-                    if !input_attributes.get(attr_name).is_some() {
+                    if input_attributes.get(attr_name).is_none() {
                         missing_attrs.push(attr_name.to_string());
                     }
                 }

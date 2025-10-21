@@ -47,6 +47,45 @@ service FinancialTaxonomyService {
   // WHITE TRUFFLE #2: DSL Execution Engine
   rpc ExecuteDsl(ExecuteDslRequest) returns (ExecuteDslResponse);
 
+  // === WHITE TRUFFLE CAPABILITY MANAGEMENT APIs ===
+
+  // Capability Management Service
+  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
+  rpc GetCapability(GetCapabilityRequest) returns (GetCapabilityResponse);
+  rpc ConfigureCapability(ConfigureCapabilityRequest) returns (ConfigureCapabilityResponse);
+  rpc ExecuteCapability(ExecuteCapabilityRequest) returns (ExecuteCapabilityResponse);
+  rpc GetCapabilityStatus(GetCapabilityStatusRequest) returns (GetCapabilityStatusResponse);
+
+  // Workflow Orchestration Service
+  rpc StartWorkflow(StartWorkflowRequest) returns (StartWorkflowResponse);
+  rpc GetWorkflowStatus(GetWorkflowStatusRequest) returns (GetWorkflowStatusResponse);
+  rpc ListActiveWorkflows(ListActiveWorkflowsRequest) returns (ListActiveWorkflowsResponse);
+  rpc PauseWorkflow(PauseWorkflowRequest) returns (PauseWorkflowResponse);
+  rpc ResumeWorkflow(ResumeWorkflowRequest) returns (ResumeWorkflowResponse);
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse);
+
+  // Execution Monitoring Service
+  rpc GetExecutionHistory(GetExecutionHistoryRequest) returns (GetExecutionHistoryResponse);
+  rpc GetTaskStatus(GetTaskStatusRequest) returns (GetTaskStatusResponse);
+  rpc GetResourceAllocations(GetResourceAllocationsRequest) returns (GetResourceAllocationsResponse);
+
+  // Approval Workflow Service
+  rpc RequestApproval(RequestApprovalRequest) returns (RequestApprovalResponse);
+  rpc SubmitApprovalDecision(SubmitApprovalDecisionRequest) returns (SubmitApprovalDecisionResponse);
+  rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
+
+  // === DEAL RECORD MANAGEMENT APIs ===
+
+  // Deal Record Service - Overarching onboarding state management
+  rpc CreateDealRecord(CreateDealRecordRequest) returns (CreateDealRecordResponse);
+  rpc GetDealRecord(GetDealRecordRequest) returns (GetDealRecordResponse);
+  rpc UpdateDealRecord(UpdateDealRecordRequest) returns (UpdateDealRecordResponse);
+  rpc ListDealRecords(ListDealRecordsRequest) returns (ListDealRecordsResponse);
+  rpc GetDealStatus(GetDealStatusRequest) returns (GetDealStatusResponse);
+  rpc LinkWorkflowToDeal(LinkWorkflowToDealRequest) returns (LinkWorkflowToDealResponse);
+  rpc GetDealWorkflows(GetDealWorkflowsRequest) returns (GetDealWorkflowsResponse);
+  rpc UpdateDealStage(UpdateDealStageRequest) returns (UpdateDealStageResponse);
+
   // === CRUD API ENDPOINTS ===
 
   // CBU Management
@@ -84,30 +123,24 @@ service FinancialTaxonomyService {
   rpc DeleteResourceTemplate(DeleteResourceTemplateRequest) returns (DeleteResourceTemplateResponse);
   rpc ListResourceTemplates(ListResourceTemplatesRequest) returns (ListResourceTemplatesResponse);
 
-  // Capability Management
-  rpc CreateCapability(CreateCapabilityRequest) returns (CreateCapabilityResponse);
-  rpc GetCapability(GetCapabilityRequest) returns (GetCapabilityResponse);
-  rpc UpdateCapability(UpdateCapabilityRequest) returns (UpdateCapabilityResponse);
-  rpc DeleteCapability(DeleteCapabilityRequest) returns (DeleteCapabilityResponse);
-  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
+  // === DSL EXECUTION ENDPOINTS ===
 
-  // Onboarding Workflow Management
-  rpc CreateOnboardingWorkflow(CreateOnboardingWorkflowRequest) returns (CreateOnboardingWorkflowResponse);
-  rpc GetOnboardingWorkflow(GetOnboardingWorkflowRequest) returns (GetOnboardingWorkflowResponse);
-  rpc UpdateOnboardingWorkflow(UpdateOnboardingWorkflowRequest) returns (UpdateOnboardingWorkflowResponse);
-  rpc DeleteOnboardingWorkflow(DeleteOnboardingWorkflowRequest) returns (DeleteOnboardingWorkflowResponse);
-  rpc ListOnboardingWorkflows(ListOnboardingWorkflowsRequest) returns (ListOnboardingWorkflowsResponse);
+  // Unified DSL Execution - Routes to appropriate parser
+  rpc ExecuteCbuDsl(ExecuteCbuDslRequest) returns (ExecuteCbuDslResponse);
+  rpc ExecuteDealRecordDsl(ExecuteDealRecordDslRequest) returns (ExecuteDealRecordDslResponse);
+  rpc ExecuteOpportunityDsl(ExecuteOpportunityDslRequest) returns (ExecuteOpportunityDslResponse);
+  rpc ExecuteOnboardingRequestDsl(ExecuteOnboardingRequestDslRequest) returns (ExecuteOnboardingRequestDslResponse);
 
-  // Product-Service-Resource Mapping
-  rpc LinkProductService(LinkProductServiceRequest) returns (LinkProductServiceResponse);
-  rpc UnlinkProductService(UnlinkProductServiceRequest) returns (UnlinkProductServiceResponse);
-  rpc LinkServiceResource(LinkServiceResourceRequest) returns (LinkServiceResourceResponse);
-  rpc UnlinkServiceResource(UnlinkServiceResourceRequest) returns (UnlinkServiceResourceResponse);
-  rpc GetProductServiceResourceHierarchy(GetProductServiceResourceHierarchyRequest) returns (GetProductServiceResourceHierarchyResponse);
+  // === OPPORTUNITY MANAGEMENT ===
 
-  // Capability Execution
-  rpc ExecuteCapability(ExecuteCapabilityRequest) returns (ExecuteCapabilityResponse);
-  rpc GetCapabilityExecutionStatus(GetCapabilityExecutionStatusRequest) returns (GetCapabilityExecutionStatusResponse);
+  // Opportunity Management
+  rpc CreateOpportunity(CreateOpportunityRequest) returns (CreateOpportunityResponse);
+  rpc GetOpportunity(GetOpportunityRequest) returns (GetOpportunityResponse);
+  rpc UpdateOpportunity(UpdateOpportunityRequest) returns (UpdateOpportunityResponse);
+  rpc DeleteOpportunity(DeleteOpportunityRequest) returns (DeleteOpportunityResponse);
+  rpc ListOpportunities(ListOpportunitiesRequest) returns (ListOpportunitiesResponse);
+  rpc GetOpportunityRevenueAnalysis(GetOpportunityRevenueAnalysisRequest) returns (GetOpportunityRevenueAnalysisResponse);
+
 }
 
 // === EXISTING MESSAGES ===
@@ -381,6 +414,479 @@ message DslExecutionResult {
   optional string error_details = 5;
   google.protobuf.Timestamp executed_at = 6;
   double execution_time_ms = 7;
+}
+
+// === WHITE TRUFFLE CAPABILITY MANAGEMENT MESSAGES ===
+
+// Capability Management Messages
+message ListCapabilitiesRequest {
+  optional string category_filter = 1;
+  optional string status_filter = 2;
+  optional int32 limit = 3;
+  optional int32 offset = 4;
+}
+
+message ListCapabilitiesResponse {
+  repeated CapabilityDefinition capabilities = 1;
+  int32 total_count = 2;
+}
+
+message CapabilityDefinition {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  string category = 4;  // "Setup", "Configuration", "Validation", etc.
+  string execution_mode = 5;  // "Synchronous", "Asynchronous", "Streaming"
+  string status = 6;  // "Available", "Configured", "Running", "Completed", "Failed"
+  repeated AttributeDefinition required_attributes = 7;
+  repeated AttributeDefinition optional_attributes = 8;
+  repeated string dependencies = 9;
+  repeated OutputDefinition outputs = 10;
+}
+
+message AttributeDefinition {
+  string name = 1;
+  string display_name = 2;
+  string attribute_type = 3;  // "String", "Number", "Boolean", "Select", etc.
+  string description = 4;
+  optional string default_value = 5;
+  repeated ValidationRule validation_rules = 6;
+}
+
+message ValidationRule {
+  string rule_type = 1;  // "Required", "MinLength", "Pattern", "Range", etc.
+  string message = 2;
+  string parameters = 3;  // JSON parameters
+}
+
+message OutputDefinition {
+  string name = 1;
+  string output_type = 2;
+  string description = 3;
+}
+
+message GetCapabilityRequest {
+  string capability_name = 1;
+}
+
+message GetCapabilityResponse {
+  optional CapabilityDefinition capability = 1;
+}
+
+message ConfigureCapabilityRequest {
+  string capability_name = 1;
+  string configuration = 2;  // JSON configuration data
+}
+
+message ConfigureCapabilityResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ExecuteCapabilityRequest {
+  string capability_name = 1;
+  string inputs = 2;  // JSON input data
+  optional string execution_context = 3;
+}
+
+message ExecuteCapabilityResponse {
+  bool success = 1;
+  string execution_id = 2;
+  string result = 3;  // JSON result data
+  repeated string log_messages = 4;
+  optional string error_message = 5;
+  double execution_time_ms = 6;
+}
+
+message GetCapabilityStatusRequest {
+  string capability_name = 1;
+}
+
+message GetCapabilityStatusResponse {
+  string capability_name = 1;
+  string status = 2;
+  string last_execution_id = 3;
+  google.protobuf.Timestamp last_executed_at = 4;
+  int32 success_count = 5;
+  int32 failure_count = 6;
+}
+
+// Workflow Orchestration Messages
+message StartWorkflowRequest {
+  string onboarding_request_id = 1;
+  int32 cbu_id = 2;
+  repeated int32 product_ids = 3;
+  string workflow_template = 4;
+  optional string configuration = 5;  // JSON configuration
+}
+
+message StartWorkflowResponse {
+  bool success = 1;
+  string workflow_id = 2;
+  string message = 3;
+}
+
+message GetWorkflowStatusRequest {
+  string workflow_id = 1;
+}
+
+message GetWorkflowStatusResponse {
+  string workflow_id = 1;
+  string current_stage = 2;
+  float completion_percentage = 3;
+  repeated TaskStatus task_statuses = 4;
+  repeated string active_tasks = 5;
+  repeated string completed_tasks = 6;
+  repeated string failed_tasks = 7;
+  google.protobuf.Timestamp started_at = 8;
+  optional google.protobuf.Timestamp completed_at = 9;
+}
+
+message TaskStatus {
+  string task_id = 1;
+  string status = 2;  // "Pending", "Running", "Completed", "Failed", etc.
+  optional google.protobuf.Timestamp started_at = 3;
+  optional google.protobuf.Timestamp completed_at = 4;
+  optional string error_message = 5;
+  int32 retry_count = 6;
+}
+
+message ListActiveWorkflowsRequest {
+  optional string status_filter = 1;
+  optional int32 limit = 2;
+  optional int32 offset = 3;
+}
+
+message ListActiveWorkflowsResponse {
+  repeated WorkflowSummary workflows = 1;
+  int32 total_count = 2;
+}
+
+message WorkflowSummary {
+  string workflow_id = 1;
+  string onboarding_request_id = 2;
+  int32 cbu_id = 3;
+  string current_stage = 4;
+  float completion_percentage = 5;
+  google.protobuf.Timestamp started_at = 6;
+  int32 active_task_count = 7;
+  int32 failed_task_count = 8;
+}
+
+message PauseWorkflowRequest {
+  string workflow_id = 1;
+  string reason = 2;
+}
+
+message PauseWorkflowResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ResumeWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message ResumeWorkflowResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CancelWorkflowRequest {
+  string workflow_id = 1;
+  string reason = 2;
+}
+
+message CancelWorkflowResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Execution Monitoring Messages
+message GetExecutionHistoryRequest {
+  optional string workflow_id = 1;
+  optional string capability_name = 2;
+  optional int32 limit = 3;
+  optional int32 offset = 4;
+}
+
+message GetExecutionHistoryResponse {
+  repeated ExecutionRecord executions = 1;
+  int32 total_count = 2;
+}
+
+message ExecutionRecord {
+  string execution_id = 1;
+  string workflow_id = 2;
+  string capability_name = 3;
+  string status = 4;
+  google.protobuf.Timestamp started_at = 5;
+  optional google.protobuf.Timestamp completed_at = 6;
+  string inputs = 7;  // JSON
+  string outputs = 8;  // JSON
+  optional string error_message = 9;
+  double execution_time_ms = 10;
+}
+
+message GetTaskStatusRequest {
+  string workflow_id = 1;
+  string task_id = 2;
+}
+
+message GetTaskStatusResponse {
+  TaskStatus task_status = 1;
+}
+
+message GetResourceAllocationsRequest {
+  optional string workflow_id = 1;
+  optional string resource_type = 2;
+}
+
+message GetResourceAllocationsResponse {
+  repeated ResourceAllocation allocations = 1;
+}
+
+message ResourceAllocation {
+  string resource_id = 1;
+  string resource_type = 2;
+  string allocated_to = 3;
+  float capacity_used = 4;
+  float capacity_total = 5;
+  google.protobuf.Timestamp allocated_at = 6;
+  string allocation_tags = 7;  // JSON
+}
+
+// Approval Workflow Messages
+message RequestApprovalRequest {
+  string workflow_id = 1;
+  string approval_type = 2;
+  string required_role = 3;
+  string description = 4;
+  string approval_criteria = 5;  // JSON
+}
+
+message RequestApprovalResponse {
+  bool success = 1;
+  string approval_id = 2;
+  string message = 3;
+}
+
+message SubmitApprovalDecisionRequest {
+  string approval_id = 1;
+  string decision = 2;  // "Approved", "Rejected", "Escalated"
+  string approver_id = 3;
+  optional string comments = 4;
+}
+
+message SubmitApprovalDecisionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListPendingApprovalsRequest {
+  optional string required_role = 1;
+  optional string workflow_id = 2;
+  optional int32 limit = 3;
+  optional int32 offset = 4;
+}
+
+message ListPendingApprovalsResponse {
+  repeated ApprovalRequest pending_approvals = 1;
+  int32 total_count = 2;
+}
+
+message ApprovalRequest {
+  string approval_id = 1;
+  string workflow_id = 2;
+  string approval_type = 3;
+  string required_role = 4;
+  string description = 5;
+  google.protobuf.Timestamp requested_at = 6;
+  string approval_criteria = 7;  // JSON
+  string current_status = 8;
+}
+
+// === DEAL RECORD MANAGEMENT MESSAGES ===
+
+// Deal Record - Overarching onboarding state container
+message CreateDealRecordRequest {
+  string deal_name = 1;
+  int32 cbu_id = 2;
+  repeated int32 product_ids = 3;
+  string deal_stage = 4;  // "Prospecting", "Negotiation", "Onboarding", "Active", "Closed"
+  string deal_type = 5;   // "New", "Expansion", "Renewal", "Migration"
+  optional string deal_description = 6;
+  optional string assigned_manager = 7;
+  optional string target_go_live_date = 8;  // ISO date string
+  string deal_metadata = 9;  // JSON additional data
+}
+
+message CreateDealRecordResponse {
+  bool success = 1;
+  string deal_id = 2;
+  string message = 3;
+}
+
+message GetDealRecordRequest {
+  string deal_id = 1;
+}
+
+message GetDealRecordResponse {
+  optional DealRecord deal = 1;
+}
+
+message DealRecord {
+  string deal_id = 1;
+  string deal_name = 2;
+  int32 cbu_id = 3;
+  repeated int32 product_ids = 4;
+  string deal_stage = 5;
+  string deal_type = 6;
+  string deal_status = 7;  // "Active", "Paused", "Failed", "Completed", "Cancelled"
+  optional string deal_description = 8;
+  optional string assigned_manager = 9;
+  optional string target_go_live_date = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  optional google.protobuf.Timestamp completed_at = 13;
+  repeated string linked_workflow_ids = 14;
+  float overall_progress_percentage = 15;
+  string deal_metadata = 16;  // JSON
+  repeated DealMilestone milestones = 17;
+  repeated DealStakeholder stakeholders = 18;
+  optional DealFinancials financials = 19;
+}
+
+message DealMilestone {
+  string milestone_id = 1;
+  string milestone_name = 2;
+  string milestone_type = 3;  // "Approval", "Technical", "Legal", "Commercial"
+  string status = 4;  // "Pending", "InProgress", "Completed", "Blocked"
+  optional google.protobuf.Timestamp target_date = 5;
+  optional google.protobuf.Timestamp completed_date = 6;
+  repeated string dependencies = 7;
+  string milestone_data = 8;  // JSON
+}
+
+message DealStakeholder {
+  string stakeholder_id = 1;
+  string stakeholder_name = 2;
+  string role = 3;  // "DecisionMaker", "TechnicalContact", "BusinessSponsor", "ProjectManager"
+  string contact_info = 4;  // JSON
+  bool is_primary = 5;
+  repeated string responsibilities = 6;
+}
+
+message DealFinancials {
+  float expected_revenue = 1;
+  string currency = 2;
+  float setup_fees = 3;
+  float ongoing_fees = 4;
+  optional string pricing_model = 5;
+  string financial_terms = 6;  // JSON
+}
+
+message UpdateDealRecordRequest {
+  string deal_id = 1;
+  optional string deal_name = 2;
+  optional string deal_stage = 3;
+  optional string deal_status = 4;
+  optional string deal_description = 5;
+  optional string assigned_manager = 6;
+  optional string target_go_live_date = 7;
+  optional string deal_metadata = 8;  // JSON
+  repeated DealMilestone milestones = 9;
+  repeated DealStakeholder stakeholders = 10;
+  optional DealFinancials financials = 11;
+}
+
+message UpdateDealRecordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListDealRecordsRequest {
+  optional string stage_filter = 1;
+  optional string status_filter = 2;
+  optional string manager_filter = 3;
+  optional int32 cbu_id_filter = 4;
+  optional string date_range_start = 5;  // ISO date
+  optional string date_range_end = 6;    // ISO date
+  optional int32 limit = 7;
+  optional int32 offset = 8;
+}
+
+message ListDealRecordsResponse {
+  repeated DealRecord deals = 1;
+  int32 total_count = 2;
+}
+
+message GetDealStatusRequest {
+  string deal_id = 1;
+}
+
+message GetDealStatusResponse {
+  string deal_id = 1;
+  string deal_stage = 2;
+  string deal_status = 3;
+  float overall_progress_percentage = 4;
+  repeated string active_workflow_ids = 5;
+  repeated string completed_workflow_ids = 6;
+  repeated string blocked_workflow_ids = 7;
+  int32 pending_approvals_count = 8;
+  repeated string upcoming_milestones = 9;
+  repeated string overdue_milestones = 10;
+  google.protobuf.Timestamp last_activity = 11;
+}
+
+message LinkWorkflowToDealRequest {
+  string deal_id = 1;
+  string workflow_id = 2;
+  string workflow_type = 3;  // "Onboarding", "Configuration", "Integration", "Testing"
+  optional string workflow_description = 4;
+}
+
+message LinkWorkflowToDealResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetDealWorkflowsRequest {
+  string deal_id = 1;
+  optional string workflow_type_filter = 2;
+  optional string status_filter = 3;
+}
+
+message GetDealWorkflowsResponse {
+  string deal_id = 1;
+  repeated DealWorkflow workflows = 2;
+}
+
+message DealWorkflow {
+  string workflow_id = 1;
+  string workflow_type = 2;
+  string workflow_status = 3;
+  float completion_percentage = 4;
+  google.protobuf.Timestamp started_at = 5;
+  optional google.protobuf.Timestamp completed_at = 6;
+  optional string workflow_description = 7;
+  int32 active_tasks_count = 8;
+  int32 completed_tasks_count = 9;
+  int32 failed_tasks_count = 10;
+}
+
+message UpdateDealStageRequest {
+  string deal_id = 1;
+  string new_stage = 2;
+  string reason = 3;
+  optional string notes = 4;
+  bool auto_trigger_workflows = 5;  // Whether to automatically start stage-appropriate workflows
+}
+
+message UpdateDealStageResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string triggered_workflow_ids = 3;  // IDs of any auto-triggered workflows
 }
 
 // === CRUD API MESSAGES ===
@@ -801,299 +1307,206 @@ message ResourceTemplateDetails {
   google.protobuf.Timestamp updated_at = 14;
 }
 
-// Capability Management Messages
-message CreateCapabilityRequest {
-  string capability_id = 1;
-  string capability_name = 2;
+// === DSL EXECUTION MESSAGES ===
+
+// CBU DSL Execution
+message ExecuteCbuDslRequest {
+  string dsl_script = 1;
+}
+
+message ExecuteCbuDslResponse {
+  bool success = 1;
+  string message = 2;
+  optional string cbu_id = 3;
+  repeated string validation_errors = 4;
+  optional string data = 5; // JSON string
+}
+
+// Deal Record DSL Execution
+message ExecuteDealRecordDslRequest {
+  string dsl_script = 1;
+}
+
+message ExecuteDealRecordDslResponse {
+  bool success = 1;
+  string message = 2;
+  optional string deal_id = 3;
+  repeated string validation_errors = 4;
+  optional string data = 5; // JSON string
+  optional DealSummary summary = 6;
+}
+
+// Opportunity DSL Execution
+message ExecuteOpportunityDslRequest {
+  string dsl_script = 1;
+}
+
+message ExecuteOpportunityDslResponse {
+  bool success = 1;
+  string message = 2;
+  optional string opportunity_id = 3;
+  repeated string validation_errors = 4;
+  optional string data = 5; // JSON string
+  optional OpportunityRevenueAnalysis revenue_analysis = 6;
+}
+
+// Onboarding Request DSL Execution
+message ExecuteOnboardingRequestDslRequest {
+  string dsl_script = 1;
+}
+
+message ExecuteOnboardingRequestDslResponse {
+  bool success = 1;
+  string message = 2;
+  optional string onboarding_id = 3;
+  repeated string validation_errors = 4;
+  optional string data = 5; // JSON string
+}
+
+// === OPPORTUNITY MANAGEMENT MESSAGES ===
+
+// Create Opportunity
+message CreateOpportunityRequest {
+  string opportunity_id = 1;
+  string client_name = 2;
+  string description = 3;
+  optional string status = 4;
+  optional double expected_revenue_annual = 5;
+  optional int32 probability_percentage = 6;
+  optional string negotiation_stage = 7;
+  optional string commercial_terms = 8;
+  repeated string cbu_ids = 9;
+  repeated string product_ids = 10;
+  repeated RevenueStream revenue_streams = 11;
+}
+
+message CreateOpportunityResponse {
+  bool success = 1;
+  string message = 2;
+  optional string opportunity_id = 3;
+  repeated string validation_errors = 4;
+}
+
+// Get Opportunity
+message GetOpportunityRequest {
+  string opportunity_id = 1;
+}
+
+message GetOpportunityResponse {
+  bool success = 1;
+  string message = 2;
+  optional OpportunityDetails opportunity = 3;
+}
+
+// Update Opportunity
+message UpdateOpportunityRequest {
+  string opportunity_id = 1;
+  optional string client_name = 2;
   optional string description = 3;
-  string capability_type = 4;
-  string required_attributes = 5; // JSON string
-  string optional_attributes = 6; // JSON string
-  string output_attributes = 7; // JSON string
-  optional string implementation_function = 8;
-  optional string validation_rules = 9; // JSON string
-  optional string error_handling = 10; // JSON string
-  optional int32 timeout_seconds = 11;
-  optional int32 retry_attempts = 12;
+  optional string status = 4;
+  optional double expected_revenue_annual = 5;
+  optional int32 probability_percentage = 6;
+  optional string negotiation_stage = 7;
+  optional string commercial_terms = 8;
 }
 
-message CreateCapabilityResponse {
-  bool success = 1;
-  string message = 2;
-  optional CapabilityDetails capability = 3;
-}
-
-message GetCapabilityRequest {
-  string capability_id = 1;
-}
-
-message GetCapabilityResponse {
-  bool success = 1;
-  string message = 2;
-  optional CapabilityDetails capability = 3;
-}
-
-message UpdateCapabilityRequest {
-  string capability_id = 1;
-  optional string capability_name = 2;
-  optional string description = 3;
-  optional string capability_type = 4;
-  optional string required_attributes = 5; // JSON string
-  optional string optional_attributes = 6; // JSON string
-  optional string output_attributes = 7; // JSON string
-  optional string implementation_function = 8;
-  optional string validation_rules = 9; // JSON string
-  optional string error_handling = 10; // JSON string
-  optional int32 timeout_seconds = 11;
-  optional int32 retry_attempts = 12;
-  optional string status = 13;
-}
-
-message UpdateCapabilityResponse {
-  bool success = 1;
-  string message = 2;
-  optional CapabilityDetails capability = 3;
-}
-
-message DeleteCapabilityRequest {
-  string capability_id = 1;
-}
-
-message DeleteCapabilityResponse {
+message UpdateOpportunityResponse {
   bool success = 1;
   string message = 2;
 }
 
-message ListCapabilitiesRequest {
+// Delete Opportunity
+message DeleteOpportunityRequest {
+  string opportunity_id = 1;
+}
+
+message DeleteOpportunityResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// List Opportunities
+message ListOpportunitiesRequest {
   optional string status_filter = 1;
-  optional string type_filter = 2;
-  optional int32 limit = 3;
-  optional int32 offset = 4;
+  optional string client_name_filter = 2;
+  optional string negotiation_stage_filter = 3;
+  optional int32 min_revenue = 4;
+  optional int32 max_revenue = 5;
+  optional int32 limit = 6;
+  optional int32 offset = 7;
 }
 
-message ListCapabilitiesResponse {
-  repeated CapabilityDetails capabilities = 1;
+message ListOpportunitiesResponse {
+  repeated OpportunityDetails opportunities = 1;
   int32 total_count = 2;
 }
 
-message CapabilityDetails {
-  int32 id = 1;
-  string capability_id = 2;
-  string capability_name = 3;
+// Get Opportunity Revenue Analysis
+message GetOpportunityRevenueAnalysisRequest {
+  optional string opportunity_id = 1;
+  optional string business_tier_filter = 2;
+}
+
+message GetOpportunityRevenueAnalysisResponse {
+  bool success = 1;
+  string message = 2;
+  repeated OpportunityRevenueAnalysis analyses = 3;
+  double total_revenue_pipeline = 4;
+}
+
+// === SUPPORTING DATA STRUCTURES ===
+
+// Deal Summary
+message DealSummary {
+  string deal_id = 1;
+  string description = 2;
+  string primary_introducing_client = 3;
+  int32 total_cbus = 4;
+  int32 total_products = 5;
+  int32 total_contracts = 6;
+  int32 total_kyc_clearances = 7;
+  int32 total_service_maps = 8;
+  int32 total_opportunities = 9;
+  repeated string business_relationships = 10;
+}
+
+// Opportunity Details
+message OpportunityDetails {
+  string opportunity_id = 1;
+  string client_name = 2;
+  string description = 3;
+  string status = 4;
+  optional double expected_revenue_annual = 5;
+  optional int32 probability_percentage = 6;
+  optional string negotiation_stage = 7;
+  optional string commercial_terms = 8;
+  repeated string cbu_ids = 9;
+  repeated string product_ids = 10;
+  repeated RevenueStream revenue_streams = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+// Revenue Stream
+message RevenueStream {
+  string stream_type = 1;
+  double amount_per_annum = 2;
+  optional string currency = 3;
   optional string description = 4;
-  string capability_type = 5;
-  string required_attributes = 6; // JSON string
-  string optional_attributes = 7; // JSON string
-  string output_attributes = 8; // JSON string
-  optional string implementation_function = 9;
-  string validation_rules = 10; // JSON string
-  string error_handling = 11; // JSON string
-  optional int32 timeout_seconds = 12;
-  optional int32 retry_attempts = 13;
-  string status = 14;
-  google.protobuf.Timestamp created_at = 15;
-  google.protobuf.Timestamp updated_at = 16;
 }
 
-// Onboarding Workflow Management Messages
-message CreateOnboardingWorkflowRequest {
-  string cbu_id = 1;
-  repeated string product_ids = 2;
-  optional string priority = 3;
-  optional string target_go_live_date = 4; // ISO date string
-  optional string business_requirements = 5; // JSON string
-  optional string compliance_requirements = 6; // JSON string
-  optional string execution_mode = 7;
-  optional string requested_by = 8;
+// Opportunity Revenue Analysis
+message OpportunityRevenueAnalysis {
+  string opportunity_id = 1;
+  string client_name = 2;
+  string description = 3;
+  string status = 4;
+  optional int32 probability_percentage = 5;
+  double total_annual_revenue = 6;
+  int32 associated_cbus = 7;
+  int32 associated_products = 8;
+  int32 revenue_streams = 9;
+  string business_tier = 10; // Premium, Enterprise, Professional, Standard
+  google.protobuf.Timestamp created_at = 11;
 }
 
-message CreateOnboardingWorkflowResponse {
-  bool success = 1;
-  string message = 2;
-  optional OnboardingWorkflowDetails workflow = 3;
-}
-
-message GetOnboardingWorkflowRequest {
-  string workflow_id = 1;
-}
-
-message GetOnboardingWorkflowResponse {
-  bool success = 1;
-  string message = 2;
-  optional OnboardingWorkflowDetails workflow = 3;
-}
-
-message UpdateOnboardingWorkflowRequest {
-  string workflow_id = 1;
-  optional string priority = 2;
-  optional string target_go_live_date = 3; // ISO date string
-  optional string business_requirements = 4; // JSON string
-  optional string compliance_requirements = 5; // JSON string
-  optional string workflow_status = 6;
-  optional string assigned_to = 7;
-}
-
-message UpdateOnboardingWorkflowResponse {
-  bool success = 1;
-  string message = 2;
-  optional OnboardingWorkflowDetails workflow = 3;
-}
-
-message DeleteOnboardingWorkflowRequest {
-  string workflow_id = 1;
-}
-
-message DeleteOnboardingWorkflowResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message ListOnboardingWorkflowsRequest {
-  optional string status_filter = 1;
-  optional string priority_filter = 2;
-  optional string cbu_filter = 3;
-  optional int32 limit = 4;
-  optional int32 offset = 5;
-}
-
-message ListOnboardingWorkflowsResponse {
-  repeated OnboardingWorkflowDetails workflows = 1;
-  int32 total_count = 2;
-}
-
-message OnboardingWorkflowDetails {
-  int32 id = 1;
-  string workflow_id = 2;
-  string cbu_id = 3;
-  string cbu_name = 4;
-  repeated string product_ids = 5;
-  repeated string product_names = 6;
-  string workflow_status = 7;
-  string priority = 8;
-  optional string target_go_live_date = 9; // ISO date string
-  optional string business_requirements = 10; // JSON string
-  optional string compliance_requirements = 11; // JSON string
-  optional string current_stage = 12;
-  optional int32 completion_percentage = 13;
-  optional string requested_by = 14;
-  optional string assigned_to = 15;
-  optional int32 estimated_duration_days = 16;
-  optional int32 actual_duration_days = 17;
-  google.protobuf.Timestamp created_at = 18;
-  google.protobuf.Timestamp updated_at = 19;
-}
-
-// Product-Service-Resource Mapping Messages
-message LinkProductServiceRequest {
-  string product_id = 1;
-  string service_id = 2;
-  optional bool is_mandatory = 3;
-  optional int32 delivery_sequence = 4;
-  optional string mapping_type = 5;
-  optional string inclusion_criteria = 6; // JSON string
-  optional double pricing_impact = 7;
-}
-
-message LinkProductServiceResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message UnlinkProductServiceRequest {
-  string product_id = 1;
-  string service_id = 2;
-}
-
-message UnlinkProductServiceResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message LinkServiceResourceRequest {
-  string service_id = 1;
-  string resource_id = 2;
-  string usage_type = 3;
-  optional string resource_role = 4;
-  optional string configuration_parameters = 5; // JSON string
-  optional string performance_requirements = 6; // JSON string
-  optional int32 dependency_level = 7;
-}
-
-message LinkServiceResourceResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message UnlinkServiceResourceRequest {
-  string service_id = 1;
-  string resource_id = 2;
-}
-
-message UnlinkServiceResourceResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message GetProductServiceResourceHierarchyRequest {
-  optional string product_id = 1;
-  optional bool include_inactive = 2;
-}
-
-message GetProductServiceResourceHierarchyResponse {
-  repeated ProductServiceResourceHierarchy hierarchy = 1;
-  int32 total_count = 2;
-}
-
-message ProductServiceResourceHierarchy {
-  string product_id = 1;
-  string product_name = 2;
-  string line_of_business = 3;
-  optional string service_id = 4;
-  optional string service_name = 5;
-  optional string service_category = 6;
-  optional bool is_mandatory = 7;
-  optional int32 delivery_sequence = 8;
-  optional string resource_id = 9;
-  optional string resource_name = 10;
-  optional string resource_type = 11;
-  optional string resource_role = 12;
-  optional int32 resource_priority = 13;
-  optional string template_id = 14;
-  optional string template_name = 15;
-}
-
-// Capability Execution Messages
-message ExecuteCapabilityRequest {
-  string capability_id = 1;
-  string input_attributes = 2; // JSON string
-  optional string execution_mode = 3;
-  optional string workflow_id = 4;
-  optional int32 timeout_override = 5;
-}
-
-message ExecuteCapabilityResponse {
-  bool success = 1;
-  string message = 2;
-  optional CapabilityExecutionResult result = 3;
-}
-
-message GetCapabilityExecutionStatusRequest {
-  string execution_id = 1;
-}
-
-message GetCapabilityExecutionStatusResponse {
-  bool success = 1;
-  string message = 2;
-  optional CapabilityExecutionResult result = 3;
-}
-
-message CapabilityExecutionResult {
-  string capability_id = 1;
-  string execution_status = 2;
-  string output_attributes = 3; // JSON string
-  optional string error_details = 4;
-  int64 execution_time_ms = 5;
-  optional string artifacts = 6; // JSON string
-  optional string next_action = 7;
-  google.protobuf.Timestamp executed_at = 8;
-}

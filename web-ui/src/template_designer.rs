@@ -347,7 +347,7 @@ impl TemplateDesignerIDE {
             } else if trimmed.starts_with("WORKFLOW") || trimmed.starts_with("STEP") || trimmed.starts_with("PHASE") {
                 // Split into keyword and rest
                 let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                if parts.len() >= 1 {
+                if !parts.is_empty() {
                     self.syntax_tokens.push(SyntaxToken {
                         text: parts[0].to_string(),
                         token_type: TokenType::Keyword,

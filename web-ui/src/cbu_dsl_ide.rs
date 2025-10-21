@@ -37,6 +37,7 @@ pub struct CbuDslIDE {
 
     // Entity picker state
     show_entity_picker: bool,
+    show_floating_entity_picker: bool, // New floating panel state
     entity_filter_jurisdiction: String,
     entity_filter_type: String,
     entity_search_name: String,
@@ -71,6 +72,7 @@ impl CbuDslIDE {
             available_entities: Vec::new(),
             loading_entities: false,
             show_entity_picker: false,
+            show_floating_entity_picker: false,
             entity_filter_jurisdiction: "All".to_string(),
             entity_filter_type: "All".to_string(),
             entity_search_name: String::new(),
@@ -108,6 +110,9 @@ impl CbuDslIDE {
             .show(ui, |ui| {
                 self.render_main_content(ui, grpc_client);
             });
+
+        // Render floating entity picker if open
+        self.render_floating_entity_picker(ui.ctx());
     }
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui, grpc_client: Option<&GrpcClient>) {
@@ -152,10 +157,23 @@ impl CbuDslIDE {
                 self.load_available_entities(grpc_client);
             }
 
-            // Entity picker button
-            if ui.button("👥 Pick Entities").clicked() {
-                self.show_entity_picker = !self.show_entity_picker;
-            }
+            // Entity picker - compact display with expand button
+            ui.horizontal(|ui| {
+                // Show selected entities count and expand button
+                let selected_count = self.selected_entities.len();
+                let entities_count = self.available_entities.len();
+
+                if selected_count > 0 {
+                    ui.label(format!("👥 Selected: {}", selected_count));
+                    ui.separator();
+                }
+
+                ui.label(format!("📊 {} entities available", entities_count));
+
+                if ui.button("🔍 Pick Entities").clicked() {
+                    self.show_floating_entity_picker = true;
+                }
+            });
 
             if self.loading_entities {
                 ui.spinner();
@@ -221,9 +239,7 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
             self.render_help_panel(ui);
         }
 
-        if self.show_entity_picker {
-            self.render_entity_picker_panel(ui);
-        }
+        // Inline entity picker removed - now using floating panel
     }
 
     fn render_results_panel(&mut self, ui: &mut egui::Ui) {
@@ -795,6 +811,210 @@ QUERY CBU WHERE status = 'active'"#
         });
     }
 
+    fn render_floating_entity_picker(&mut self, ctx: &egui::Context) {
+        if !self.show_floating_entity_picker {
+            return;
+        }
+
+        let mut open = self.show_floating_entity_picker;
+
+        egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(800.0)
+            .default_height(600.0)
+            .show(ctx, |ui| {
+                wasm_utils::console_log(&format!("🎯 Rendering floating entity picker with {} entities available", self.available_entities.len()));
+
+                // Track entity selections to avoid borrowing issues
+                let mut entity_selections: Vec<(String, String, String)> = Vec::new(); // (entity_id, entity_name, role)
+
+                // Filter controls in a horizontal layout
+                ui.horizontal(|ui| {
+                    ui.label("🔍 Search:");
+                    ui.text_edit_singleline(&mut self.entity_search_name);
+
+                    ui.separator();
+
+                    ui.label("🌍 Region:");
+                    egui::ComboBox::from_id_salt("floating_region_filter")
+                        .selected_text(&self.entity_filter_jurisdiction)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "All".to_string(), "All Regions");
+                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "US".to_string(), "🇺🇸 United States");
+                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "EU".to_string(), "🇪🇺 Europe");
+                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "APAC".to_string(), "🌏 Asia Pacific");
+                        });
+
+                    ui.separator();
+
+                    ui.label("🏢 Type:");
+                    egui::ComboBox::from_id_salt("floating_type_filter")
+                        .selected_text(&self.entity_filter_type)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.entity_filter_type, "All".to_string(), "All Types");
+                            ui.selectable_value(&mut self.entity_filter_type, "Investment Manager".to_string(), "Investment Manager");
+                            ui.selectable_value(&mut self.entity_filter_type, "Asset Owner".to_string(), "Asset Owner");
+                            ui.selectable_value(&mut self.entity_filter_type, "Service Provider".to_string(), "Service Provider");
+                        });
+                });
+
+                ui.separator();
+
+                // Filter entities based on search criteria
+                let filtered_entities: Vec<&EntityInfo> = self.available_entities.iter()
+                    .filter(|entity| {
+                        // Region filter
+                        let region_match = self.entity_filter_jurisdiction == "All" ||
+                            (self.entity_filter_jurisdiction == "US" && entity.country_code == "US") ||
+                            (self.entity_filter_jurisdiction == "EU" && ["DE", "FR", "CH", "GB", "NL"].contains(&entity.country_code.as_str())) ||
+                            (self.entity_filter_jurisdiction == "APAC" && ["JP", "CN", "SG", "NZ", "AU", "KR", "HK", "MY", "TH"].contains(&entity.country_code.as_str()));
+
+                        // Type filter
+                        let type_match = self.entity_filter_type == "All" || entity.entity_type == self.entity_filter_type;
+
+                        // Name search (filter-as-you-type)
+                        let name_match = self.entity_search_name.is_empty() ||
+                            entity.entity_name.to_lowercase().contains(&self.entity_search_name.to_lowercase());
+
+                        let passes_filter = region_match && type_match && name_match;
+
+                        // Debug filtering
+                        if !passes_filter {
+                            wasm_utils::console_log(&format!("❌ Entity {} filtered out - region:{}, type:{}, name:{}",
+                                entity.entity_id, region_match, type_match, name_match));
+                        }
+                        passes_filter
+                    })
+                    .collect();
+
+                // Log first few entities for debugging
+                if !filtered_entities.is_empty() {
+                    wasm_utils::console_log(&format!("📝 First filtered entity: {} ({})",
+                        filtered_entities[0].entity_name, filtered_entities[0].entity_id));
+                }
+
+                ui.label(format!("📋 Found {} entities:", filtered_entities.len()));
+                wasm_utils::console_log(&format!("🔍 Filtering {} entities -> {} results", self.available_entities.len(), filtered_entities.len()));
+                wasm_utils::console_log(&format!("🎯 Current filters - Jurisdiction: '{}', Type: '{}', Search: '{}'",
+                    self.entity_filter_jurisdiction, self.entity_filter_type, self.entity_search_name));
+                ui.separator();
+
+                // Large scrollable list of filtered entities with more space
+                egui::ScrollArea::vertical()
+                    .max_height(400.0) // Much larger than the 200px in the inline version
+                    .show(ui, |ui| {
+                        for entity in &filtered_entities {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    // Entity info with more space
+                                    ui.vertical(|ui| {
+                                        ui.heading(format!("🏢 {}", entity.entity_name));
+                                        ui.horizontal(|ui| {
+                                            ui.label(format!("🆔 {}", entity.entity_id));
+                                            ui.label("•");
+                                            ui.label(format!("📍 {}", entity.jurisdiction));
+                                            ui.label("•");
+                                            ui.label(format!("🏷️ {}", entity.entity_type));
+                                        });
+                                        if let Some(lei) = &entity.lei_code {
+                                            ui.label(format!("🔢 LEI: {}", lei));
+                                        }
+                                    });
+
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        // Role selection buttons - larger and more prominent
+                                        if ui.add_sized([120.0, 30.0], egui::Button::new("👤 Asset Owner")).clicked() {
+                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Asset Owner".to_string()));
+                                        }
+                                        if ui.add_sized([140.0, 30.0], egui::Button::new("💼 Investment Mgr")).clicked() {
+                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Investment Manager".to_string()));
+                                        }
+                                        if ui.add_sized([130.0, 30.0], egui::Button::new("🔧 Managing Co")).clicked() {
+                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Managing Company".to_string()));
+                                        }
+                                    });
+                                });
+                            });
+                            ui.add_space(8.0); // More spacing between entities
+                        }
+
+                        if filtered_entities.is_empty() && !self.available_entities.is_empty() {
+                            ui.vertical_centered(|ui| {
+                                ui.label("🔍 No entities match your search criteria.");
+                                ui.label("Try adjusting the filters above.");
+                            });
+                        } else if self.available_entities.is_empty() && !self.loading_entities {
+                            ui.vertical_centered(|ui| {
+                                ui.label("📭 No entities loaded");
+                                ui.label("Click 'Load Entities' to fetch from the client entity table");
+                            });
+                        }
+                    });
+
+                ui.add_space(10.0);
+
+                // Selected entities preview with close actions
+                let mut entities_to_remove = Vec::new();
+                let mut generate_dsl = false;
+
+                if !self.selected_entities.is_empty() {
+                    ui.separator();
+                    ui.label("✅ Selected Entities for CBU:");
+
+                    for (i, (entity_info, role)) in self.selected_entities.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("🏢 {} - 🎭 {}", entity_info, role));
+                            if ui.button("❌").clicked() {
+                                entities_to_remove.push(i);
+                            }
+                        });
+                    }
+
+                    ui.add_space(5.0);
+
+                    ui.horizontal(|ui| {
+                        if ui.button("🚀 Generate CBU DSL").clicked() {
+                            generate_dsl = true;
+                        }
+                        if ui.button("🗑 Clear All").clicked() {
+                            self.selected_entities.clear();
+                        }
+                    });
+                }
+
+                // Close button at bottom
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("✅ Done").clicked() {
+                        self.show_floating_entity_picker = false;
+                    }
+                    ui.label("Select entities and roles, then click 'Generate CBU DSL' or 'Done'");
+                });
+
+                // Process entity selections after UI to avoid borrowing issues
+                for (entity_id, entity_name, role) in entity_selections {
+                    self.add_entity_to_dsl(&entity_id, &entity_name, &role);
+                }
+
+                // Remove entities (in reverse order to maintain indices)
+                for &i in entities_to_remove.iter().rev() {
+                    if i < self.selected_entities.len() {
+                        self.selected_entities.remove(i);
+                    }
+                }
+
+                // Generate DSL if requested and auto-close panel
+                if generate_dsl {
+                    self.generate_cbu_dsl_from_selection();
+                    self.show_floating_entity_picker = false; // Auto-close after generating DSL
+                }
+            });
+
+        // Update state if window was closed via X button
+        self.show_floating_entity_picker = open;
+    }
+
     fn add_entity_to_dsl(&mut self, entity_id: &str, entity_name: &str, role: &str) {
         // Check if this entity+role combination already exists
         if !self.selected_entities.iter().any(|(id, r)| id == entity_id && r == role) {
@@ -823,7 +1043,6 @@ QUERY CBU WHERE status = 'active'"#
         }
 
         self.dsl_script = dsl;
-        self.show_entity_picker = false; // Close the picker
         self.selected_entities.clear(); // Clear selection
     }
 }

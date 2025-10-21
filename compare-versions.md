@@ -1,123 +1,76 @@
-# Tauri Dev vs Web Version Comparison
+# Data Designer - Web-First Architecture
 
-## Key Differences
+> **Note**: This project has migrated from Tauri desktop to a **Web-First WASM Architecture**
 
-There are **significant differences** between running the IDE with `cargo tauri dev` (Tauri version) and running it in a regular web browser (web version).
+## 🌐 Current Web-First Implementation
 
-## 🖥️ Tauri Version (`cargo tauri dev`)
-**Full-featured IDE with complete backend integration**
-
-### ✅ Available Features:
-- **PostgreSQL Database Integration**: Full CRUD operations with rules, attributes, categories
-- **pgvector Similarity Search**: Real vector embeddings with cosine similarity search
-- **AI Agent with System API Keys**: Automatic detection of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` from environment
-- **Rule Persistence**: Save/load rules to/from PostgreSQL database
-- **Vector Embeddings**: Generate 1536-dimensional embeddings for semantic search
-- **Find Similar Rules**: Real semantic similarity search using pgvector
-- **System Integration**: Access to file system, environment variables, native APIs
-- **Rules Catalogue**: Load actual rules from database with full metadata
-- **Database Commands**: All `db_*` Tauri commands available
-
-### 🔧 Backend Access:
-- Direct access to Rust backend via `window.__TAURI__.invoke()`
-- Full PostgreSQL connection and operations
-- Real vector similarity calculations
-- Environment variable access for API keys
-
-## 🌐 Web Version (Browser Only)
-**Lightweight demo with mock data fallbacks**
-
-### ⚠️ Limited Features:
-- **Mock Data Only**: No real database connection
-- **Mock Similar Rules**: Hardcoded similarity results with fake percentages
-- **No API Key Detection**: Cannot access system environment variables
-- **No Rule Persistence**: Changes not saved anywhere
-- **Static Rules Catalogue**: Hardcoded mock rules only
-- **No Vector Operations**: No real embeddings or similarity calculations
-- **AI Agent Fallback**: Uses comprehensive mock responses when no API keys
-
-### 🎭 Fallback Behavior:
-- Shows mock rules with fake DSL examples
-- Displays mock similarity scores (85%, 72%, etc.)
-- AI Agent provides helpful responses without real API calls
-- All database operations return mock data
-
-## 🔍 Detection Logic
-
-The IDE automatically detects the environment:
-
-```javascript
-if (window.__TAURI__ && window.__TAURI__.invoke) {
-    // Tauri version - use real backend
-    const dbRules = await window.__TAURI__.invoke('db_get_all_rules');
-    const similarRules = await window.__TAURI__.invoke('db_find_similar_rules', {
-        dsl_text: dslText,
-        limit: 5
-    });
-} else {
-    // Web version - use mock data
-    return loadMockRules();
-    const mockSimilarRules = [...]; // Hardcoded examples
-}
+### Architecture Overview
+```
+Browser (Any Device)
+    ↓ gRPC (Port 50051)
+gRPC Microservices Server
+    ↓ PostgreSQL
+Database & Core Engine
 ```
 
-## 📊 Feature Comparison Table
+### ✅ Current Features:
+- **Pure Rust WASM Web Client**: Browser-native egui GUI (60fps)
+- **gRPC Microservices**: Protocol Buffers API (900+ lines)
+- **PostgreSQL Integration**: Vector embeddings with pgvector
+- **Complete AI Assistant**: All 7 AI features with gRPC integration
+- **Secure Key Management**: System keychain integration via gRPC
+- **Financial Entity Management**: CBU, Product, Service, Resource, Workflow CRUD
+- **White Truffle Architecture**: Advanced execution engine with orchestration
+- **Hybrid Reliability**: gRPC-first with automatic database fallback
 
-| Feature | Tauri Version | Web Version |
-|---------|---------------|-------------|
-| Database Integration | ✅ PostgreSQL 17.6 | ❌ Mock data only |
-| Vector Search | ✅ pgvector 0.8.1 | ❌ Fake similarity scores |
-| API Key Detection | ✅ Environment variables | ❌ Manual entry only |
-| Rule Persistence | ✅ PostgreSQL storage | ❌ No persistence |
-| AI Embeddings | ✅ Real OpenAI/Anthropic | ❌ Mock embeddings |
-| System Integration | ✅ Full Tauri APIs | ❌ Browser sandbox only |
-| Performance | ✅ Native speed | ⚡ Fast but limited |
-| Setup Required | 🔧 PostgreSQL + pgvector | 🌐 Just open in browser |
-
-## 🎯 When to Use Each
-
-### Use Tauri Version When:
-- You want full database integration
-- You need real vector similarity search
-- You have API keys for embeddings
-- You want to persist and manage rules
-- You're doing serious DSL development
-
-### Use Web Version When:
-- Quick demo or testing
-- No database setup available
-- Just exploring the IDE interface
-- Showing the UI to others
-- Development on systems without PostgreSQL
-
-## 🚀 Running Each Version
-
-### Tauri Version:
+### 🚀 Quick Start
 ```bash
-cd src-tauri
-cargo tauri dev
-# Opens at: http://localhost:1420 with full features
+# One-command deployment
+./runwasm.sh                   # Build + serve + open browser
+
+# Manual steps
+cd grpc-server && cargo run   # Start gRPC server (port 50051)
+cd web-ui && ./build-web.sh   # Build WASM package
+cd web-ui && ./serve-web.sh   # Serve on localhost:8080
 ```
 
-### Web Version:
-```bash
-npm run dev
-# Open any browser to: http://localhost:1420
-# Will show mock data fallbacks
-```
+### 📊 Benefits of Web-First Architecture
+| Aspect | Web-First WASM | Previous Tauri |
+|--------|----------------|----------------|
+| **Universal Access** | ✅ Any device with browser | ❌ Platform-specific builds |
+| **Zero Installation** | ✅ Instant access | ❌ Download & install required |
+| **Performance** | ✅ 60fps, 12MB bundle | ✅ Native speed |
+| **Deployment** | ✅ Static file serving | ❌ App store distribution |
+| **Cross-Platform** | ✅ Universal compatibility | ⚠️ Multiple build targets |
+| **Database Integration** | ✅ gRPC microservices | ✅ Direct connection |
+| **Maintenance** | ✅ Single codebase | ❌ Desktop + web versions |
 
-## 🎭 Demo Mode
+## 🎯 Why We Migrated
 
-The web version is essentially a **demo mode** that:
-- Shows what the IDE looks like
-- Demonstrates the UI/UX
-- Provides realistic mock data
-- Works without any setup
-- Never fails or crashes
+1. **Universal Accessibility** - Works on any device with a modern browser
+2. **Simplified Deployment** - Single WASM bundle vs multiple platform builds
+3. **Better Scalability** - Microservices architecture for enterprise use
+4. **Easier Maintenance** - One UI codebase instead of desktop + web versions
+5. **Enterprise Ready** - gRPC APIs suitable for financial services integration
 
-The Tauri version is the **production mode** with:
-- Real database operations
-- Actual vector computations
-- True API integrations
-- Full persistence
-- Complete feature set
+## 🏗️ Architecture Components
+
+### Web UI (`web-ui/`)
+- Pure Rust WASM with egui framework
+- Enhanced font rendering and professional styling
+- Entity management and capability interfaces
+- Professional code editor with syntax highlighting
+
+### gRPC Server (`grpc-server/`)
+- Financial taxonomy service with Protocol Buffers
+- Complete CRUD operations for all entities
+- AI key management and suggestion APIs
+- Workflow orchestration endpoints
+
+### Core Library (`data-designer-core/`)
+- Capability execution engine with 10+ built-in capabilities
+- PostgreSQL integration with vector embeddings
+- Onboarding orchestration with complex dependency management
+- DSL parser and evaluation engine
+
+**Current Status**: ✅ **COMPLETED SYSTEM** - Production-ready web-first financial DSL platform

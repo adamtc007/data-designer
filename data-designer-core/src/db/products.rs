@@ -1220,7 +1220,7 @@ impl DbOperations {
         if let Some(required_attrs) = capability.required_attributes.as_array() {
             for attr in required_attrs {
                 if let Some(attr_name) = attr.as_str() {
-                    if !input_attributes.get(attr_name).is_some() {
+                    if input_attributes.get(attr_name).is_none() {
                         return Err(format!("Required attribute missing: {}", attr_name));
                     }
                 }
@@ -1307,8 +1307,8 @@ impl DbOperations {
             .bind(request.target_go_live_date)
             .bind(&request.business_requirements)
             .bind(&request.compliance_requirements)
-            .bind(&serde_json::json!({})) // Resource requirements calculated from execution plan
-            .bind(&serde_json::to_value(&execution_plan).unwrap())
+            .bind(serde_json::json!({})) // Resource requirements calculated from execution plan
+            .bind(serde_json::to_value(&execution_plan).unwrap())
             .bind(estimated_duration_days)
             .bind(&request.requested_by)
             .fetch_one(&pool)
@@ -1429,7 +1429,7 @@ impl DbOperations {
                     .bind(capability_id.0)
                     .bind(task_order)
                     .bind("pending")
-                    .bind(&serde_json::json!({}))
+                    .bind(serde_json::json!({}))
                     .bind(capability.estimated_minutes as f32 / 60.0)
                     .execute(&pool)
                     .await

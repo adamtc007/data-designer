@@ -221,7 +221,7 @@ impl DebugTestInterface {
             // Active tests
             if !self.active_tests.is_empty() {
                 ui.heading("🔄 Running Tests");
-                for (_test_id, test) in &self.active_tests {
+                for test in self.active_tests.values() {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(&test.test_name);

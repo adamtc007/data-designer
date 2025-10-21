@@ -2,7 +2,6 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 use crate::http_api_client::{DataDesignerHttpClient, CreatePrivateAttributeRequest};
 use crate::wasm_utils;
-use wasm_bindgen_futures;
 
 /// Data Designer IDE for defining private data attributes via ETL pipelines
 #[derive(Debug, Clone)]
