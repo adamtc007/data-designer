@@ -902,7 +902,7 @@ QUERY CBU WHERE status = 'active'"#
 
                 // Large scrollable list of filtered entities with more space
                 egui::ScrollArea::vertical()
-                    .max_height(400.0) // Much larger than the 200px in the inline version
+                    .max_height(ui.available_height() - 20.0) // Use available window height minus padding
                     .show(ui, |ui| {
                         for entity in &filtered_entities {
                             ui.group(|ui| {

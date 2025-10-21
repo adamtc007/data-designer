@@ -36,5 +36,8 @@ pub mod onboarding_request_dsl;
 // Deal Record DSL - Master orchestrator for comprehensive business relationship management
 pub mod deal_record_dsl;
 
+// Opportunity DSL for investment opportunity management
+pub mod opportunity_dsl;
+
 #[cfg(test)]
 mod test_integration;
