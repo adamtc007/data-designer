@@ -98,7 +98,7 @@ impl DataDesignerWebApp {
             grpc_endpoint: "http://localhost:3030".to_string(),
             connection_status: ConnectionStatus::Disconnected,
             api_client: None,
-            grpc_client: Some(GrpcClient::new("http://localhost:50051")),
+            grpc_client: Some(GrpcClient::new("http://localhost:8080")),
             show_debug_panel: false,
             debug_interface: DebugTestInterface::new(),
             template_designer: TemplateDesignerIDE::new(),

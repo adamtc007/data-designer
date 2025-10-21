@@ -716,7 +716,7 @@ QUERY CBU WHERE status = 'active'"#
                 .collect();
 
             // Log first few entities for debugging
-            if filtered_entities.len() > 0 {
+            if !filtered_entities.is_empty() {
                 wasm_utils::console_log(&format!("📝 First filtered entity: {} ({})",
                     filtered_entities[0].entity_name, filtered_entities[0].entity_id));
             }

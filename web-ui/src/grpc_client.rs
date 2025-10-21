@@ -239,6 +239,7 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/ExecuteDsl" => "/api/execute-dsl",
             "financial_taxonomy.FinancialTaxonomyService/GetAiSuggestions" => "/api/ai-suggestions",
             "financial_taxonomy.FinancialTaxonomyService/GetEntities" => "/api/entities",
+            "financial_taxonomy.FinancialTaxonomyService/ListProducts" => "/api/list-products",
             _ => return Err(anyhow::anyhow!("Unknown service method: {}", service_method)),
         };
 

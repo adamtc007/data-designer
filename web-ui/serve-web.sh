@@ -24,12 +24,12 @@ fi
 
 echo "🚀 Starting web server..."
 echo "📁 Serving from: dist/"
-echo "🌐 URL: http://localhost:8080"
+echo "🌐 URL: http://localhost:8081"
 echo ""
 
 # Start miniserve with appropriate settings
 miniserve dist/ \
-    --port 8080 \
+    --port 8081 \
     --index index.html \
     --header "Cross-Origin-Embedder-Policy: require-corp" \
     --header "Cross-Origin-Opener-Policy: same-origin" \

@@ -31,6 +31,12 @@ pub struct EntityManagementUI {
     loading: bool,
     error_message: Option<String>,
     success_message: Option<String>,
+
+    // Picker Windows State
+    show_product_picker: bool,
+    show_service_picker: bool,
+    product_picker_filter: String,
+    service_picker_filter: String,
 }
 
 // Data structures for entity records
@@ -46,7 +52,7 @@ pub struct CbuRecord {
     pub status: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProductRecord {
     pub id: i32,
     pub product_id: String,
@@ -165,6 +171,12 @@ impl EntityManagementUI {
             loading: false,
             error_message: None,
             success_message: None,
+
+            // Picker Windows State
+            show_product_picker: false,
+            show_service_picker: false,
+            product_picker_filter: String::new(),
+            service_picker_filter: String::new(),
         }
     }
 
@@ -238,6 +250,9 @@ impl EntityManagementUI {
 
     /// Render Product Management UI
     pub fn show_product_management(&mut self, ui: &mut egui::Ui, grpc_client: Option<&GrpcClient>) {
+        // Check for async product loading results
+        self.check_async_product_results();
+
         ui.heading("📦 Product Management");
         ui.separator();
 
@@ -246,6 +261,10 @@ impl EntityManagementUI {
             if ui.button("➕ New Product").clicked() {
                 self.show_product_form = true;
                 self.new_product_form = ProductForm::default();
+            }
+
+            if ui.button("🔍 Pick Product").clicked() {
+                self.show_product_picker = true;
             }
 
             if ui.button("🔄 Refresh").clicked() {
@@ -302,6 +321,12 @@ impl EntityManagementUI {
         // Product Details Panel
         if let Some(product) = self.selected_product.clone() {
             self.show_product_details(ui, &product);
+        }
+
+        // Product Picker Window (called outside UI constraints for proper resizing)
+        if self.show_product_picker {
+            let ctx = ui.ctx().clone();
+            self.render_product_picker(&ctx, grpc_client);
         }
     }
 
@@ -815,6 +840,7 @@ impl EntityManagementUI {
 
     fn load_product_list(&mut self, grpc_client: Option<&GrpcClient>) {
         self.loading = true;
+        self.error_message = None;
 
         if let Some(client) = grpc_client {
             let request = crate::grpc_client::ListProductsRequest {
@@ -831,12 +857,43 @@ impl EntityManagementUI {
                 match client_clone.list_products(request).await {
                     Ok(response) => {
                         crate::wasm_utils::console_log(&format!("✅ Retrieved {} products from gRPC", response.products.len()));
-                        // TODO: Update UI state with loaded products
-                        // Note: In a real implementation, we'd need a way to communicate back to the UI
-                        // For now, we just log the success
+
+                        // Convert ProductDetails to ProductRecord for UI
+                        let ui_products: Vec<ProductRecord> = response.products.into_iter().enumerate()
+                            .map(|(index, product)| ProductRecord {
+                                id: index as i32 + 1, // Generate sequential ID for UI
+                                product_id: product.product_id,
+                                product_name: product.product_name,
+                                line_of_business: product.line_of_business,
+                                description: if product.description.is_empty() { None } else { Some(product.description) },
+                                contract_type: if product.contract_type.is_empty() { None } else { Some(product.contract_type) },
+                                commercial_status: if product.commercial_status.is_empty() { None } else { Some(product.commercial_status) },
+                                pricing_model: if product.pricing_model.is_empty() { None } else { Some(product.pricing_model) },
+                                target_market: if product.target_market.is_empty() { None } else { Some(product.target_market) },
+                                status: product.status,
+                            })
+                            .collect();
+
+                        crate::wasm_utils::console_log(&format!("📦 Converted {} products for UI display", ui_products.len()));
+
+                        // Store in localStorage as JSON to communicate with UI
+                        if let Ok(json) = serde_json::to_string(&ui_products) {
+                            let window = web_sys::window().unwrap();
+                            let storage = window.local_storage().unwrap().unwrap();
+                            if let Err(e) = storage.set_item("data_designer_products", &json) {
+                                crate::wasm_utils::console_log(&format!("❌ Failed to store products in localStorage: {:?}", e));
+                            } else {
+                                crate::wasm_utils::console_log("💾 Products stored in localStorage for UI update");
+                            }
+                        }
                     }
                     Err(e) => {
                         crate::wasm_utils::console_log(&format!("❌ Error loading products: {:?}", e));
+
+                        // Store error in localStorage
+                        let window = web_sys::window().unwrap();
+                        let storage = window.local_storage().unwrap().unwrap();
+                        let _ = storage.set_item("data_designer_products_error", &format!("{:?}", e));
                     }
                 }
             });
@@ -844,62 +901,97 @@ impl EntityManagementUI {
             // Show a loading message
             crate::wasm_utils::console_log("📡 Loading products from gRPC server...");
         } else {
-            crate::wasm_utils::console_log("⚠️ No gRPC client available - using sample data");
+            crate::wasm_utils::console_log("⚠️ No gRPC client available");
+            self.error_message = Some("gRPC client not available. Products must be loaded from database via gRPC server.".to_string());
+            self.loading = false;
+            return;
         }
 
-        // For now, still load sample data (until we implement proper state management for async results)
-        self.product_list = vec![
-            ProductRecord {
-                id: 1,
-                product_id: "PROD001".to_string(),
-                product_name: "Institutional Custody Plus".to_string(),
-                line_of_business: "Custody".to_string(),
-                description: Some("Comprehensive custody services".to_string()),
-                contract_type: Some("Standard".to_string()),
-                commercial_status: Some("Active".to_string()),
-                pricing_model: Some("Asset-based".to_string()),
-                target_market: Some("Institutional".to_string()),
-                status: "active".to_string(),
+        // Products will be loaded from database via gRPC - no hardcoded data
+        // Note: The gRPC call above will populate the products when async call completes
+        // For now, clear any existing data and show loading state
+        self.product_list.clear();
+        self.loading = false; // Will be updated when async result is available
+    }
+
+    fn check_async_product_results(&mut self) {
+        // Check if async product loading completed by polling localStorage
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                // Check for successful product data
+                if let Ok(Some(json)) = storage.get_item("data_designer_products") {
+                    if let Ok(products) = serde_json::from_str::<Vec<ProductRecord>>(&json) {
+                        crate::wasm_utils::console_log(&format!("🔄 Updating UI with {} products from async result", products.len()));
+                        self.product_list = products;
+                        self.loading = false;
+
+                        // Clear the storage item to avoid re-processing
+                        let _ = storage.remove_item("data_designer_products");
+                    }
+                }
+
+                // Check for error results
+                if let Ok(Some(error)) = storage.get_item("data_designer_products_error") {
+                    crate::wasm_utils::console_log(&format!("🔄 Setting error message from async result: {}", error));
+                    self.error_message = Some(format!("Error loading products: {}", error));
+                    self.loading = false;
+
+                    // Clear the storage item to avoid re-processing
+                    let _ = storage.remove_item("data_designer_products_error");
+                }
             }
-        ];
+        }
+    }
+
+    fn load_service_list(&mut self, grpc_client: Option<&GrpcClient>) {
+        self.loading = true;
+        self.error_message = None;
+
+        if let Some(client) = grpc_client {
+            // Use gRPC GetServices endpoint to load from database
+            let client_clone = client.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                // Note: Need to implement GetServicesRequest in grpc_client.rs
+                crate::wasm_utils::console_log("📡 Loading services from database via gRPC server...");
+                // TODO: Implement GetServicesRequest and call get_services() method
+                crate::wasm_utils::console_log("⚠️ GetServices gRPC call not yet implemented in client");
+            });
+
+            crate::wasm_utils::console_log("📡 Services will be loaded from database via gRPC server...");
+        } else {
+            crate::wasm_utils::console_log("⚠️ No gRPC client available");
+            self.error_message = Some("gRPC client not available. Services must be loaded from database via gRPC server.".to_string());
+        }
+
+        // Services will be loaded from database via gRPC - no hardcoded data
+        self.service_list.clear();
         self.loading = false;
     }
 
-    fn load_service_list(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // TODO: Implement actual gRPC call to load Service list
+    fn load_resource_list(&mut self, grpc_client: Option<&GrpcClient>) {
         self.loading = true;
-        // For now, load sample data
-        self.service_list = vec![
-            ServiceRecord {
-                id: "SVC001".to_string(),
-                name: "Asset Safekeeping".to_string(),
-                description: "Secure asset safekeeping service".to_string(),
-                service_type: "Core".to_string(),
-                service_category: "Custody".to_string(),
-                delivery_model: "Standard".to_string(),
-                billable: true,
-                status: "active".to_string(),
-            }
-        ];
-        self.loading = false;
-    }
+        self.error_message = None;
 
-    fn load_resource_list(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // TODO: Implement actual gRPC call to load Resource list
-        self.loading = true;
-        // For now, load sample data
-        self.resource_list = vec![
-            ResourceRecord {
-                id: "RES001".to_string(),
-                name: "Custody Vault".to_string(),
-                description: "Physical custody vault".to_string(),
-                resource_type: "Physical".to_string(),
-                location: Some("New York".to_string()),
-                capabilities: "{}".to_string(),
-                status: "active".to_string(),
-                visibility: "private".to_string(),
-            }
-        ];
+        if let Some(client) = grpc_client {
+            // Use gRPC GetResources endpoint to load from database
+            let client_clone = client.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                // Note: Need to implement GetResourcesRequest in grpc_client.rs
+                crate::wasm_utils::console_log("📡 Loading resources from database via gRPC server...");
+                // TODO: Implement GetResourcesRequest and call get_resources() method
+                crate::wasm_utils::console_log("⚠️ GetResources gRPC call not yet implemented in client");
+            });
+
+            crate::wasm_utils::console_log("📡 Resources will be loaded from database via gRPC server...");
+        } else {
+            crate::wasm_utils::console_log("⚠️ No gRPC client available");
+            self.error_message = Some("gRPC client not available. Resources must be loaded from database via gRPC server.".to_string());
+        }
+
+        // Resources will be loaded from database via gRPC - no hardcoded data
+        self.resource_list.clear();
         self.loading = false;
     }
 
@@ -1127,5 +1219,114 @@ impl EntityManagementUI {
         // TODO: Implement actual gRPC call to delete Resource
         self.success_message = Some("Resource deleted successfully".to_string());
         self.load_resource_list(_grpc_client);
+    }
+
+    // Picker Windows Implementation using the successful resizing pattern
+    fn render_product_picker(&mut self, ctx: &egui::Context, grpc_client: Option<&GrpcClient>) {
+        // Check for async product loading results
+        self.check_async_product_results();
+
+        let mut open = self.show_product_picker;
+
+        // Product Picker with proper resizing using the successful pattern
+        egui::Window::new("📦 Product Picker - Select Product")
+            .open(&mut open)
+            .resizable(true)
+            .default_size([680.0, 500.0])
+            .show(ctx, |ui| {
+                // Filter controls
+                ui.horizontal(|ui| {
+                    ui.label("🔍 Search:");
+                    ui.text_edit_singleline(&mut self.product_picker_filter);
+
+                    if ui.button("🔄 Refresh Products").clicked() {
+                        self.load_product_list(grpc_client);
+                    }
+                });
+
+                ui.separator();
+
+                // Filter products based on search
+                let filtered_products: Vec<&ProductRecord> = self.product_list.iter()
+                    .filter(|product| {
+                        self.product_picker_filter.is_empty() ||
+                        product.product_name.to_lowercase().contains(&self.product_picker_filter.to_lowercase()) ||
+                        product.product_id.to_lowercase().contains(&self.product_picker_filter.to_lowercase()) ||
+                        product.line_of_business.to_lowercase().contains(&self.product_picker_filter.to_lowercase())
+                    })
+                    .collect();
+
+                ui.label(format!("📋 Found {} products:", filtered_products.len()));
+                ui.separator();
+
+                // CRITICAL: Dynamic height allocation for proper resizing
+                let available_height = ui.available_height();
+                let content_height = (available_height - 150.0).max(200.0); // Reserve space for controls
+
+                // Scrollable list with proper space allocation
+                egui::ScrollArea::vertical()
+                    .max_height(content_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if filtered_products.is_empty() && self.product_list.is_empty() {
+                            ui.vertical_centered(|ui| {
+                                ui.label("📭 No products available");
+                                ui.label("Click 'Refresh Products' to load from gRPC server");
+                            });
+                        } else if filtered_products.is_empty() {
+                            ui.vertical_centered(|ui| {
+                                ui.label("🔍 No products match your search");
+                                ui.label("Try adjusting the search filter");
+                            });
+                        } else {
+                            for product in &filtered_products {
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.heading(format!("📦 {}", product.product_name));
+                                            ui.horizontal(|ui| {
+                                                ui.label(format!("🆔 {}", product.product_id));
+                                                ui.label("•");
+                                                ui.label(format!("🏢 {}", product.line_of_business));
+                                            });
+                                            if let Some(desc) = &product.description {
+                                                ui.label(format!("📄 {}", desc));
+                                            }
+                                            ui.label(format!("📊 Status: {}", product.status));
+                                        });
+
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if ui.add_sized([100.0, 30.0], egui::Button::new("✅ Select")).clicked() {
+                                                // TODO: Handle product selection - could set selected_product or trigger callback
+                                                self.selected_product = Some((*product).clone());
+                                                self.success_message = Some(format!("Selected product: {}", product.product_name));
+                                                self.show_product_picker = false;
+                                            }
+                                            if ui.add_sized([80.0, 30.0], egui::Button::new("👁️ View")).clicked() {
+                                                self.selected_product = Some((*product).clone());
+                                            }
+                                        });
+                                    });
+                                });
+                                ui.add_space(5.0);
+                            }
+                        }
+
+                        // CRITICAL: Allocate remaining space for proper window resizing
+                        ui.allocate_space(ui.available_size());
+                    });
+
+                // Close button
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("❌ Cancel").clicked() {
+                        self.show_product_picker = false;
+                    }
+                    ui.label("Search and select a product from the list above");
+                });
+            });
+
+        // Update state if window was closed via X button
+        self.show_product_picker = open;
     }
 }
