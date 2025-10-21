@@ -823,6 +823,10 @@ QUERY CBU WHERE status = 'active'"#
             .resizable(true)
             .default_width(800.0)
             .default_height(600.0)
+            .min_width(600.0)
+            .min_height(400.0)
+            .max_width(1200.0)
+            .max_height(800.0)
             .show(ctx, |ui| {
                 wasm_utils::console_log(&format!("🎯 Rendering floating entity picker with {} entities available", self.available_entities.len()));
 
@@ -902,7 +906,8 @@ QUERY CBU WHERE status = 'active'"#
 
                 // Large scrollable list of filtered entities with more space
                 egui::ScrollArea::vertical()
-                    .max_height(ui.available_height() - 20.0) // Use available window height minus padding
+                    .max_height(500.0) // Fixed reasonable height that allows window resizing
+                    .auto_shrink([false, true]) // Don't auto-shrink, let user control window size
                     .show(ui, |ui| {
                         for entity in &filtered_entities {
                             ui.group(|ui| {
