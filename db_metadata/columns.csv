@@ -1,0 +1,1743 @@
+table_schema,table_name,column_name,ordinal_position,column_default,is_nullable,data_type,character_maximum_length
+public,ai_attribute_contexts,id,1,nextval('ai_attribute_contexts_id_seq'::regclass),NO,integer,
+public,ai_attribute_contexts,attribute_id,2,,YES,integer,
+public,ai_attribute_contexts,context_type,3,,NO,character varying,50
+public,ai_attribute_contexts,context_title,4,,NO,character varying,200
+public,ai_attribute_contexts,detailed_description,5,,NO,text,
+public,ai_attribute_contexts,examples,6,'[]'::jsonb,YES,jsonb,
+public,ai_attribute_contexts,keywords,7,,YES,ARRAY,
+public,ai_attribute_contexts,related_attributes,8,,YES,ARRAY,
+public,ai_attribute_contexts,confidence_score,9,1.0,YES,numeric,
+public,ai_attribute_contexts,source,10,,YES,character varying,100
+public,ai_attribute_contexts,last_validated,11,,YES,timestamp without time zone,
+public,ai_attribute_contexts,created_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ai_attribute_contexts,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ai_metadata_contexts,id,1,nextval('ai_metadata_contexts_id_seq'::regclass),NO,integer,
+public,ai_metadata_contexts,context_name,2,,NO,character varying,100
+public,ai_metadata_contexts,description,3,,YES,text,
+public,ai_metadata_contexts,prompt_template,4,,YES,text,
+public,ai_metadata_contexts,example_queries,5,'[]'::jsonb,YES,jsonb,
+public,ai_metadata_contexts,response_format,6,'{}'::jsonb,YES,jsonb,
+public,ai_metadata_contexts,model_config,7,'{}'::jsonb,YES,jsonb,
+public,ai_metadata_contexts,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ai_metadata_contexts,updated_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ai_prompt_contexts,id,1,nextval('ai_prompt_contexts_id_seq'::regclass),NO,integer,
+public,ai_prompt_contexts,context_name,2,,NO,character varying,100
+public,ai_prompt_contexts,scenario_description,3,,NO,text,
+public,ai_prompt_contexts,base_prompt_template,4,,NO,text,
+public,ai_prompt_contexts,attribute_inclusion_rules,5,'{}'::jsonb,YES,jsonb,
+public,ai_prompt_contexts,response_format_template,6,'{}'::jsonb,YES,jsonb,
+public,ai_prompt_contexts,few_shot_examples,7,'[]'::jsonb,YES,jsonb,
+public,ai_prompt_contexts,model_parameters,8,'{}'::jsonb,YES,jsonb,
+public,ai_prompt_contexts,success_criteria,9,,YES,text,
+public,ai_prompt_contexts,common_failure_modes,10,,YES,text,
+public,ai_prompt_contexts,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ai_training_examples,id,1,nextval('ai_training_examples_id_seq'::regclass),NO,integer,
+public,ai_training_examples,attribute_id,2,,YES,integer,
+public,ai_training_examples,example_type,3,,NO,character varying,50
+public,ai_training_examples,input_example,4,,NO,jsonb,
+public,ai_training_examples,expected_output,5,,YES,jsonb,
+public,ai_training_examples,explanation,6,,NO,text,
+public,ai_training_examples,difficulty_level,7,'medium'::character varying,YES,character varying,20
+public,ai_training_examples,tags,8,,YES,ARRAY,
+public,ai_training_examples,ai_model_accuracy,9,,YES,numeric,
+public,ai_training_examples,human_annotation,10,,YES,text,
+public,ai_training_examples,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_classification_view,id,1,,YES,integer,
+public,attribute_classification_view,attribute_name,2,,YES,character varying,100
+public,attribute_classification_view,attribute_class,3,,YES,character varying,20
+public,attribute_classification_view,visibility_scope,4,,YES,character varying,20
+public,attribute_classification_view,data_type,5,,YES,character varying,30
+public,attribute_classification_view,description,6,,YES,text,
+public,attribute_classification_view,extended_description,7,,YES,text,
+public,attribute_classification_view,classification_description,8,,YES,text,
+public,attribute_classification_view,derivation_rule_ebnf,9,,YES,text,
+public,attribute_classification_view,derivation_dependencies,10,,YES,ARRAY,
+public,attribute_classification_view,derivation_complexity,11,,YES,character varying,20
+public,attribute_classification_view,derivation_frequency,12,,YES,character varying,20
+public,attribute_classification_view,materialization_strategy,13,,YES,character varying,30
+public,attribute_classification_view,source_attribute_details,14,,YES,ARRAY,
+public,attribute_classification_view,derivation_rules,15,,YES,ARRAY,
+public,attribute_classification_view,success_rate,16,,YES,numeric,
+public,attribute_classification_view,avg_execution_time_ms,17,,YES,integer,
+public,attribute_classification_view,data_quality_score,18,,YES,numeric,
+public,attribute_classification_view,completeness_rate,19,,YES,numeric,
+public,attribute_classification_view,ai_context,20,,YES,jsonb,
+public,attribute_classification_view,semantic_tags,21,,YES,jsonb,
+public,attribute_classification_view,ui_component_type,22,,YES,character varying,50
+public,attribute_classification_view,ui_layout_config,23,,YES,jsonb,
+public,attribute_classification_view,full_ai_context,24,,YES,text,
+public,attribute_cluster_memberships,id,1,nextval('attribute_cluster_memberships_id_seq'::regclass),NO,integer,
+public,attribute_cluster_memberships,attribute_id,2,,YES,integer,
+public,attribute_cluster_memberships,cluster_id,3,,YES,integer,
+public,attribute_cluster_memberships,membership_strength,4,1.0,YES,numeric,
+public,attribute_cluster_memberships,distance_to_centroid,5,,YES,numeric,
+public,attribute_cluster_memberships,membership_type,6,'primary'::character varying,YES,character varying,50
+public,attribute_cluster_memberships,assigned_by,7,'algorithm'::character varying,YES,character varying,50
+public,attribute_cluster_memberships,confidence_score,8,1.0,YES,numeric,
+public,attribute_cluster_memberships,created_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_comprehensive_filter_view,id,1,,YES,integer,
+public,attribute_comprehensive_filter_view,attribute_name,2,,YES,character varying,100
+public,attribute_comprehensive_filter_view,attribute_class,3,,YES,character varying,20
+public,attribute_comprehensive_filter_view,visibility_scope,4,,YES,character varying,20
+public,attribute_comprehensive_filter_view,data_type,5,,YES,character varying,30
+public,attribute_comprehensive_filter_view,description,6,,YES,text,
+public,attribute_comprehensive_filter_view,extended_description,7,,YES,text,
+public,attribute_comprehensive_filter_view,business_context,8,,YES,text,
+public,attribute_comprehensive_filter_view,technical_context,9,,YES,text,
+public,attribute_comprehensive_filter_view,ui_component_type,10,,YES,character varying,50
+public,attribute_comprehensive_filter_view,ui_group,11,,YES,character varying,100
+public,attribute_comprehensive_filter_view,derivation_complexity,12,,YES,character varying,20
+public,attribute_comprehensive_filter_view,materialization_strategy,13,,YES,character varying,30
+public,attribute_comprehensive_filter_view,domain_name,14,,YES,character varying,100
+public,attribute_comprehensive_filter_view,regulatory_framework,15,,YES,character varying,100
+public,attribute_comprehensive_filter_view,compliance_criticality,16,,YES,character varying,20
+public,attribute_comprehensive_filter_view,data_sensitivity,17,,YES,character varying,20
+public,attribute_comprehensive_filter_view,cluster_names,18,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,cluster_types,19,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,cluster_memberships,20,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,tags,21,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,tag_categories,22,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,semantic_tags,23,,YES,jsonb,
+public,attribute_comprehensive_filter_view,search_keywords,24,,YES,ARRAY,
+public,attribute_comprehensive_filter_view,ai_context,25,,YES,jsonb,
+public,attribute_comprehensive_filter_view,success_rate,26,,YES,numeric,
+public,attribute_comprehensive_filter_view,data_quality_score,27,,YES,numeric,
+public,attribute_comprehensive_filter_view,completeness_rate,28,,YES,numeric,
+public,attribute_comprehensive_filter_view,persistence_system,29,,YES,character varying,100
+public,attribute_comprehensive_filter_view,persistence_type,30,,YES,character varying,50
+public,attribute_comprehensive_filter_view,embedding_vector,31,,YES,USER-DEFINED,
+public,attribute_comprehensive_filter_view,searchable_text,32,,YES,text,
+public,attribute_comprehensive_filter_view,filter_metadata,33,,YES,jsonb,
+public,attribute_documentation,id,1,nextval('attribute_documentation_id_seq'::regclass),NO,integer,
+public,attribute_documentation,attribute_id,2,,YES,integer,
+public,attribute_documentation,documentation_type,3,,NO,character varying,50
+public,attribute_documentation,title,4,,NO,character varying,200
+public,attribute_documentation,content,5,,NO,text,
+public,attribute_documentation,content_format,6,'markdown'::character varying,YES,character varying,20
+public,attribute_documentation,tags,7,,YES,ARRAY,
+public,attribute_documentation,target_audience,8,,YES,character varying,50
+public,attribute_documentation,complexity_level,9,'intermediate'::character varying,YES,character varying,20
+public,attribute_documentation,last_reviewed,10,,YES,timestamp without time zone,
+public,attribute_documentation,reviewer,11,,YES,character varying,100
+public,attribute_documentation,version,12,'1.0'::character varying,YES,character varying,20
+public,attribute_documentation,created_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_documentation,updated_at,14,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_domain_mappings,id,1,nextval('attribute_domain_mappings_id_seq'::regclass),NO,integer,
+public,attribute_domain_mappings,attribute_id,2,,YES,integer,
+public,attribute_domain_mappings,domain_id,3,,YES,integer,
+public,attribute_domain_mappings,context_role,4,,YES,character varying,100
+public,attribute_domain_mappings,importance_weight,5,1.0,YES,numeric,
+public,attribute_domain_mappings,compliance_criticality,6,'medium'::character varying,YES,character varying,20
+public,attribute_domain_mappings,data_sensitivity,7,'medium'::character varying,YES,character varying,20
+public,attribute_domain_mappings,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_filter_configurations,id,1,nextval('attribute_filter_configurations_id_seq'::regclass),NO,integer,
+public,attribute_filter_configurations,filter_name,2,,NO,character varying,100
+public,attribute_filter_configurations,filter_description,3,,YES,text,
+public,attribute_filter_configurations,filter_type,4,,NO,character varying,50
+public,attribute_filter_configurations,filter_config,5,,NO,jsonb,
+public,attribute_filter_configurations,target_audience,6,,YES,character varying,50
+public,attribute_filter_configurations,use_case,7,,YES,character varying,100
+public,attribute_filter_configurations,performance_profile,8,'{}'::jsonb,YES,jsonb,
+public,attribute_filter_configurations,is_active,9,true,YES,boolean,
+public,attribute_filter_configurations,created_by,10,,YES,character varying,100
+public,attribute_filter_configurations,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_lineage,id,1,nextval('attribute_lineage_id_seq'::regclass),NO,integer,
+public,attribute_lineage,target_attribute_id,2,,YES,integer,
+public,attribute_lineage,source_attribute_id,3,,YES,integer,
+public,attribute_lineage,lineage_type,4,,NO,character varying,50
+public,attribute_lineage,transformation_step,5,1,YES,integer,
+public,attribute_lineage,contribution_weight,6,1.0,YES,numeric,
+public,attribute_lineage,lineage_description,7,,YES,text,
+public,attribute_lineage,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_objects,id,1,nextval('attribute_objects_id_seq'::regclass),NO,integer,
+public,attribute_objects,resource_id,2,,YES,integer,
+public,attribute_objects,attribute_name,3,,NO,character varying,100
+public,attribute_objects,data_type,4,,NO,character varying,30
+public,attribute_objects,description,5,,YES,text,
+public,attribute_objects,is_required,6,false,YES,boolean,
+public,attribute_objects,min_length,7,,YES,integer,
+public,attribute_objects,max_length,8,,YES,integer,
+public,attribute_objects,min_value,9,,YES,numeric,
+public,attribute_objects,max_value,10,,YES,numeric,
+public,attribute_objects,allowed_values,11,,YES,jsonb,
+public,attribute_objects,validation_pattern,12,,YES,text,
+public,attribute_objects,persistence_system,13,,YES,character varying,100
+public,attribute_objects,persistence_entity,14,,YES,character varying,100
+public,attribute_objects,persistence_identifier,15,,YES,character varying,100
+public,attribute_objects,ui_group,16,,YES,character varying,100
+public,attribute_objects,ui_display_order,17,0,YES,integer,
+public,attribute_objects,ui_render_hint,18,'text-input'::character varying,YES,character varying,30
+public,attribute_objects,ui_label,19,,YES,character varying,200
+public,attribute_objects,ui_help_text,20,,YES,text,
+public,attribute_objects,wizard_step,21,,YES,integer,
+public,attribute_objects,wizard_step_title,22,,YES,character varying,200
+public,attribute_objects,wizard_next_button,23,,YES,text,
+public,attribute_objects,wizard_previous_button,24,,YES,text,
+public,attribute_objects,wizard_description,25,,YES,text,
+public,attribute_objects,generation_examples,26,'[]'::jsonb,YES,jsonb,
+public,attribute_objects,rules_dsl,27,,YES,text,
+public,attribute_objects,created_at,28,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_objects,updated_at,29,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_objects,semantic_tags,30,'[]'::jsonb,YES,jsonb,
+public,attribute_objects,ai_context,31,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,embedding_vector,32,,YES,USER-DEFINED,
+public,attribute_objects,search_keywords,33,,YES,ARRAY,
+public,attribute_objects,ui_component_type,34,'text-input'::character varying,YES,character varying,50
+public,attribute_objects,ui_layout_config,35,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,ui_styling,36,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,ui_behavior,37,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,conditional_logic,38,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,relationship_metadata,39,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,ai_prompt_templates,40,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,form_generation_rules,41,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,accessibility_config,42,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,responsive_config,43,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,data_flow_config,44,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,primary_persistence_entity_id,45,,YES,integer,
+public,attribute_objects,backup_persistence_entities,46,,YES,ARRAY,
+public,attribute_objects,value_lifecycle,47,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,data_governance,48,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,compliance_metadata,49,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,extended_description,50,,YES,text,
+public,attribute_objects,business_context,51,,YES,text,
+public,attribute_objects,technical_context,52,,YES,text,
+public,attribute_objects,user_guidance,53,,YES,text,
+public,attribute_objects,ai_training_examples,54,,YES,text,
+public,attribute_objects,domain_terminology,55,,YES,text,
+public,attribute_objects,related_concepts,56,,YES,ARRAY,
+public,attribute_objects,usage_scenarios,57,,YES,text,
+public,attribute_objects,data_lineage_description,58,,YES,text,
+public,attribute_objects,compliance_explanation,59,,YES,text,
+public,attribute_objects,error_scenarios,60,,YES,text,
+public,attribute_objects,integration_notes,61,,YES,text,
+public,attribute_objects,attribute_class,62,'real'::character varying,YES,character varying,20
+public,attribute_objects,visibility_scope,63,'public'::character varying,YES,character varying,20
+public,attribute_objects,derivation_rule_ebnf,64,,YES,text,
+public,attribute_objects,derivation_dependencies,65,,YES,ARRAY,
+public,attribute_objects,derivation_complexity,66,'simple'::character varying,YES,character varying,20
+public,attribute_objects,derivation_frequency,67,'on_demand'::character varying,YES,character varying,20
+public,attribute_objects,materialization_strategy,68,'computed'::character varying,YES,character varying,30
+public,attribute_objects,source_attributes,69,'[]'::jsonb,YES,jsonb,
+public,attribute_objects,transformation_logic,70,'{}'::jsonb,YES,jsonb,
+public,attribute_objects,quality_rules,71,'{}'::jsonb,YES,jsonb,
+public,attribute_persistence_mappings,id,1,nextval('attribute_persistence_mappings_id_seq'::regclass),NO,integer,
+public,attribute_persistence_mappings,attribute_id,2,,YES,integer,
+public,attribute_persistence_mappings,persistence_entity_id,3,,YES,integer,
+public,attribute_persistence_mappings,field_mapping,4,,NO,jsonb,
+public,attribute_persistence_mappings,transformation_rules,5,'{}'::jsonb,YES,jsonb,
+public,attribute_persistence_mappings,validation_rules,6,'{}'::jsonb,YES,jsonb,
+public,attribute_persistence_mappings,access_permissions,7,'{}'::jsonb,YES,jsonb,
+public,attribute_persistence_mappings,caching_config,8,'{}'::jsonb,YES,jsonb,
+public,attribute_persistence_mappings,sync_strategy,9,'immediate'::character varying,YES,character varying,50
+public,attribute_persistence_mappings,conflict_resolution,10,'last_write_wins'::character varying,YES,character varying,50
+public,attribute_persistence_mappings,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_persistence_mappings,updated_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_perspectives,id,1,nextval('attribute_perspectives_id_seq'::regclass),NO,integer,
+public,attribute_perspectives,attribute_id,2,,YES,integer,
+public,attribute_perspectives,perspective_name,3,,NO,character varying,50
+public,attribute_perspectives,description,4,,YES,text,
+public,attribute_perspectives,ui_group,5,,YES,character varying,100
+public,attribute_perspectives,ui_label,6,,YES,character varying,200
+public,attribute_perspectives,ui_help_text,7,,YES,text,
+public,attribute_perspectives,generation_examples,8,'[]'::jsonb,YES,jsonb,
+public,attribute_relationships,id,1,nextval('attribute_relationships_id_seq'::regclass),NO,integer,
+public,attribute_relationships,source_attribute_id,2,,YES,integer,
+public,attribute_relationships,target_attribute_id,3,,YES,integer,
+public,attribute_relationships,relationship_type,4,,NO,character varying,50
+public,attribute_relationships,relationship_config,5,'{}'::jsonb,YES,jsonb,
+public,attribute_relationships,strength,6,1.0,YES,numeric,
+public,attribute_relationships,created_at,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_semantic_relationships,id,1,nextval('attribute_semantic_relationships_id_seq'::regclass),NO,integer,
+public,attribute_semantic_relationships,source_attribute_id,2,,YES,integer,
+public,attribute_semantic_relationships,target_attribute_id,3,,YES,integer,
+public,attribute_semantic_relationships,relationship_type,4,,NO,character varying,50
+public,attribute_semantic_relationships,relationship_description,5,,NO,text,
+public,attribute_semantic_relationships,semantic_similarity,6,,YES,numeric,
+public,attribute_semantic_relationships,context_specific,7,false,YES,boolean,
+public,attribute_semantic_relationships,domain_context,8,,YES,character varying,100
+public,attribute_semantic_relationships,ai_confidence,9,1.0,YES,numeric,
+public,attribute_semantic_relationships,human_verified,10,false,YES,boolean,
+public,attribute_semantic_relationships,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_sources,id,1,nextval('attribute_sources_id_seq'::regclass),NO,integer,
+public,attribute_sources,source_key,2,,NO,character varying,50
+public,attribute_sources,name,3,,NO,character varying,100
+public,attribute_sources,description,4,,YES,text,
+public,attribute_sources,trust_level,5,,YES,character varying,20
+public,attribute_sources,requires_validation,6,false,YES,boolean,
+public,attribute_sources,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,attribute_tag_assignments,id,1,nextval('attribute_tag_assignments_id_seq'::regclass),NO,integer,
+public,attribute_tag_assignments,attribute_id,2,,YES,integer,
+public,attribute_tag_assignments,tag_id,3,,YES,integer,
+public,attribute_tag_assignments,assignment_confidence,4,1.0,YES,numeric,
+public,attribute_tag_assignments,assigned_by,5,'manual'::character varying,YES,character varying,50
+public,attribute_tag_assignments,assignment_reason,6,,YES,text,
+public,attribute_tag_assignments,created_at,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_tags,id,1,nextval('attribute_tags_id_seq'::regclass),NO,integer,
+public,attribute_tags,tag_name,2,,NO,character varying,100
+public,attribute_tags,tag_description,3,,YES,text,
+public,attribute_tags,tag_category,4,,YES,character varying,50
+public,attribute_tags,tag_color,5,,YES,character varying,7
+public,attribute_tags,icon_name,6,,YES,character varying,50
+public,attribute_tags,parent_tag_id,7,,YES,integer,
+public,attribute_tags,hierarchy_level,8,1,YES,integer,
+public,attribute_tags,usage_count,9,0,YES,integer,
+public,attribute_tags,created_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_terminology_links,id,1,nextval('attribute_terminology_links_id_seq'::regclass),NO,integer,
+public,attribute_terminology_links,attribute_id,2,,YES,integer,
+public,attribute_terminology_links,term_id,3,,YES,integer,
+public,attribute_terminology_links,relationship_type,4,'related'::character varying,YES,character varying,50
+public,attribute_terminology_links,importance_weight,5,1.0,YES,numeric,
+public,attribute_terminology_links,created_at,6,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_value_audit,id,1,nextval('attribute_value_audit_id_seq'::regclass),NO,integer,
+public,attribute_value_audit,attribute_id,2,,YES,integer,
+public,attribute_value_audit,entity_instance_id,3,,YES,character varying,255
+public,attribute_value_audit,old_value,4,,YES,jsonb,
+public,attribute_value_audit,new_value,5,,YES,jsonb,
+public,attribute_value_audit,change_type,6,,YES,character varying,50
+public,attribute_value_audit,changed_by,7,,YES,character varying,100
+public,attribute_value_audit,change_reason,8,,YES,text,
+public,attribute_value_audit,change_timestamp,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_value_audit,persistence_entity_id,10,,YES,integer,
+public,attribute_value_audit,transaction_id,11,,YES,character varying,100
+public,attribute_value_audit,metadata,12,'{}'::jsonb,YES,jsonb,
+public,attribute_value_resolution_view,attribute_id,1,,YES,integer,
+public,attribute_value_resolution_view,attribute_name,2,,YES,character varying,100
+public,attribute_value_resolution_view,data_type,3,,YES,character varying,30
+public,attribute_value_resolution_view,description,4,,YES,text,
+public,attribute_value_resolution_view,primary_system,5,,YES,character varying,100
+public,attribute_value_resolution_view,system_type,6,,YES,character varying,50
+public,attribute_value_resolution_view,primary_entity,7,,YES,character varying,100
+public,attribute_value_resolution_view,entity_config,8,,YES,jsonb,
+public,attribute_value_resolution_view,field_mapping,9,,YES,jsonb,
+public,attribute_value_resolution_view,transformation_rules,10,,YES,jsonb,
+public,attribute_value_resolution_view,sync_strategy,11,,YES,character varying,50
+public,attribute_value_resolution_view,domain_name,12,,YES,character varying,100
+public,attribute_value_resolution_view,regulatory_framework,13,,YES,character varying,100
+public,attribute_value_resolution_view,context_role,14,,YES,character varying,100
+public,attribute_value_resolution_view,compliance_criticality,15,,YES,character varying,20
+public,attribute_value_resolution_view,semantic_tags,16,,YES,jsonb,
+public,attribute_value_resolution_view,ai_context,17,,YES,jsonb,
+public,attribute_value_resolution_view,ui_component_type,18,,YES,character varying,50
+public,attribute_value_resolution_view,ui_layout_config,19,,YES,jsonb,
+public,attribute_value_resolution_view,full_metadata,20,,YES,jsonb,
+public,attribute_vector_clusters,id,1,nextval('attribute_vector_clusters_id_seq'::regclass),NO,integer,
+public,attribute_vector_clusters,cluster_name,2,,NO,character varying,100
+public,attribute_vector_clusters,cluster_description,3,,YES,text,
+public,attribute_vector_clusters,cluster_type,4,'semantic'::character varying,YES,character varying,50
+public,attribute_vector_clusters,cluster_algorithm,5,'kmeans'::character varying,YES,character varying,50
+public,attribute_vector_clusters,cluster_parameters,6,'{}'::jsonb,YES,jsonb,
+public,attribute_vector_clusters,centroid_vector,7,,YES,USER-DEFINED,
+public,attribute_vector_clusters,cluster_radius,8,,YES,numeric,
+public,attribute_vector_clusters,quality_score,9,,YES,numeric,
+public,attribute_vector_clusters,member_count,10,0,YES,integer,
+public,attribute_vector_clusters,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,attribute_vector_clusters,updated_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,business_attributes,id,1,nextval('business_attributes_id_seq'::regclass),NO,integer,
+public,business_attributes,entity_name,2,,NO,character varying,100
+public,business_attributes,attribute_name,3,,NO,character varying,100
+public,business_attributes,full_path,4,,YES,character varying,200
+public,business_attributes,data_type,5,,NO,character varying,50
+public,business_attributes,sql_type,6,,YES,character varying,100
+public,business_attributes,rust_type,7,,YES,character varying,100
+public,business_attributes,format_mask,8,,YES,character varying,100
+public,business_attributes,validation_pattern,9,,YES,text,
+public,business_attributes,domain_id,10,,YES,integer,
+public,business_attributes,source_id,11,,YES,integer,
+public,business_attributes,required,12,false,YES,boolean,
+public,business_attributes,editable,13,true,YES,boolean,
+public,business_attributes,min_value,14,,YES,numeric,
+public,business_attributes,max_value,15,,YES,numeric,
+public,business_attributes,min_length,16,,YES,integer,
+public,business_attributes,max_length,17,,YES,integer,
+public,business_attributes,description,18,,YES,text,
+public,business_attributes,metadata,19,,YES,jsonb,
+public,business_attributes,created_at,20,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,business_attributes,updated_at,21,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,business_attributes,is_active,22,true,YES,boolean,
+public,cbu_entity_associations,id,1,nextval('cbu_entity_associations_id_seq'::regclass),NO,integer,
+public,cbu_entity_associations,cbu_id,2,,YES,integer,
+public,cbu_entity_associations,entity_id,3,,YES,integer,
+public,cbu_entity_associations,association_type,4,,NO,character varying,50
+public,cbu_entity_associations,role_in_cbu,5,,YES,character varying,100
+public,cbu_entity_associations,ownership_stake,6,,YES,numeric,
+public,cbu_entity_associations,voting_rights,7,,YES,numeric,
+public,cbu_entity_associations,control_level,8,,YES,character varying,30
+public,cbu_entity_associations,active_in_cbu,9,true,YES,boolean,
+public,cbu_entity_associations,primary_contact,10,false,YES,boolean,
+public,cbu_entity_associations,service_types,11,,YES,ARRAY,
+public,cbu_entity_associations,risk_contribution_score,12,,YES,integer,
+public,cbu_entity_associations,compliance_responsibility,13,,YES,character varying,100
+public,cbu_entity_associations,reporting_entity,14,false,YES,boolean,
+public,cbu_entity_associations,association_date,15,CURRENT_DATE,YES,date,
+public,cbu_entity_associations,effective_from,16,,YES,date,
+public,cbu_entity_associations,effective_to,17,,YES,date,
+public,cbu_entity_associations,created_at,18,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,cbu_entity_associations,updated_at,19,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,cbu_entity_associations,created_by,20,,YES,character varying,100
+public,cbu_entity_associations,updated_by,21,,YES,character varying,100
+public,cbu_entity_structure_view,cbu_internal_id,1,,YES,integer,
+public,cbu_entity_structure_view,cbu_id,2,,YES,character varying,100
+public,cbu_entity_structure_view,cbu_name,3,,YES,character varying,255
+public,cbu_entity_structure_view,cbu_description,4,,YES,text,
+public,cbu_entity_structure_view,cbu_business_type,5,,YES,character varying,50
+public,cbu_entity_structure_view,cbu_status,6,,YES,character varying,20
+public,cbu_entity_structure_view,primary_entity_id,7,,YES,character varying,50
+public,cbu_entity_structure_view,primary_entity_name,8,,YES,character varying,500
+public,cbu_entity_structure_view,primary_entity_type,9,,YES,character varying,50
+public,cbu_entity_structure_view,primary_legal_form,10,,YES,character varying,100
+public,cbu_entity_structure_view,primary_country,11,,YES,character,2
+public,cbu_entity_structure_view,primary_lei,12,,YES,character varying,20
+public,cbu_entity_structure_view,associated_entities,13,,YES,jsonb,
+public,cbu_entity_structure_view,total_entities,14,,YES,bigint,
+public,cbu_entity_structure_view,active_entities,15,,YES,bigint,
+public,cbu_entity_structure_view,spv_count,16,,YES,bigint,
+public,cbu_entity_structure_view,corporation_count,17,,YES,bigint,
+public,cbu_entity_structure_view,partnership_count,18,,YES,bigint,
+public,cbu_entity_structure_view,regulated_entities,19,,YES,bigint,
+public,cbu_entity_structure_view,avg_entity_risk,20,,YES,numeric,
+public,cbu_entity_structure_view,jurisdictions,21,,YES,ARRAY,
+public,cbu_entity_structure_view,cbu_created_at,22,,YES,timestamp with time zone,
+public,cbu_entity_structure_view,cbu_updated_at,23,,YES,timestamp with time zone,
+public,cbu_investment_mandate_structure,cbu_id,1,,YES,character varying,100
+public,cbu_investment_mandate_structure,cbu_name,2,,YES,character varying,255
+public,cbu_investment_mandate_structure,business_type,3,,YES,character varying,50
+public,cbu_investment_mandate_structure,cbu_description,4,,YES,text,
+public,cbu_investment_mandate_structure,mandate_id,5,,YES,character varying,100
+public,cbu_investment_mandate_structure,asset_owner_name,6,,YES,character varying,255
+public,cbu_investment_mandate_structure,asset_owner_lei,7,,YES,character varying,20
+public,cbu_investment_mandate_structure,investment_manager_name,8,,YES,character varying,255
+public,cbu_investment_mandate_structure,investment_manager_lei,9,,YES,character varying,20
+public,cbu_investment_mandate_structure,base_currency,10,,YES,character,3
+public,cbu_investment_mandate_structure,effective_date,11,,YES,date,
+public,cbu_investment_mandate_structure,expiry_date,12,,YES,date,
+public,cbu_investment_mandate_structure,gross_exposure_pct,13,,YES,numeric,
+public,cbu_investment_mandate_structure,net_exposure_pct,14,,YES,numeric,
+public,cbu_investment_mandate_structure,leverage_max,15,,YES,numeric,
+public,cbu_investment_mandate_structure,issuer_concentration_pct,16,,YES,numeric,
+public,cbu_investment_mandate_structure,country_concentration_pct,17,,YES,numeric,
+public,cbu_investment_mandate_structure,sector_concentration_pct,18,,YES,numeric,
+public,cbu_investment_mandate_structure,total_instruments,19,,YES,bigint,
+public,cbu_investment_mandate_structure,instrument_families,20,,YES,bigint,
+public,cbu_investment_mandate_structure,total_exposure_pct,21,,YES,numeric,
+public,cbu_investment_mandate_structure,families,22,,YES,text,
+public,cbu_investment_mandate_structure,pre_trade_checks_required,23,,YES,boolean,
+public,cbu_investment_mandate_structure,maker_checker,24,,YES,boolean,
+public,cbu_investment_mandate_structure,stp_required,25,,YES,boolean,
+public,cbu_investment_mandate_structure,breach_handling,26,,YES,character varying,100
+public,cbu_investment_mandate_structure,intraday_status,27,,YES,character varying,20
+public,cbu_investment_mandate_structure,matching_model,28,,YES,character varying,30
+public,cbu_investment_mandate_structure,avg_rating_numeric,29,,YES,numeric,
+public,cbu_investment_mandate_structure,instruments_allow_short,30,,YES,bigint,
+public,cbu_investment_mandate_structure,mandate_created_at,31,,YES,timestamp with time zone,
+public,cbu_investment_mandate_structure,mandate_updated_at,32,,YES,timestamp with time zone,
+public,cbu_member_investment_roles,cbu_id,1,,YES,character varying,100
+public,cbu_member_investment_roles,cbu_name,2,,YES,character varying,255
+public,cbu_member_investment_roles,entity_name,3,,YES,character varying,255
+public,cbu_member_investment_roles,entity_lei,4,,YES,character varying,20
+public,cbu_member_investment_roles,role_name,5,,YES,character varying,100
+public,cbu_member_investment_roles,role_code,6,,YES,character varying,50
+public,cbu_member_investment_roles,has_trading_authority,7,,YES,boolean,
+public,cbu_member_investment_roles,has_settlement_authority,8,,YES,boolean,
+public,cbu_member_investment_roles,mandate_id,9,,YES,character varying,100
+public,cbu_member_investment_roles,investment_responsibility,10,,YES,text,
+public,cbu_member_investment_roles,mandate_currency,11,,YES,character,
+public,cbu_member_investment_roles,leverage_limit,12,,YES,numeric,
+public,cbu_member_investment_roles,exposure_limits,13,,YES,text,
+public,cbu_member_investment_roles,is_primary,14,,YES,boolean,
+public,cbu_member_investment_roles,member_effective_date,15,,YES,date,
+public,cbu_member_investment_roles,member_notes,16,,YES,text,
+public,cbu_members,id,1,nextval('cbu_members_id_seq'::regclass),NO,integer,
+public,cbu_members,cbu_id,2,,NO,integer,
+public,cbu_members,role_id,3,,NO,integer,
+public,cbu_members,entity_id,4,,NO,character varying,100
+public,cbu_members,entity_name,5,,NO,character varying,255
+public,cbu_members,entity_lei,6,,YES,character varying,20
+public,cbu_members,is_primary,7,false,YES,boolean,
+public,cbu_members,effective_date,8,CURRENT_DATE,YES,date,
+public,cbu_members,expiry_date,9,,YES,date,
+public,cbu_members,contact_email,10,,YES,character varying,255
+public,cbu_members,contact_phone,11,,YES,character varying,50
+public,cbu_members,authorized_persons,12,,YES,jsonb,
+public,cbu_members,is_active,13,true,YES,boolean,
+public,cbu_members,receives_notifications,14,true,YES,boolean,
+public,cbu_members,has_trading_authority,15,false,YES,boolean,
+public,cbu_members,has_settlement_authority,16,false,YES,boolean,
+public,cbu_members,created_by,17,,YES,character varying,100
+public,cbu_members,created_at,18,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_members,updated_by,19,,YES,character varying,100
+public,cbu_members,updated_at,20,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_members,notes,21,,YES,text,
+public,cbu_members,metadata,22,,YES,jsonb,
+public,cbu_product_subscriptions,id,1,nextval('cbu_product_subscriptions_id_seq'::regclass),NO,integer,
+public,cbu_product_subscriptions,cbu_id,2,,YES,integer,
+public,cbu_product_subscriptions,product_id,3,,YES,integer,
+public,cbu_product_subscriptions,subscription_status,4,'pending'::character varying,YES,character varying,20
+public,cbu_product_subscriptions,subscription_date,5,,YES,timestamp with time zone,
+public,cbu_product_subscriptions,activation_date,6,,YES,timestamp with time zone,
+public,cbu_product_subscriptions,termination_date,7,,YES,timestamp with time zone,
+public,cbu_product_subscriptions,billing_arrangement,8,,YES,jsonb,
+public,cbu_product_subscriptions,contract_reference,9,,YES,character varying,100
+public,cbu_product_subscriptions,primary_contact_role_id,10,,YES,integer,
+public,cbu_product_subscriptions,created_by,11,,YES,character varying,100
+public,cbu_product_subscriptions,created_at,12,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_product_subscriptions,updated_by,13,,YES,character varying,100
+public,cbu_product_subscriptions,updated_at,14,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_roles,id,1,nextval('cbu_roles_id_seq'::regclass),NO,integer,
+public,cbu_roles,role_code,2,,NO,character varying,50
+public,cbu_roles,role_name,3,,NO,character varying,100
+public,cbu_roles,description,4,,YES,text,
+public,cbu_roles,role_category,5,,YES,character varying,50
+public,cbu_roles,display_order,6,999,YES,integer,
+public,cbu_roles,is_active,7,true,YES,boolean,
+public,cbu_roles,created_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_roles,updated_at,9,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_service_resources,id,1,nextval('cbu_service_resources_id_seq'::regclass),NO,integer,
+public,cbu_service_resources,cbu_id,2,,YES,integer,
+public,cbu_service_resources,service_id,3,,YES,integer,
+public,cbu_service_resources,resource_id,4,,YES,integer,
+public,cbu_service_resources,configuration_status,5,'not_configured'::character varying,YES,character varying,20
+public,cbu_service_resources,configuration_details,6,,YES,jsonb,
+public,cbu_service_resources,go_live_date,7,,YES,date,
+public,cbu_service_resources,last_health_check,8,,YES,timestamp with time zone,
+public,cbu_service_resources,health_status,9,'unknown'::character varying,YES,character varying,20
+public,cbu_service_resources,responsible_team,10,,YES,character varying,100
+public,cbu_service_resources,onboarding_request_id,11,,YES,integer,
+public,cbu_service_resources,created_at,12,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,cbu_service_resources,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,client_business_units,id,1,nextval('client_business_units_id_seq'::regclass),NO,integer,
+public,client_business_units,cbu_id,2,,NO,character varying,100
+public,client_business_units,cbu_name,3,,NO,character varying,255
+public,client_business_units,description,4,,YES,text,
+public,client_business_units,primary_entity_id,5,,YES,character varying,100
+public,client_business_units,primary_lei,6,,YES,character varying,20
+public,client_business_units,domicile_country,7,,YES,character,2
+public,client_business_units,regulatory_jurisdiction,8,,YES,character varying,50
+public,client_business_units,business_type,9,,YES,character varying,50
+public,client_business_units,status,10,'active'::character varying,YES,character varying,20
+public,client_business_units,created_date,11,CURRENT_DATE,YES,date,
+public,client_business_units,last_review_date,12,,YES,date,
+public,client_business_units,next_review_date,13,,YES,date,
+public,client_business_units,created_by,14,,YES,character varying,100
+public,client_business_units,created_at,15,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,client_business_units,updated_by,16,,YES,character varying,100
+public,client_business_units,updated_at,17,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,client_business_units,metadata,18,,YES,jsonb,
+public,commercial_contracts,id,1,nextval('commercial_contracts_id_seq'::regclass),NO,integer,
+public,commercial_contracts,contract_id,2,,NO,character varying,100
+public,commercial_contracts,customer_entity_id,3,,YES,character varying,100
+public,commercial_contracts,product_id,4,,YES,integer,
+public,commercial_contracts,contract_type,5,,YES,character varying,50
+public,commercial_contracts,contract_status,6,'active'::character varying,YES,character varying,50
+public,commercial_contracts,contract_value,7,,YES,numeric,
+public,commercial_contracts,currency,8,,YES,character,3
+public,commercial_contracts,payment_terms,9,,YES,character varying,100
+public,commercial_contracts,billing_frequency,10,,YES,character varying,50
+public,commercial_contracts,contract_start_date,11,,YES,date,
+public,commercial_contracts,contract_end_date,12,,YES,date,
+public,commercial_contracts,renewal_date,13,,YES,date,
+public,commercial_contracts,termination_notice_period,14,,YES,integer,
+public,commercial_contracts,included_services,15,,YES,jsonb,
+public,commercial_contracts,service_configurations,16,,YES,jsonb,
+public,commercial_contracts,sla_commitments,17,,YES,jsonb,
+public,commercial_contracts,governing_law,18,,YES,character varying,100
+public,commercial_contracts,dispute_resolution,19,,YES,character varying,100
+public,commercial_contracts,liability_cap,20,,YES,numeric,
+public,commercial_contracts,created_at,21,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,commercial_contracts,updated_at,22,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,commercial_contracts,created_by,23,,YES,character varying,100
+public,commercial_contracts,updated_by,24,,YES,character varying,100
+public,commercial_taxonomy_view,product_id,1,,YES,integer,
+public,commercial_taxonomy_view,product_name,2,,YES,character varying,255
+public,commercial_taxonomy_view,product_description,3,,YES,text,
+public,commercial_taxonomy_view,contract_type,4,,YES,character varying,100
+public,commercial_taxonomy_view,commercial_status,5,,YES,character varying,50
+public,commercial_taxonomy_view,pricing_model,6,,YES,character varying,50
+public,commercial_taxonomy_view,target_market,7,,YES,character varying,100
+public,commercial_taxonomy_view,service_id,8,,YES,integer,
+public,commercial_taxonomy_view,service_name,9,,YES,character varying,255
+public,commercial_taxonomy_view,service_description,10,,YES,text,
+public,commercial_taxonomy_view,service_type,11,,YES,character varying,100
+public,commercial_taxonomy_view,delivery_model,12,,YES,character varying,50
+public,commercial_taxonomy_view,service_billable,13,,YES,boolean,
+public,commercial_taxonomy_view,resource_id,14,,YES,integer,
+public,commercial_taxonomy_view,resource_name,15,,YES,character varying,100
+public,commercial_taxonomy_view,resource_description,16,,YES,text,
+public,commercial_taxonomy_view,resource_type,17,,YES,character varying,100
+public,commercial_taxonomy_view,criticality_level,18,,YES,character varying,50
+public,commercial_taxonomy_view,operational_status,19,,YES,character varying,50
+public,commercial_taxonomy_view,attribute_count,20,,YES,bigint,
+public,commercial_taxonomy_view,attributes,21,,YES,ARRAY,
+public,commercial_taxonomy_view,service_inclusion_type,22,,YES,character varying,50
+public,commercial_taxonomy_view,service_mandatory,23,,YES,boolean,
+public,commercial_taxonomy_view,resource_usage_type,24,,YES,character varying,50
+public,commercial_taxonomy_view,resource_dependency,25,,YES,integer,
+public,commercial_taxonomy_view,active_contracts,26,,YES,bigint,
+public,commercial_taxonomy_view,avg_contract_value,27,,YES,numeric,
+public,commercial_taxonomy_view,compliance_requirements,28,,YES,ARRAY,
+public,commercial_taxonomy_view,compliance_classification,29,,YES,character varying,100
+public,commercial_taxonomy_view,audit_required,30,,YES,boolean,
+public,commercial_taxonomy_view,active_resources,31,,YES,bigint,
+public,commercial_taxonomy_view,core_services,32,,YES,bigint,
+public,commercial_taxonomy_view,product_created_at,33,,YES,timestamp with time zone,
+public,commercial_taxonomy_view,product_updated_at,34,,YES,timestamp with time zone,
+public,data_domains,id,1,nextval('data_domains_id_seq'::regclass),NO,integer,
+public,data_domains,domain_name,2,,NO,character varying,100
+public,data_domains,values,3,,NO,jsonb,
+public,data_domains,description,4,,YES,text,
+public,data_domains,created_at,5,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,derivation_execution_log,id,1,nextval('derivation_execution_log_id_seq'::regclass),NO,integer,
+public,derivation_execution_log,derived_attribute_id,2,,YES,integer,
+public,derivation_execution_log,execution_id,3,gen_random_uuid(),YES,uuid,
+public,derivation_execution_log,input_values,4,,NO,jsonb,
+public,derivation_execution_log,output_value,5,,YES,jsonb,
+public,derivation_execution_log,execution_time_ms,6,,YES,integer,
+public,derivation_execution_log,success,7,,NO,boolean,
+public,derivation_execution_log,error_message,8,,YES,text,
+public,derivation_execution_log,rule_version,9,,YES,character varying,20
+public,derivation_execution_log,executed_by,10,,YES,character varying,100
+public,derivation_execution_log,execution_context,11,'{}'::jsonb,YES,jsonb,
+public,derivation_execution_log,execution_timestamp,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,derived_attribute_quality_metrics,id,1,nextval('derived_attribute_quality_metrics_id_seq'::regclass),NO,integer,
+public,derived_attribute_quality_metrics,attribute_id,2,,YES,integer,
+public,derived_attribute_quality_metrics,metric_date,3,CURRENT_DATE,YES,date,
+public,derived_attribute_quality_metrics,execution_count,4,0,YES,integer,
+public,derived_attribute_quality_metrics,success_rate,5,,YES,numeric,
+public,derived_attribute_quality_metrics,avg_execution_time_ms,6,,YES,integer,
+public,derived_attribute_quality_metrics,error_count,7,0,YES,integer,
+public,derived_attribute_quality_metrics,data_quality_score,8,,YES,numeric,
+public,derived_attribute_quality_metrics,completeness_rate,9,,YES,numeric,
+public,derived_attribute_quality_metrics,accuracy_score,10,,YES,numeric,
+public,derived_attribute_quality_metrics,consistency_score,11,,YES,numeric,
+public,derived_attribute_quality_metrics,metadata,12,'{}'::jsonb,YES,jsonb,
+public,derived_attribute_rules,id,1,nextval('derived_attribute_rules_id_seq'::regclass),NO,integer,
+public,derived_attribute_rules,derived_attribute_id,2,,YES,integer,
+public,derived_attribute_rules,rule_name,3,,NO,character varying,100
+public,derived_attribute_rules,rule_description,4,,YES,text,
+public,derived_attribute_rules,ebnf_grammar,5,,NO,text,
+public,derived_attribute_rules,execution_order,6,1,YES,integer,
+public,derived_attribute_rules,rule_type,7,'transformation'::character varying,YES,character varying,50
+public,derived_attribute_rules,input_attributes,8,,NO,jsonb,
+public,derived_attribute_rules,output_format,9,'{}'::jsonb,YES,jsonb,
+public,derived_attribute_rules,error_handling,10,'{}'::jsonb,YES,jsonb,
+public,derived_attribute_rules,performance_hints,11,'{}'::jsonb,YES,jsonb,
+public,derived_attribute_rules,test_cases,12,'[]'::jsonb,YES,jsonb,
+public,derived_attribute_rules,version,13,'1.0'::character varying,YES,character varying,20
+public,derived_attribute_rules,is_active,14,true,YES,boolean,
+public,derived_attribute_rules,created_by,15,,YES,character varying,100
+public,derived_attribute_rules,created_at,16,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,derived_attribute_rules,updated_at,17,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,derived_attributes,id,1,nextval('derived_attributes_id_seq'::regclass),NO,integer,
+public,derived_attributes,entity_name,2,,NO,character varying,100
+public,derived_attributes,attribute_name,3,,NO,character varying,100
+public,derived_attributes,full_path,4,,YES,character varying,200
+public,derived_attributes,data_type,5,,NO,character varying,50
+public,derived_attributes,sql_type,6,,YES,character varying,100
+public,derived_attributes,rust_type,7,,YES,character varying,100
+public,derived_attributes,domain_id,8,,YES,integer,
+public,derived_attributes,description,9,,YES,text,
+public,derived_attributes,metadata,10,,YES,jsonb,
+public,derived_attributes,created_at,11,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,derived_attributes,updated_at,12,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,domain_terminology_glossary,id,1,nextval('domain_terminology_glossary_id_seq'::regclass),NO,integer,
+public,domain_terminology_glossary,term,2,,NO,character varying,200
+public,domain_terminology_glossary,definition,3,,NO,text,
+public,domain_terminology_glossary,domain_context,4,,YES,character varying,100
+public,domain_terminology_glossary,synonyms,5,,YES,ARRAY,
+public,domain_terminology_glossary,related_terms,6,,YES,ARRAY,
+public,domain_terminology_glossary,usage_examples,7,,YES,ARRAY,
+public,domain_terminology_glossary,regulatory_significance,8,,YES,text,
+public,domain_terminology_glossary,common_misconceptions,9,,YES,text,
+public,domain_terminology_glossary,ai_context_notes,10,,YES,text,
+public,domain_terminology_glossary,created_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,dsl_execution_logs,execution_id,1,(gen_random_uuid())::text,NO,text,
+public,dsl_execution_logs,instance_id,2,,NO,text,
+public,dsl_execution_logs,execution_status,3,,NO,text,
+public,dsl_execution_logs,input_data,4,'{}'::jsonb,YES,jsonb,
+public,dsl_execution_logs,output_data,5,'{}'::jsonb,YES,jsonb,
+public,dsl_execution_logs,log_messages,6,,YES,ARRAY,
+public,dsl_execution_logs,error_details,7,,YES,text,
+public,dsl_execution_logs,execution_time_ms,8,,YES,double precision,
+public,dsl_execution_logs,executed_at,9,now(),NO,timestamp with time zone,
+public,ebnf_grammar_templates,id,1,nextval('ebnf_grammar_templates_id_seq'::regclass),NO,integer,
+public,ebnf_grammar_templates,template_name,2,,NO,character varying,100
+public,ebnf_grammar_templates,template_description,3,,YES,text,
+public,ebnf_grammar_templates,ebnf_pattern,4,,NO,text,
+public,ebnf_grammar_templates,parameter_placeholders,5,'{}'::jsonb,YES,jsonb,
+public,ebnf_grammar_templates,use_cases,6,,YES,ARRAY,
+public,ebnf_grammar_templates,complexity_level,7,'simple'::character varying,YES,character varying,20
+public,ebnf_grammar_templates,example_usage,8,,YES,text,
+public,ebnf_grammar_templates,documentation_url,9,,YES,text,
+public,ebnf_grammar_templates,created_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,enhanced_attributes_view,id,1,,YES,integer,
+public,enhanced_attributes_view,resource_id,2,,YES,integer,
+public,enhanced_attributes_view,attribute_name,3,,YES,character varying,100
+public,enhanced_attributes_view,data_type,4,,YES,character varying,30
+public,enhanced_attributes_view,description,5,,YES,text,
+public,enhanced_attributes_view,is_required,6,,YES,boolean,
+public,enhanced_attributes_view,min_length,7,,YES,integer,
+public,enhanced_attributes_view,max_length,8,,YES,integer,
+public,enhanced_attributes_view,min_value,9,,YES,numeric,
+public,enhanced_attributes_view,max_value,10,,YES,numeric,
+public,enhanced_attributes_view,allowed_values,11,,YES,jsonb,
+public,enhanced_attributes_view,validation_pattern,12,,YES,text,
+public,enhanced_attributes_view,persistence_system,13,,YES,character varying,100
+public,enhanced_attributes_view,persistence_entity,14,,YES,character varying,100
+public,enhanced_attributes_view,persistence_identifier,15,,YES,character varying,100
+public,enhanced_attributes_view,ui_group,16,,YES,character varying,100
+public,enhanced_attributes_view,ui_display_order,17,,YES,integer,
+public,enhanced_attributes_view,ui_render_hint,18,,YES,character varying,30
+public,enhanced_attributes_view,ui_label,19,,YES,character varying,200
+public,enhanced_attributes_view,ui_help_text,20,,YES,text,
+public,enhanced_attributes_view,wizard_step,21,,YES,integer,
+public,enhanced_attributes_view,wizard_step_title,22,,YES,character varying,200
+public,enhanced_attributes_view,wizard_next_button,23,,YES,text,
+public,enhanced_attributes_view,wizard_previous_button,24,,YES,text,
+public,enhanced_attributes_view,wizard_description,25,,YES,text,
+public,enhanced_attributes_view,generation_examples,26,,YES,jsonb,
+public,enhanced_attributes_view,rules_dsl,27,,YES,text,
+public,enhanced_attributes_view,created_at,28,,YES,timestamp without time zone,
+public,enhanced_attributes_view,updated_at,29,,YES,timestamp without time zone,
+public,enhanced_attributes_view,semantic_tags,30,,YES,jsonb,
+public,enhanced_attributes_view,ai_context,31,,YES,jsonb,
+public,enhanced_attributes_view,embedding_vector,32,,YES,USER-DEFINED,
+public,enhanced_attributes_view,search_keywords,33,,YES,ARRAY,
+public,enhanced_attributes_view,ui_component_type,34,,YES,character varying,50
+public,enhanced_attributes_view,ui_layout_config,35,,YES,jsonb,
+public,enhanced_attributes_view,ui_styling,36,,YES,jsonb,
+public,enhanced_attributes_view,ui_behavior,37,,YES,jsonb,
+public,enhanced_attributes_view,conditional_logic,38,,YES,jsonb,
+public,enhanced_attributes_view,relationship_metadata,39,,YES,jsonb,
+public,enhanced_attributes_view,ai_prompt_templates,40,,YES,jsonb,
+public,enhanced_attributes_view,form_generation_rules,41,,YES,jsonb,
+public,enhanced_attributes_view,accessibility_config,42,,YES,jsonb,
+public,enhanced_attributes_view,responsive_config,43,,YES,jsonb,
+public,enhanced_attributes_view,data_flow_config,44,,YES,jsonb,
+public,enhanced_attributes_view,context_name,45,,YES,character varying,100
+public,enhanced_attributes_view,prompt_template,46,,YES,text,
+public,enhanced_attributes_view,ui_template_config,47,,YES,jsonb,
+public,enhanced_attributes_view,styling_defaults,48,,YES,jsonb,
+public,enhanced_attributes_view,behavior_defaults,49,,YES,jsonb,
+public,enhanced_attributes_view,outgoing_relationships,50,,YES,ARRAY,
+public,enhanced_attributes_view,incoming_relationships,51,,YES,ARRAY,
+public,enhanced_attributes_view,perspective_count,52,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,product_id,1,,YES,integer,
+public,enhanced_commercial_taxonomy_view,product_code,2,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,product_name,3,,YES,character varying,255
+public,enhanced_commercial_taxonomy_view,line_of_business,4,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,product_description,5,,YES,text,
+public,enhanced_commercial_taxonomy_view,contract_type,6,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,commercial_status,7,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,product_pricing_model,8,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,target_market,9,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,option_id,10,,YES,integer,
+public,enhanced_commercial_taxonomy_view,option_code,11,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,option_name,12,,YES,character varying,255
+public,enhanced_commercial_taxonomy_view,option_category,13,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,option_type,14,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,option_value,15,,YES,jsonb,
+public,enhanced_commercial_taxonomy_view,option_pricing_impact,16,,YES,numeric,
+public,enhanced_commercial_taxonomy_view,service_id,17,,YES,integer,
+public,enhanced_commercial_taxonomy_view,service_code,18,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,service_name,19,,YES,character varying,255
+public,enhanced_commercial_taxonomy_view,service_category,20,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,service_description,21,,YES,text,
+public,enhanced_commercial_taxonomy_view,service_type,22,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,delivery_model,23,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,service_billable,24,,YES,boolean,
+public,enhanced_commercial_taxonomy_view,resource_id,25,,YES,integer,
+public,enhanced_commercial_taxonomy_view,resource_name,26,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,resource_description,27,,YES,text,
+public,enhanced_commercial_taxonomy_view,resource_type,28,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,criticality_level,29,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,operational_status,30,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,attribute_count,31,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,attributes,32,,YES,ARRAY,
+public,enhanced_commercial_taxonomy_view,service_inclusion_type,33,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,service_mandatory,34,,YES,boolean,
+public,enhanced_commercial_taxonomy_view,option_service_relationship,35,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,resource_usage_type,36,,YES,character varying,50
+public,enhanced_commercial_taxonomy_view,resource_dependency,37,,YES,integer,
+public,enhanced_commercial_taxonomy_view,active_contracts,38,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,avg_contract_value,39,,YES,numeric,
+public,enhanced_commercial_taxonomy_view,total_options,40,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,required_options,41,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,premium_options,42,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,compliance_requirements,43,,YES,ARRAY,
+public,enhanced_commercial_taxonomy_view,regulatory_approval_required,44,,YES,boolean,
+public,enhanced_commercial_taxonomy_view,compliance_classification,45,,YES,character varying,100
+public,enhanced_commercial_taxonomy_view,audit_required,46,,YES,boolean,
+public,enhanced_commercial_taxonomy_view,active_resources,47,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,custody_services,48,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,reconciliation_services,49,,YES,bigint,
+public,enhanced_commercial_taxonomy_view,product_created_at,50,,YES,timestamp with time zone,
+public,enhanced_commercial_taxonomy_view,product_updated_at,51,,YES,timestamp with time zone,
+public,entity_attribute_values,id,1,nextval('entity_attribute_values_id_seq'::regclass),NO,integer,
+public,entity_attribute_values,entity_id,2,,YES,integer,
+public,entity_attribute_values,attribute_id,3,,YES,integer,
+public,entity_attribute_values,attribute_value,4,,NO,jsonb,
+public,entity_attribute_values,value_source,5,,YES,character varying,100
+public,entity_attribute_values,confidence_score,6,,YES,numeric,
+public,entity_attribute_values,verification_status,7,'unverified'::character varying,YES,character varying,30
+public,entity_attribute_values,verification_method,8,,YES,character varying,100
+public,entity_attribute_values,verified_by,9,,YES,character varying,100
+public,entity_attribute_values,verified_at,10,,YES,timestamp without time zone,
+public,entity_attribute_values,effective_from,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,entity_attribute_values,effective_to,12,,YES,timestamp without time zone,
+public,entity_attribute_values,is_current,13,true,YES,boolean,
+public,entity_attribute_values,created_at,14,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,entity_attribute_values,updated_at,15,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,entity_attribute_values,created_by,16,,YES,character varying,100
+public,entity_attribute_values,updated_by,17,,YES,character varying,100
+public,entity_relationships,id,1,nextval('entity_relationships_id_seq'::regclass),NO,integer,
+public,entity_relationships,parent_entity_id,2,,YES,integer,
+public,entity_relationships,child_entity_id,3,,YES,integer,
+public,entity_relationships,relationship_type,4,,NO,character varying,50
+public,entity_relationships,ownership_percentage,5,,YES,numeric,
+public,entity_relationships,control_type,6,,YES,character varying,50
+public,entity_relationships,effective_date,7,,YES,date,
+public,entity_relationships,end_date,8,,YES,date,
+public,entity_relationships,relationship_strength,9,'medium'::character varying,YES,character varying,20
+public,entity_relationships,created_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,entity_relationships,updated_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,form_layout_templates,id,1,nextval('form_layout_templates_id_seq'::regclass),NO,integer,
+public,form_layout_templates,template_name,2,,NO,character varying,100
+public,form_layout_templates,layout_type,3,,NO,character varying,50
+public,form_layout_templates,layout_config,4,,NO,jsonb,
+public,form_layout_templates,responsive_breakpoints,5,'{}'::jsonb,YES,jsonb,
+public,form_layout_templates,css_framework,6,'custom'::character varying,YES,character varying,50
+public,form_layout_templates,created_at,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,form_layout_templates,updated_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,grammar_extensions,id,1,nextval('grammar_extensions_id_seq'::regclass),NO,integer,
+public,grammar_extensions,name,2,,NO,character varying,100
+public,grammar_extensions,type,3,,NO,character varying,20
+public,grammar_extensions,signature,4,,YES,character varying,200
+public,grammar_extensions,description,5,,YES,text,
+public,grammar_extensions,category,6,,YES,character varying,50
+public,grammar_extensions,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,grammar_extensions,updated_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,grammar_metadata,id,1,nextval('grammar_metadata_id_seq'::regclass),NO,integer,
+public,grammar_metadata,version,2,'1.0'::character varying,NO,character varying,20
+public,grammar_metadata,description,3,,YES,text,
+public,grammar_metadata,author,4,,YES,character varying,100
+public,grammar_metadata,created_at,5,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,grammar_metadata,updated_at,6,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,grammar_metadata,is_active,7,true,YES,boolean,
+public,grammar_rules,id,1,nextval('grammar_rules_id_seq'::regclass),NO,integer,
+public,grammar_rules,name,2,,NO,character varying,100
+public,grammar_rules,definition,3,,NO,text,
+public,grammar_rules,rule_type,4,'normal'::character varying,NO,character varying,20
+public,grammar_rules,description,5,,YES,text,
+public,grammar_rules,category,6,,YES,character varying,50
+public,grammar_rules,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,grammar_rules,updated_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,instruction_formats,id,1,nextval('instruction_formats_id_seq'::regclass),NO,integer,
+public,instruction_formats,format_id,2,,NO,character varying,100
+public,instruction_formats,format_name,3,,NO,character varying,255
+public,instruction_formats,format_category,4,,YES,character varying,100
+public,instruction_formats,message_standard,5,,YES,character varying,100
+public,instruction_formats,message_type,6,,YES,character varying,100
+public,instruction_formats,format_version,7,,YES,character varying,50
+public,instruction_formats,schema_definition,8,,YES,jsonb,
+public,instruction_formats,required_fields,9,,NO,ARRAY,
+public,instruction_formats,optional_fields,10,,YES,ARRAY,
+public,instruction_formats,validation_rules,11,,YES,jsonb,
+public,instruction_formats,field_formats,12,,YES,jsonb,
+public,instruction_formats,processing_priority,13,'normal'::character varying,YES,character varying,50
+public,instruction_formats,expected_processing_time_minutes,14,,YES,integer,
+public,instruction_formats,retry_policy,15,,YES,jsonb,
+public,instruction_formats,error_handling_procedure,16,,YES,text,
+public,instruction_formats,encryption_required,17,false,YES,boolean,
+public,instruction_formats,digital_signature_required,18,false,YES,boolean,
+public,instruction_formats,authorization_level_required,19,,YES,character varying,50
+public,instruction_formats,audit_trail_required,20,true,YES,boolean,
+public,instruction_formats,max_message_size_kb,21,,YES,integer,
+public,instruction_formats,character_encoding,22,'UTF-8'::character varying,YES,character varying,50
+public,instruction_formats,timestamp_format,23,,YES,character varying,100
+public,instruction_formats,decimal_precision,24,2,YES,integer,
+public,instruction_formats,supported_delivery_methods,25,,YES,ARRAY,
+public,instruction_formats,acknowledgment_required,26,true,YES,boolean,
+public,instruction_formats,applicable_markets,27,,YES,ARRAY,
+public,instruction_formats,applicable_asset_classes,28,,YES,ARRAY,
+public,instruction_formats,regulatory_compliance,29,,YES,ARRAY,
+public,instruction_formats,status,30,'active'::character varying,YES,character varying,50
+public,instruction_formats,effective_date,31,CURRENT_DATE,YES,date,
+public,instruction_formats,retirement_date,32,,YES,date,
+public,instruction_formats,created_at,33,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,instruction_formats,updated_at,34,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,instruction_formats,created_by,35,,YES,character varying,100
+public,instruction_formats,updated_by,36,,YES,character varying,100
+public,instrument_taxonomy,id,1,nextval('instrument_taxonomy_id_seq'::regclass),NO,integer,
+public,instrument_taxonomy,instrument_code,2,,NO,character varying,50
+public,instrument_taxonomy,instrument_name,3,,NO,character varying,255
+public,instrument_taxonomy,instrument_class,4,,NO,character varying,100
+public,instrument_taxonomy,instrument_subclass,5,,YES,character varying,100
+public,instrument_taxonomy,asset_class,6,,YES,character varying,100
+public,instrument_taxonomy,cfi_code,7,,YES,character varying,6
+public,instrument_taxonomy,isin_pattern,8,,YES,character varying,50
+public,instrument_taxonomy,fisn_code,9,,YES,character varying,50
+public,instrument_taxonomy,market_sector,10,,YES,character varying,100
+public,instrument_taxonomy,geography,11,,YES,character varying,100
+public,instrument_taxonomy,currency_denomination,12,,YES,character varying,10
+public,instrument_taxonomy,risk_category,13,'medium'::character varying,YES,character varying,50
+public,instrument_taxonomy,liquidity_classification,14,,YES,character varying,50
+public,instrument_taxonomy,credit_rating_required,15,false,YES,boolean,
+public,instrument_taxonomy,regulatory_category,16,,YES,character varying,100
+public,instrument_taxonomy,professional_investor_only,17,false,YES,boolean,
+public,instrument_taxonomy,regulatory_capital_treatment,18,,YES,character varying,100
+public,instrument_taxonomy,typical_lot_size,19,,YES,numeric,
+public,instrument_taxonomy,minimum_denomination,20,,YES,numeric,
+public,instrument_taxonomy,settlement_cycle,21,,YES,character varying,10
+public,instrument_taxonomy,active,22,true,YES,boolean,
+public,instrument_taxonomy,effective_date,23,CURRENT_DATE,YES,date,
+public,instrument_taxonomy,created_at,24,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,instrument_taxonomy,updated_at,25,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,investment_mandates,mandate_id,1,,NO,character varying,100
+public,investment_mandates,cbu_id,2,,YES,character varying,100
+public,investment_mandates,asset_owner_name,3,,NO,character varying,255
+public,investment_mandates,asset_owner_lei,4,,NO,character varying,20
+public,investment_mandates,investment_manager_name,5,,NO,character varying,255
+public,investment_mandates,investment_manager_lei,6,,NO,character varying,20
+public,investment_mandates,base_currency,7,,NO,character,3
+public,investment_mandates,effective_date,8,,NO,date,
+public,investment_mandates,expiry_date,9,,YES,date,
+public,investment_mandates,gross_exposure_pct,10,,YES,numeric,
+public,investment_mandates,net_exposure_pct,11,,YES,numeric,
+public,investment_mandates,leverage_max,12,,YES,numeric,
+public,investment_mandates,issuer_concentration_pct,13,,YES,numeric,
+public,investment_mandates,country_concentration_pct,14,,YES,numeric,
+public,investment_mandates,sector_concentration_pct,15,,YES,numeric,
+public,investment_mandates,duration_min,16,,YES,numeric,
+public,investment_mandates,duration_max,17,,YES,numeric,
+public,investment_mandates,var_limit,18,,YES,numeric,
+public,investment_mandates,dv01_limit,19,,YES,numeric,
+public,investment_mandates,pre_trade_checks_required,20,false,YES,boolean,
+public,investment_mandates,maker_checker,21,false,YES,boolean,
+public,investment_mandates,stp_required,22,false,YES,boolean,
+public,investment_mandates,breach_handling,23,,YES,character varying,100
+public,investment_mandates,intraday_status,24,,YES,character varying,20
+public,investment_mandates,end_of_day_blotter,25,false,YES,boolean,
+public,investment_mandates,confirmations_required,26,false,YES,boolean,
+public,investment_mandates,matching_model,27,,YES,character varying,30
+public,investment_mandates,created_at,28,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,investment_mandates,updated_at,29,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,kyc_onboarding_domains,id,1,nextval('kyc_onboarding_domains_id_seq'::regclass),NO,integer,
+public,kyc_onboarding_domains,domain_name,2,,NO,character varying,100
+public,kyc_onboarding_domains,description,3,,YES,text,
+public,kyc_onboarding_domains,regulatory_framework,4,,YES,character varying,100
+public,kyc_onboarding_domains,compliance_requirements,5,'{}'::jsonb,YES,jsonb,
+public,kyc_onboarding_domains,data_classification,6,,YES,character varying,50
+public,kyc_onboarding_domains,retention_policy,7,'{}'::jsonb,YES,jsonb,
+public,kyc_onboarding_domains,audit_requirements,8,'{}'::jsonb,YES,jsonb,
+public,kyc_onboarding_domains,created_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,legal_entities,id,1,nextval('legal_entities_id_seq'::regclass),NO,integer,
+public,legal_entities,entity_id,2,,NO,character varying,50
+public,legal_entities,lei_code,3,,YES,character varying,20
+public,legal_entities,entity_name,4,,NO,character varying,500
+public,legal_entities,entity_type,5,,NO,character varying,50
+public,legal_entities,entity_subtype,6,,YES,character varying,100
+public,legal_entities,legal_form,7,,YES,character varying,100
+public,legal_entities,incorporation_country,8,,NO,character,2
+public,legal_entities,incorporation_jurisdiction,9,,YES,character varying,100
+public,legal_entities,registration_number,10,,YES,character varying,100
+public,legal_entities,registration_authority,11,,YES,character varying,200
+public,legal_entities,incorporation_date,12,,YES,date,
+public,legal_entities,regulatory_structure,13,,YES,character varying,100
+public,legal_entities,regulatory_status,14,'active'::character varying,YES,character varying,50
+public,legal_entities,regulated_entity,15,false,YES,boolean,
+public,legal_entities,regulatory_authorities,16,,YES,ARRAY,
+public,legal_entities,business_purpose,17,,YES,text,
+public,legal_entities,primary_business_activity,18,,YES,character varying,200
+public,legal_entities,sic_codes,19,,YES,ARRAY,
+public,legal_entities,nace_codes,20,,YES,ARRAY,
+public,legal_entities,tax_residence_country,21,,YES,character,2
+public,legal_entities,tax_identification_number,22,,YES,character varying,100
+public,legal_entities,vat_number,23,,YES,character varying,50
+public,legal_entities,operational_currency,24,,YES,character,3
+public,legal_entities,fiscal_year_end,25,,YES,date,
+public,legal_entities,registered_address,26,,YES,jsonb,
+public,legal_entities,operational_address,27,,YES,jsonb,
+public,legal_entities,mailing_address,28,,YES,jsonb,
+public,legal_entities,authorized_signatories,29,,YES,ARRAY,
+public,legal_entities,board_members,30,,YES,ARRAY,
+public,legal_entities,risk_rating,31,'medium'::character varying,YES,character varying,20
+public,legal_entities,kyc_status,32,'pending'::character varying,YES,character varying,30
+public,legal_entities,sanctions_screening_status,33,'pending'::character varying,YES,character varying,30
+public,legal_entities,sanctions_screening_date,34,,YES,timestamp without time zone,
+public,legal_entities,sanctions_screening_result,35,,YES,character varying,20
+public,legal_entities,has_complex_ownership,36,false,YES,boolean,
+public,legal_entities,ownership_transparency_score,37,,YES,integer,
+public,legal_entities,share_capital,38,,YES,numeric,
+public,legal_entities,share_capital_currency,39,,YES,character,3
+public,legal_entities,public_company,40,false,YES,boolean,
+public,legal_entities,listed_exchange,41,,YES,character varying,100
+public,legal_entities,status,42,'active'::character varying,YES,character varying,30
+public,legal_entities,dissolution_date,43,,YES,date,
+public,legal_entities,data_sources,44,,YES,ARRAY,
+public,legal_entities,last_verified_date,45,,YES,timestamp without time zone,
+public,legal_entities,verification_method,46,,YES,character varying,100
+public,legal_entities,data_quality_score,47,,YES,integer,
+public,legal_entities,created_at,48,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,legal_entities,updated_at,49,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,legal_entities,created_by,50,,YES,character varying,100
+public,legal_entities,updated_by,51,,YES,character varying,100
+public,mandate_benchmarks,id,1,nextval('mandate_benchmarks_id_seq'::regclass),NO,integer,
+public,mandate_benchmarks,mandate_id,2,,NO,character varying,100
+public,mandate_benchmarks,benchmark_name,3,,NO,character varying,255
+public,mandate_instruction_channels,id,1,nextval('mandate_instruction_channels_id_seq'::regclass),NO,integer,
+public,mandate_instruction_channels,instrument_id,2,,NO,integer,
+public,mandate_instruction_channels,channel,3,,NO,character varying,30
+public,mandate_instruction_channels,formats,4,,YES,ARRAY,
+public,mandate_instruction_channels,allowed_flows,5,,YES,ARRAY,
+public,mandate_instruction_channels,stp_required,6,false,YES,boolean,
+public,mandate_instrument_identifiers,id,1,nextval('mandate_instrument_identifiers_id_seq'::regclass),NO,integer,
+public,mandate_instrument_identifiers,instrument_id,2,,NO,integer,
+public,mandate_instrument_identifiers,identifier_type,3,,NO,character varying,20
+public,mandate_instrument_venues,id,1,nextval('mandate_instrument_venues_id_seq'::regclass),NO,integer,
+public,mandate_instrument_venues,instrument_id,2,,NO,integer,
+public,mandate_instrument_venues,mic,3,,NO,character varying,10
+public,mandate_instrument_venues,preferred,4,false,YES,boolean,
+public,mandate_instruments,id,1,nextval('mandate_instruments_id_seq'::regclass),NO,integer,
+public,mandate_instruments,mandate_id,2,,NO,character varying,100
+public,mandate_instruments,instrument_family,3,,NO,character varying,30
+public,mandate_instruments,subtype,4,,YES,character varying,100
+public,mandate_instruments,cfi_code,5,,YES,character varying,10
+public,mandate_instruments,isda_taxonomy,6,,YES,character varying,100
+public,mandate_instruments,order_types,7,,YES,ARRAY,
+public,mandate_instruments,time_in_force,8,,YES,ARRAY,
+public,mandate_instruments,min_clip,9,,YES,numeric,
+public,mandate_instruments,algo_flags_allowed,10,false,YES,boolean,
+public,mandate_instruments,settlement_type,11,,YES,character varying,10
+public,mandate_instruments,settlement_cycle,12,,YES,character varying,20
+public,mandate_instruments,place_of_settlement,13,,YES,character varying,100
+public,mandate_instruments,allow_partials,14,false,YES,boolean,
+public,mandate_instruments,ssi_reference,15,,YES,character varying,100
+public,mandate_instruments,clearing_required,16,false,YES,boolean,
+public,mandate_instruments,clearing_house,17,,YES,character varying,100
+public,mandate_instruments,margin_model,18,,YES,character varying,20
+public,mandate_instruments,eligible_collateral_schedule,19,,YES,character varying,100
+public,mandate_instruments,min_tenor,20,,YES,character varying,20
+public,mandate_instruments,max_tenor,21,,YES,character varying,20
+public,mandate_instruments,exposure_pct,22,,YES,numeric,
+public,mandate_instruments,short_allowed,23,false,YES,boolean,
+public,mandate_instruments,issuer_max_pct,24,,YES,numeric,
+public,mandate_instruments,rating_floor,25,,YES,character varying,10
+public,mandate_instruments,limit_duration_min,26,,YES,numeric,
+public,mandate_instruments,limit_duration_max,27,,YES,numeric,
+public,mandate_instruments,dv01_cap,28,,YES,numeric,
+public,mandate_instruments,counterparties_whitelist,29,,YES,ARRAY,
+public,mandate_instruments,allocation_model,30,,YES,character varying,20
+public,mandate_instruments,notes,31,,YES,text,
+public,mandate_lifecycle_events,id,1,nextval('mandate_lifecycle_events_id_seq'::regclass),NO,integer,
+public,mandate_lifecycle_events,instrument_id,2,,NO,integer,
+public,mandate_lifecycle_events,event_type,3,,NO,character varying,30
+public,onboarding_approvals,id,1,nextval('onboarding_approvals_id_seq'::regclass),NO,integer,
+public,onboarding_approvals,workflow_id,2,,YES,integer,
+public,onboarding_approvals,approval_stage,3,,NO,character varying,50
+public,onboarding_approvals,approver_role,4,,NO,character varying,100
+public,onboarding_approvals,approver_user,5,,YES,character varying,100
+public,onboarding_approvals,approval_status,6,'pending'::character varying,YES,character varying,20
+public,onboarding_approvals,approval_notes,7,,YES,text,
+public,onboarding_approvals,approved_at,8,,YES,timestamp with time zone,
+public,onboarding_approvals,created_at,9,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_dependencies,id,1,nextval('onboarding_dependencies_id_seq'::regclass),NO,integer,
+public,onboarding_dependencies,workflow_id,2,,YES,integer,
+public,onboarding_dependencies,source_task_id,3,,YES,integer,
+public,onboarding_dependencies,target_task_id,4,,YES,integer,
+public,onboarding_dependencies,dependency_type,5,'blocking'::character varying,YES,character varying,20
+public,onboarding_dependencies,dependency_condition,6,,YES,text,
+public,onboarding_dependencies,is_satisfied,7,false,YES,boolean,
+public,onboarding_dependencies,created_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_requests,id,1,nextval('onboarding_requests_id_seq'::regclass),NO,integer,
+public,onboarding_requests,request_id,2,,NO,character varying,100
+public,onboarding_requests,cbu_id,3,,YES,integer,
+public,onboarding_requests,product_id,4,,YES,integer,
+public,onboarding_requests,request_status,5,'draft'::character varying,YES,character varying,20
+public,onboarding_requests,priority,6,'medium'::character varying,YES,character varying,20
+public,onboarding_requests,target_go_live_date,7,,YES,date,
+public,onboarding_requests,business_requirements,8,,YES,jsonb,
+public,onboarding_requests,compliance_requirements,9,,YES,jsonb,
+public,onboarding_requests,requested_by,10,,YES,character varying,100
+public,onboarding_requests,assigned_to,11,,YES,character varying,100
+public,onboarding_requests,approval_chain,12,,YES,jsonb,
+public,onboarding_requests,estimated_duration_days,13,,YES,integer,
+public,onboarding_requests,actual_duration_days,14,,YES,integer,
+public,onboarding_requests,created_by,15,,YES,character varying,100
+public,onboarding_requests,created_at,16,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_requests,updated_by,17,,YES,character varying,100
+public,onboarding_requests,updated_at,18,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_resource_tasks,id,1,nextval('onboarding_resource_tasks_id_seq'::regclass),NO,integer,
+public,onboarding_resource_tasks,workflow_id,2,,YES,integer,
+public,onboarding_resource_tasks,resource_template_id,3,,YES,integer,
+public,onboarding_resource_tasks,capability_id,4,,YES,integer,
+public,onboarding_resource_tasks,task_order,5,,NO,integer,
+public,onboarding_resource_tasks,task_status,6,'pending'::character varying,YES,character varying,20
+public,onboarding_resource_tasks,input_attributes,7,'{}'::jsonb,YES,jsonb,
+public,onboarding_resource_tasks,output_attributes,8,,YES,jsonb,
+public,onboarding_resource_tasks,validation_results,9,,YES,jsonb,
+public,onboarding_resource_tasks,execution_log,10,'[]'::jsonb,YES,jsonb,
+public,onboarding_resource_tasks,assigned_to,11,,YES,character varying,100
+public,onboarding_resource_tasks,started_at,12,,YES,timestamp with time zone,
+public,onboarding_resource_tasks,completed_at,13,,YES,timestamp with time zone,
+public,onboarding_resource_tasks,estimated_hours,14,,YES,real,
+public,onboarding_resource_tasks,actual_hours,15,,YES,real,
+public,onboarding_resource_tasks,blocking_issues,16,,YES,text,
+public,onboarding_resource_tasks,retry_count,17,0,YES,integer,
+public,onboarding_resource_tasks,created_at,18,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_resource_tasks,updated_at,19,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_tasks,id,1,nextval('onboarding_tasks_id_seq'::regclass),NO,integer,
+public,onboarding_tasks,onboarding_request_id,2,,YES,integer,
+public,onboarding_tasks,task_id,3,,NO,character varying,100
+public,onboarding_tasks,resource_id,4,,YES,integer,
+public,onboarding_tasks,task_type,5,,YES,character varying,50
+public,onboarding_tasks,task_name,6,,NO,character varying,255
+public,onboarding_tasks,description,7,,YES,text,
+public,onboarding_tasks,task_status,8,'pending'::character varying,YES,character varying,20
+public,onboarding_tasks,assigned_to,9,,YES,character varying,100
+public,onboarding_tasks,dependencies,10,,YES,ARRAY,
+public,onboarding_tasks,estimated_hours,11,,YES,numeric,
+public,onboarding_tasks,actual_hours,12,,YES,numeric,
+public,onboarding_tasks,due_date,13,,YES,date,
+public,onboarding_tasks,completion_date,14,,YES,date,
+public,onboarding_tasks,blocking_issues,15,,YES,text,
+public,onboarding_tasks,completion_notes,16,,YES,text,
+public,onboarding_tasks,created_at,17,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_tasks,updated_at,18,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_workflows,id,1,nextval('onboarding_workflows_id_seq'::regclass),NO,integer,
+public,onboarding_workflows,workflow_id,2,,NO,character varying,50
+public,onboarding_workflows,cbu_id,3,,YES,integer,
+public,onboarding_workflows,product_ids,4,,NO,ARRAY,
+public,onboarding_workflows,workflow_status,5,'initiated'::character varying,YES,character varying,20
+public,onboarding_workflows,priority,6,'medium'::character varying,YES,character varying,20
+public,onboarding_workflows,target_go_live_date,7,,YES,date,
+public,onboarding_workflows,business_requirements,8,'{}'::jsonb,YES,jsonb,
+public,onboarding_workflows,compliance_requirements,9,'{}'::jsonb,YES,jsonb,
+public,onboarding_workflows,resource_requirements,10,'{}'::jsonb,YES,jsonb,
+public,onboarding_workflows,execution_plan,11,'[]'::jsonb,YES,jsonb,
+public,onboarding_workflows,current_stage,12,,YES,character varying,100
+public,onboarding_workflows,completion_percentage,13,0,YES,integer,
+public,onboarding_workflows,requested_by,14,,YES,character varying,100
+public,onboarding_workflows,assigned_to,15,,YES,character varying,100
+public,onboarding_workflows,approval_chain,16,'[]'::jsonb,YES,jsonb,
+public,onboarding_workflows,estimated_duration_days,17,,YES,integer,
+public,onboarding_workflows,actual_duration_days,18,,YES,integer,
+public,onboarding_workflows,created_by,19,,YES,character varying,100
+public,onboarding_workflows,created_at,20,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,onboarding_workflows,updated_by,21,,YES,character varying,100
+public,onboarding_workflows,updated_at,22,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,persistence_entities,id,1,nextval('persistence_entities_id_seq'::regclass),NO,integer,
+public,persistence_entities,entity_name,2,,NO,character varying,100
+public,persistence_entities,system_id,3,,YES,integer,
+public,persistence_entities,entity_type,4,,NO,character varying,50
+public,persistence_entities,entity_config,5,,NO,jsonb,
+public,persistence_entities,schema_definition,6,'{}'::jsonb,YES,jsonb,
+public,persistence_entities,access_patterns,7,'{}'::jsonb,YES,jsonb,
+public,persistence_entities,data_retention,8,'{}'::jsonb,YES,jsonb,
+public,persistence_entities,versioning_config,9,'{}'::jsonb,YES,jsonb,
+public,persistence_entities,created_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,persistence_entities,updated_at,11,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,persistence_systems,id,1,nextval('persistence_systems_id_seq'::regclass),NO,integer,
+public,persistence_systems,system_name,2,,NO,character varying,100
+public,persistence_systems,system_type,3,,NO,character varying,50
+public,persistence_systems,connection_config,4,,NO,jsonb,
+public,persistence_systems,capabilities,5,'{}'::jsonb,YES,jsonb,
+public,persistence_systems,performance_profile,6,'{}'::jsonb,YES,jsonb,
+public,persistence_systems,security_config,7,'{}'::jsonb,YES,jsonb,
+public,persistence_systems,status,8,'active'::character varying,YES,character varying,20
+public,persistence_systems,created_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,persistence_systems,updated_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_option_service_mappings,id,1,nextval('product_option_service_mappings_id_seq'::regclass),NO,integer,
+public,product_option_service_mappings,product_option_id,2,,YES,integer,
+public,product_option_service_mappings,service_id,3,,YES,integer,
+public,product_option_service_mappings,mapping_relationship,4,,NO,character varying,50
+public,product_option_service_mappings,service_configuration,5,,YES,jsonb,
+public,product_option_service_mappings,sla_modifications,6,,YES,jsonb,
+public,product_option_service_mappings,additional_resources,7,,YES,jsonb,
+public,product_option_service_mappings,resource_scaling_factor,8,1.00,YES,numeric,
+public,product_option_service_mappings,execution_priority,9,10,YES,integer,
+public,product_option_service_mappings,dependency_level,10,1,YES,integer,
+public,product_option_service_mappings,is_active,11,true,YES,boolean,
+public,product_option_service_mappings,created_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_option_service_mappings,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_options,id,1,nextval('product_options_id_seq'::regclass),NO,integer,
+public,product_options,option_id,2,,NO,character varying,100
+public,product_options,product_id,3,,YES,integer,
+public,product_options,option_name,4,,NO,character varying,255
+public,product_options,option_category,5,,NO,character varying,100
+public,product_options,option_type,6,,NO,character varying,50
+public,product_options,option_value,7,,NO,jsonb,
+public,product_options,display_name,8,,YES,character varying,255
+public,product_options,description,9,,YES,text,
+public,product_options,pricing_impact,10,0.00,YES,numeric,
+public,product_options,pricing_model,11,,YES,character varying,50
+public,product_options,minimum_commitment,12,,YES,numeric,
+public,product_options,available_markets,13,,YES,ARRAY,
+public,product_options,regulatory_approval_required,14,false,YES,boolean,
+public,product_options,compliance_requirements,15,,YES,ARRAY,
+public,product_options,prerequisite_options,16,,YES,ARRAY,
+public,product_options,mutually_exclusive_options,17,,YES,ARRAY,
+public,product_options,implementation_complexity,18,'medium'::character varying,YES,character varying,20
+public,product_options,lead_time_days,19,,YES,integer,
+public,product_options,ongoing_support_required,20,true,YES,boolean,
+public,product_options,status,21,'active'::character varying,YES,character varying,20
+public,product_options,effective_date,22,CURRENT_DATE,YES,date,
+public,product_options,end_date,23,,YES,date,
+public,product_options,created_at,24,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_options,updated_at,25,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_options,created_by,26,,YES,character varying,100
+public,product_options,updated_by,27,,YES,character varying,100
+public,product_service_mappings,id,1,nextval('product_service_mappings_id_seq'::regclass),NO,integer,
+public,product_service_mappings,product_id,2,,YES,integer,
+public,product_service_mappings,service_id,3,,YES,integer,
+public,product_service_mappings,mapping_type,4,,NO,character varying,50
+public,product_service_mappings,inclusion_criteria,5,,YES,jsonb,
+public,product_service_mappings,pricing_impact,6,,YES,numeric,
+public,product_service_mappings,delivery_sequence,7,,YES,integer,
+public,product_service_mappings,is_mandatory,8,false,YES,boolean,
+public,product_service_mappings,customer_configurable,9,true,YES,boolean,
+public,product_service_mappings,effective_date,10,CURRENT_DATE,YES,date,
+public,product_service_mappings,end_date,11,,YES,date,
+public,product_service_mappings,created_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_service_mappings,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,product_services,id,1,nextval('product_services_id_seq'::regclass),NO,integer,
+public,product_services,product_id,2,,YES,integer,
+public,product_services,service_id,3,,YES,integer,
+public,product_services,is_required,4,true,YES,boolean,
+public,product_services,configuration,5,,YES,jsonb,
+public,product_services,pricing_component,6,,YES,numeric,
+public,product_services,display_order,7,,YES,integer,
+public,product_services,created_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,products,id,1,nextval('products_id_seq'::regclass),NO,integer,
+public,products,product_id,2,,NO,character varying,100
+public,products,product_name,3,,NO,character varying,255
+public,products,line_of_business,4,,NO,character varying,100
+public,products,description,5,,YES,text,
+public,products,status,6,'active'::character varying,YES,character varying,20
+public,products,pricing_model,7,,YES,character varying,50
+public,products,target_market,8,,YES,character varying,100
+public,products,regulatory_requirements,9,,YES,jsonb,
+public,products,sla_commitments,10,,YES,jsonb,
+public,products,created_by,11,,YES,character varying,100
+public,products,created_at,12,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,products,updated_by,13,,YES,character varying,100
+public,products,updated_at,14,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,products,contract_type,15,,YES,character varying,100
+public,products,commercial_status,16,'active'::character varying,YES,character varying,50
+public,products,sales_territory,17,,YES,character varying,100
+public,products,compliance_requirements,18,,YES,ARRAY,
+public,products,contract_terms,19,,YES,jsonb,
+public,products,minimum_contract_value,20,,YES,numeric,
+public,products,maximum_contract_value,21,,YES,numeric,
+public,products,standard_contract_duration,22,,YES,integer,
+public,products,renewable,23,true,YES,boolean,
+public,products,early_termination_allowed,24,false,YES,boolean,
+public,resource_attribute_dependencies,id,1,nextval('resource_attribute_dependencies_id_seq'::regclass),NO,integer,
+public,resource_attribute_dependencies,source_resource_id,2,,YES,integer,
+public,resource_attribute_dependencies,target_resource_id,3,,YES,integer,
+public,resource_attribute_dependencies,dependency_type,4,,NO,character varying,50
+public,resource_attribute_dependencies,dependency_config,5,'{}'::jsonb,YES,jsonb,
+public,resource_attribute_dependencies,is_active,6,true,YES,boolean,
+public,resource_attribute_dependencies,created_at,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_attribute_templates,id,1,nextval('resource_attribute_templates_id_seq'::regclass),NO,integer,
+public,resource_attribute_templates,template_name,2,,NO,character varying,100
+public,resource_attribute_templates,description,3,,YES,text,
+public,resource_attribute_templates,category,4,,YES,character varying,50
+public,resource_attribute_templates,attributes_config,5,,NO,jsonb,
+public,resource_attribute_templates,ui_layout_template,6,'{}'::jsonb,YES,jsonb,
+public,resource_attribute_templates,validation_rules,7,'{}'::jsonb,YES,jsonb,
+public,resource_attribute_templates,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_attribute_templates,updated_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_attribute_versions,id,1,nextval('resource_attribute_versions_id_seq'::regclass),NO,integer,
+public,resource_attribute_versions,resource_id,2,,YES,integer,
+public,resource_attribute_versions,version_number,3,,NO,character varying,20
+public,resource_attribute_versions,change_description,4,,YES,text,
+public,resource_attribute_versions,attributes_snapshot,5,,NO,jsonb,
+public,resource_attribute_versions,schema_changes,6,'{}'::jsonb,YES,jsonb,
+public,resource_attribute_versions,created_by,7,,YES,character varying,100
+public,resource_attribute_versions,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_attribute_versions,is_active,9,false,YES,boolean,
+public,resource_capabilities,id,1,nextval('resource_capabilities_id_seq'::regclass),NO,integer,
+public,resource_capabilities,capability_id,2,,NO,character varying,50
+public,resource_capabilities,capability_name,3,,NO,character varying,200
+public,resource_capabilities,description,4,,YES,text,
+public,resource_capabilities,capability_type,5,,NO,character varying,50
+public,resource_capabilities,required_attributes,6,'[]'::jsonb,YES,jsonb,
+public,resource_capabilities,optional_attributes,7,'[]'::jsonb,YES,jsonb,
+public,resource_capabilities,output_attributes,8,'[]'::jsonb,YES,jsonb,
+public,resource_capabilities,implementation_function,9,,YES,character varying,200
+public,resource_capabilities,validation_rules,10,'{}'::jsonb,YES,jsonb,
+public,resource_capabilities,error_handling,11,'{}'::jsonb,YES,jsonb,
+public,resource_capabilities,timeout_seconds,12,300,YES,integer,
+public,resource_capabilities,retry_attempts,13,3,YES,integer,
+public,resource_capabilities,status,14,'active'::character varying,YES,character varying,20
+public,resource_capabilities,created_by,15,,YES,character varying,100
+public,resource_capabilities,created_at,16,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_capabilities,updated_by,17,,YES,character varying,100
+public,resource_capabilities,updated_at,18,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_dependencies,id,1,nextval('resource_dependencies_id_seq'::regclass),NO,integer,
+public,resource_dependencies,dependent_resource_id,2,,YES,integer,
+public,resource_dependencies,prerequisite_resource_id,3,,YES,integer,
+public,resource_dependencies,dependency_type,4,,YES,character varying,50
+public,resource_dependencies,description,5,,YES,text,
+public,resource_dependencies,created_at,6,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_dictionaries,id,1,nextval('resource_dictionaries_id_seq'::regclass),NO,integer,
+public,resource_dictionaries,dictionary_name,2,,NO,character varying,100
+public,resource_dictionaries,version,3,'1.0'::character varying,NO,character varying,20
+public,resource_dictionaries,description,4,,YES,text,
+public,resource_dictionaries,author,5,,YES,character varying,100
+public,resource_dictionaries,creation_date,6,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_dictionaries,last_modified,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_dictionaries,status,8,'active'::character varying,YES,character varying,20
+public,resource_dictionaries,metadata,9,'{}'::jsonb,YES,jsonb,
+public,resource_instances,instance_id,1,(gen_random_uuid())::text,NO,text,
+public,resource_instances,onboarding_request_id,2,,NO,text,
+public,resource_instances,template_id,3,,NO,text,
+public,resource_instances,status,4,'pending'::text,NO,text,
+public,resource_instances,instance_data,5,'{}'::jsonb,NO,jsonb,
+public,resource_instances,execution_context,6,'{}'::jsonb,YES,jsonb,
+public,resource_instances,error_message,7,,YES,text,
+public,resource_instances,created_at,8,now(),NO,timestamp with time zone,
+public,resource_instances,updated_at,9,now(),NO,timestamp with time zone,
+public,resource_instances,created_by,10,'system'::text,NO,text,
+public,resource_management_view,dictionary_name,1,,YES,character varying,100
+public,resource_management_view,dictionary_version,2,,YES,character varying,20
+public,resource_management_view,resource_id,3,,YES,integer,
+public,resource_management_view,resource_name,4,,YES,character varying,100
+public,resource_management_view,description,5,,YES,text,
+public,resource_management_view,resource_version,6,,YES,character varying,20
+public,resource_management_view,category,7,,YES,character varying,50
+public,resource_management_view,status,8,,YES,character varying,20
+public,resource_management_view,ui_layout,9,,YES,character varying,30
+public,resource_management_view,total_attributes,10,,YES,bigint,
+public,resource_management_view,required_attributes,11,,YES,bigint,
+public,resource_management_view,derived_attributes,12,,YES,bigint,
+public,resource_management_view,real_attributes,13,,YES,bigint,
+public,resource_management_view,documented_attributes,14,,YES,bigint,
+public,resource_management_view,documentation_percentage,15,,YES,numeric,
+public,resource_management_view,ui_configured_attributes,16,,YES,bigint,
+public,resource_management_view,ui_configuration_percentage,17,,YES,numeric,
+public,resource_management_view,ai_enhanced_attributes,18,,YES,bigint,
+public,resource_management_view,ai_enhancement_percentage,19,,YES,numeric,
+public,resource_management_view,validated_attributes,20,,YES,bigint,
+public,resource_management_view,ui_groups,21,,YES,ARRAY,
+public,resource_management_view,last_modified,22,,YES,timestamp without time zone,
+public,resource_management_view,last_attribute_change,23,,YES,timestamp without time zone,
+public,resource_objects,id,1,nextval('resource_objects_id_seq'::regclass),NO,integer,
+public,resource_objects,dictionary_id,2,,YES,integer,
+public,resource_objects,resource_name,3,,NO,character varying,100
+public,resource_objects,description,4,,YES,text,
+public,resource_objects,version,5,'1.0'::character varying,NO,character varying,20
+public,resource_objects,category,6,,YES,character varying,50
+public,resource_objects,owner_team,7,,YES,character varying,100
+public,resource_objects,status,8,'active'::character varying,YES,character varying,20
+public,resource_objects,ui_layout,9,'vertical-stack'::character varying,NO,character varying,30
+public,resource_objects,group_order,10,,YES,ARRAY,
+public,resource_objects,navigation_config,11,'{}'::jsonb,YES,jsonb,
+public,resource_objects,created_at,12,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_objects,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resource_objects,resource_type,14,,YES,character varying,100
+public,resource_objects,criticality_level,15,'medium'::character varying,YES,character varying,50
+public,resource_objects,operational_status,16,'active'::character varying,YES,character varying,50
+public,resource_objects,access_restrictions,17,,YES,jsonb,
+public,resource_objects,compliance_classification,18,,YES,character varying,100
+public,resource_objects,data_retention_policy,19,,YES,jsonb,
+public,resource_objects,backup_requirements,20,,YES,jsonb,
+public,resource_objects,monitoring_enabled,21,true,YES,boolean,
+public,resource_objects,audit_required,22,false,YES,boolean,
+public,resource_sheet_execution_logs,log_id,1,nextval('resource_sheet_execution_logs_log_id_seq'::regclass),NO,integer,
+public,resource_sheet_execution_logs,resource_id,2,,NO,text,
+public,resource_sheet_execution_logs,execution_id,3,,NO,text,
+public,resource_sheet_execution_logs,timestamp,4,now(),NO,timestamp with time zone,
+public,resource_sheet_execution_logs,step,5,,NO,text,
+public,resource_sheet_execution_logs,message,6,,NO,text,
+public,resource_sheet_execution_logs,log_level,7,,NO,text,
+public,resource_sheet_execution_logs,log_data,8,'{}'::jsonb,YES,jsonb,
+public,resource_sheet_relationships,relationship_id,1,nextval('resource_sheet_relationships_relationship_id_seq'::regclass),NO,integer,
+public,resource_sheet_relationships,parent_resource_id,2,,NO,text,
+public,resource_sheet_relationships,child_resource_id,3,,NO,text,
+public,resource_sheet_relationships,relationship_type,4,,NO,text,
+public,resource_sheet_relationships,sequence_order,5,0,YES,integer,
+public,resource_sheet_relationships,created_at,6,now(),NO,timestamp with time zone,
+public,resource_sheets,resource_id,1,,NO,text,
+public,resource_sheets,resource_type,2,,NO,text,
+public,resource_sheets,name,3,,NO,text,
+public,resource_sheets,description,4,,YES,text,
+public,resource_sheets,version,5,'1.0.0'::text,NO,text,
+public,resource_sheets,client_id,6,,YES,text,
+public,resource_sheets,product_id,7,,YES,text,
+public,resource_sheets,status,8,'Pending'::text,NO,text,
+public,resource_sheets,json_data,9,,NO,jsonb,
+public,resource_sheets,metadata,10,'{}'::jsonb,NO,jsonb,
+public,resource_sheets,created_at,11,now(),NO,timestamp with time zone,
+public,resource_sheets,updated_at,12,now(),NO,timestamp with time zone,
+public,resource_sheets,created_by,13,,NO,text,
+public,resource_sheets,tags,14,'[]'::jsonb,YES,jsonb,
+public,resource_sheets,domain_id,15,,YES,integer,
+public,resource_sheets,ebnf_template_id,16,,YES,integer,
+public,resource_sheets,dsl_code,17,,YES,text,
+public,resource_template_capabilities,id,1,nextval('resource_template_capabilities_id_seq'::regclass),NO,integer,
+public,resource_template_capabilities,template_id,2,,YES,integer,
+public,resource_template_capabilities,capability_id,3,,YES,integer,
+public,resource_template_capabilities,capability_order,4,1,YES,integer,
+public,resource_template_capabilities,is_required,5,true,YES,boolean,
+public,resource_template_capabilities,configuration_overrides,6,'{}'::jsonb,YES,jsonb,
+public,resource_template_capabilities,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_templates,id,1,nextval('resource_templates_id_seq'::regclass),NO,integer,
+public,resource_templates,template_id,2,,NO,character varying,50
+public,resource_templates,template_name,3,,NO,character varying,200
+public,resource_templates,description,4,,YES,text,
+public,resource_templates,part_of_product,5,,YES,character varying,100
+public,resource_templates,implements_service,6,,YES,character varying,100
+public,resource_templates,resource_type,7,,NO,character varying,50
+public,resource_templates,attributes,8,'[]'::jsonb,YES,jsonb,
+public,resource_templates,capabilities,9,'[]'::jsonb,YES,jsonb,
+public,resource_templates,dsl_template,10,,YES,text,
+public,resource_templates,version,11,'1.0'::character varying,YES,character varying,20
+public,resource_templates,status,12,'active'::character varying,YES,character varying,20
+public,resource_templates,created_by,13,,YES,character varying,100
+public,resource_templates,created_at,14,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_templates,updated_by,15,,YES,character varying,100
+public,resource_templates,updated_at,16,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resource_validation_rules,id,1,nextval('resource_validation_rules_id_seq'::regclass),NO,integer,
+public,resource_validation_rules,resource_id,2,,YES,integer,
+public,resource_validation_rules,rule_name,3,,NO,character varying,100
+public,resource_validation_rules,rule_type,4,,NO,character varying,50
+public,resource_validation_rules,rule_config,5,,NO,jsonb,
+public,resource_validation_rules,is_active,6,true,YES,boolean,
+public,resource_validation_rules,severity,7,'error'::character varying,YES,character varying,20
+public,resource_validation_rules,created_at,8,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,resources,id,1,nextval('resources_id_seq'::regclass),NO,integer,
+public,resources,resource_id,2,,NO,character varying,100
+public,resources,resource_name,3,,NO,character varying,255
+public,resources,resource_type,4,,NO,character varying,50
+public,resources,description,5,,YES,text,
+public,resources,location,6,,YES,character varying,100
+public,resources,capacity_limits,7,,YES,jsonb,
+public,resources,operational_hours,8,,YES,character varying,100
+public,resources,contact_information,9,,YES,jsonb,
+public,resources,technical_specifications,10,,YES,jsonb,
+public,resources,compliance_certifications,11,,YES,ARRAY,
+public,resources,status,12,'active'::character varying,YES,character varying,20
+public,resources,created_by,13,,YES,character varying,100
+public,resources,created_at,14,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,resources,updated_by,15,,YES,character varying,100
+public,resources,updated_at,16,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,role_service_access,id,1,nextval('role_service_access_id_seq'::regclass),NO,integer,
+public,role_service_access,cbu_role_id,2,,YES,integer,
+public,role_service_access,service_id,3,,YES,integer,
+public,role_service_access,access_type,4,,YES,character varying,50
+public,role_service_access,interaction_mode,5,,YES,character varying,50
+public,role_service_access,business_justification,6,,YES,text,
+public,role_service_access,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rule_categories,id,1,nextval('rule_categories_id_seq'::regclass),NO,integer,
+public,rule_categories,category_key,2,,NO,character varying,50
+public,rule_categories,name,3,,NO,character varying,100
+public,rule_categories,description,4,,YES,text,
+public,rule_categories,color,5,,YES,character varying,7
+public,rule_categories,created_at,6,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rule_compilation_queue,id,1,nextval('rule_compilation_queue_id_seq'::regclass),NO,integer,
+public,rule_compilation_queue,rule_id,2,,YES,integer,
+public,rule_compilation_queue,compilation_type,3,,YES,character varying,20
+public,rule_compilation_queue,priority,4,5,YES,integer,
+public,rule_compilation_queue,status,5,'pending'::character varying,YES,character varying,20
+public,rule_compilation_queue,retry_count,6,0,YES,integer,
+public,rule_compilation_queue,max_retries,7,3,YES,integer,
+public,rule_compilation_queue,error_message,8,,YES,text,
+public,rule_compilation_queue,created_at,9,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rule_compilation_queue,started_at,10,,YES,timestamp with time zone,
+public,rule_compilation_queue,completed_at,11,,YES,timestamp with time zone,
+public,rule_compilation_queue,worker_id,12,,YES,character varying,50
+public,rule_dependencies,id,1,nextval('rule_dependencies_id_seq'::regclass),NO,integer,
+public,rule_dependencies,rule_id,2,,YES,integer,
+public,rule_dependencies,attribute_id,3,,YES,integer,
+public,rule_dependencies,dependency_type,4,'input'::character varying,YES,character varying,20
+public,rule_execution_stats,id,1,nextval('rule_execution_stats_id_seq'::regclass),NO,integer,
+public,rule_execution_stats,rule_id,2,,YES,integer,
+public,rule_execution_stats,execution_date,3,CURRENT_DATE,YES,date,
+public,rule_execution_stats,total_executions,4,0,YES,integer,
+public,rule_execution_stats,successful_executions,5,0,YES,integer,
+public,rule_execution_stats,failed_executions,6,0,YES,integer,
+public,rule_execution_stats,avg_execution_time_ms,7,,YES,numeric,
+public,rule_execution_stats,min_execution_time_ms,8,,YES,numeric,
+public,rule_execution_stats,max_execution_time_ms,9,,YES,numeric,
+public,rule_execution_stats,used_compiled_code,10,false,YES,boolean,
+public,rule_executions,id,1,uuid_generate_v4(),NO,uuid,
+public,rule_executions,rule_id,2,,YES,integer,
+public,rule_executions,execution_time,3,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rule_executions,input_data,4,,YES,jsonb,
+public,rule_executions,output_value,5,,YES,jsonb,
+public,rule_executions,execution_duration_ms,6,,YES,integer,
+public,rule_executions,success,7,,YES,boolean,
+public,rule_executions,error_message,8,,YES,text,
+public,rule_executions,context,9,,YES,jsonb,
+public,rule_versions,id,1,nextval('rule_versions_id_seq'::regclass),NO,integer,
+public,rule_versions,rule_id,2,,YES,integer,
+public,rule_versions,version,3,,NO,integer,
+public,rule_versions,rule_definition,4,,NO,text,
+public,rule_versions,change_description,5,,YES,text,
+public,rule_versions,created_by,6,,YES,character varying,100
+public,rule_versions,created_at,7,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rules,id,1,nextval('rules_id_seq'::regclass),NO,integer,
+public,rules,rule_id,2,,NO,character varying,50
+public,rules,rule_name,3,,NO,character varying,200
+public,rules,description,4,,YES,text,
+public,rules,category_id,5,,YES,integer,
+public,rules,target_attribute_id,6,,YES,integer,
+public,rules,rule_definition,7,,NO,text,
+public,rules,parsed_ast,8,,YES,jsonb,
+public,rules,status,9,'draft'::character varying,YES,character varying,20
+public,rules,version,10,1,YES,integer,
+public,rules,tags,11,,YES,ARRAY,
+public,rules,performance_metrics,12,,YES,jsonb,
+public,rules,embedding_data,13,,YES,jsonb,
+public,rules,created_by,14,,YES,character varying,100
+public,rules,created_at,15,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rules,updated_by,16,,YES,character varying,100
+public,rules,updated_at,17,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,rules,search_vector,18,,YES,tsvector,
+public,rules,embedding,19,,YES,USER-DEFINED,
+public,rules,compiled_rust_code,20,,YES,text,
+public,rules,compiled_wasm_binary,21,,YES,bytea,
+public,rules,compilation_status,22,'pending'::character varying,YES,character varying,20
+public,rules,compilation_error,23,,YES,text,
+public,rules,compilation_timestamp,24,,YES,timestamp with time zone,
+public,rules,compiler_version,25,,YES,character varying,50
+public,rules,execution_count,26,0,YES,bigint,
+public,rules,avg_execution_time_ms,27,,YES,numeric,
+public,service_resource_mappings,id,1,nextval('service_resource_mappings_id_seq'::regclass),NO,integer,
+public,service_resource_mappings,service_id,2,,YES,integer,
+public,service_resource_mappings,resource_id,3,,YES,integer,
+public,service_resource_mappings,usage_type,4,,NO,character varying,50
+public,service_resource_mappings,resource_role,5,,YES,character varying,100
+public,service_resource_mappings,configuration_parameters,6,,YES,jsonb,
+public,service_resource_mappings,performance_requirements,7,,YES,jsonb,
+public,service_resource_mappings,usage_limits,8,,YES,jsonb,
+public,service_resource_mappings,cost_allocation_percentage,9,,YES,numeric,
+public,service_resource_mappings,dependency_level,10,1,YES,integer,
+public,service_resource_mappings,failover_resource_id,11,,YES,integer,
+public,service_resource_mappings,monitoring_thresholds,12,,YES,jsonb,
+public,service_resource_mappings,created_at,13,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,service_resource_mappings,updated_at,14,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,service_resources,id,1,nextval('service_resources_id_seq'::regclass),NO,integer,
+public,service_resources,service_id,2,,YES,integer,
+public,service_resources,resource_id,3,,YES,integer,
+public,service_resources,resource_role,4,,YES,character varying,100
+public,service_resources,configuration,5,,YES,jsonb,
+public,service_resources,priority,6,1,YES,integer,
+public,service_resources,health_check_endpoint,7,,YES,character varying,255
+public,service_resources,created_at,8,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,service_resources_hierarchy,service_id,1,,YES,integer,
+public,service_resources_hierarchy,service_code,2,,YES,character varying,100
+public,service_resources_hierarchy,service_name,3,,YES,character varying,255
+public,service_resources_hierarchy,service_category,4,,YES,character varying,100
+public,service_resources_hierarchy,service_type,5,,YES,character varying,100
+public,service_resources_hierarchy,delivery_model,6,,YES,character varying,50
+public,service_resources_hierarchy,billable,7,,YES,boolean,
+public,service_resources_hierarchy,service_description,8,,YES,text,
+public,service_resources_hierarchy,service_status,9,,YES,character varying,20
+public,service_resources_hierarchy,resource_id,10,,YES,integer,
+public,service_resources_hierarchy,resource_name,11,,YES,character varying,100
+public,service_resources_hierarchy,resource_description,12,,YES,text,
+public,service_resources_hierarchy,resource_version,13,,YES,character varying,20
+public,service_resources_hierarchy,resource_category,14,,YES,character varying,50
+public,service_resources_hierarchy,resource_type,15,,YES,character varying,100
+public,service_resources_hierarchy,criticality_level,16,,YES,character varying,50
+public,service_resources_hierarchy,operational_status,17,,YES,character varying,50
+public,service_resources_hierarchy,owner_team,18,,YES,character varying,100
+public,service_resources_hierarchy,usage_type,19,,YES,character varying,50
+public,service_resources_hierarchy,resource_role,20,,YES,character varying,100
+public,service_resources_hierarchy,cost_allocation_percentage,21,,YES,numeric,
+public,service_resources_hierarchy,dependency_level,22,,YES,integer,
+public,service_resources_hierarchy,performance_requirements,23,,YES,jsonb,
+public,service_resources_hierarchy,configuration_parameters,24,,YES,jsonb,
+public,services,id,1,nextval('services_id_seq'::regclass),NO,integer,
+public,services,service_id,2,,NO,character varying,100
+public,services,service_name,3,,NO,character varying,255
+public,services,service_category,4,,YES,character varying,100
+public,services,description,5,,YES,text,
+public,services,is_core_service,6,false,YES,boolean,
+public,services,configuration_schema,7,,YES,jsonb,
+public,services,dependencies,8,,YES,ARRAY,
+public,services,status,9,'active'::character varying,YES,character varying,20
+public,services,created_by,10,,YES,character varying,100
+public,services,created_at,11,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,services,updated_by,12,,YES,character varying,100
+public,services,updated_at,13,CURRENT_TIMESTAMP,YES,timestamp with time zone,
+public,services,service_type,14,,YES,character varying,100
+public,services,delivery_model,15,,YES,character varying,50
+public,services,sla_requirements,16,,YES,jsonb,
+public,services,billable,17,true,YES,boolean,
+public,services,recurring_service,18,false,YES,boolean,
+public,services,service_dependencies,19,,YES,ARRAY,
+public,services,skill_requirements,20,,YES,ARRAY,
+public,services,automation_level,21,,YES,character varying,50
+public,services,customer_facing,22,true,YES,boolean,
+public,ui_component_templates,id,1,nextval('ui_component_templates_id_seq'::regclass),NO,integer,
+public,ui_component_templates,template_name,2,,NO,character varying,100
+public,ui_component_templates,component_type,3,,NO,character varying,50
+public,ui_component_templates,template_config,4,,NO,jsonb,
+public,ui_component_templates,styling_defaults,5,'{}'::jsonb,YES,jsonb,
+public,ui_component_templates,behavior_defaults,6,'{}'::jsonb,YES,jsonb,
+public,ui_component_templates,validation_rules,7,'{}'::jsonb,YES,jsonb,
+public,ui_component_templates,accessibility_defaults,8,'{}'::jsonb,YES,jsonb,
+public,ui_component_templates,created_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ui_component_templates,updated_at,10,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,ui_layout_groups,id,1,nextval('ui_layout_groups_id_seq'::regclass),NO,integer,
+public,ui_layout_groups,resource_id,2,,YES,integer,
+public,ui_layout_groups,group_name,3,,NO,character varying,100
+public,ui_layout_groups,display_order,4,0,YES,integer,
+public,ui_layout_groups,is_collapsible,5,false,YES,boolean,
+public,ui_layout_groups,initially_collapsed,6,false,YES,boolean,
+public,ui_layout_groups,group_description,7,,YES,text,
+public,user_saved_filters,id,1,nextval('user_saved_filters_id_seq'::regclass),NO,integer,
+public,user_saved_filters,user_id,2,,NO,character varying,100
+public,user_saved_filters,filter_name,3,,NO,character varying,200
+public,user_saved_filters,filter_criteria,4,,NO,jsonb,
+public,user_saved_filters,applied_clusters,5,,YES,ARRAY,
+public,user_saved_filters,result_count,6,,YES,integer,
+public,user_saved_filters,last_used,7,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,user_saved_filters,is_favorite,8,false,YES,boolean,
+public,user_saved_filters,created_at,9,CURRENT_TIMESTAMP,YES,timestamp without time zone,
+public,v_attribute_dependencies,rule_id,1,,YES,character varying,50
+public,v_attribute_dependencies,rule_name,2,,YES,character varying,200
+public,v_attribute_dependencies,target_attribute,3,,YES,text,
+public,v_attribute_dependencies,source_attributes,4,,YES,ARRAY,
+public,v_cbu_members_detail,id,1,,YES,integer,
+public,v_cbu_members_detail,cbu_id,2,,YES,character varying,100
+public,v_cbu_members_detail,cbu_name,3,,YES,character varying,255
+public,v_cbu_members_detail,role_code,4,,YES,character varying,50
+public,v_cbu_members_detail,role_name,5,,YES,character varying,100
+public,v_cbu_members_detail,role_category,6,,YES,character varying,50
+public,v_cbu_members_detail,entity_id,7,,YES,character varying,100
+public,v_cbu_members_detail,entity_name,8,,YES,character varying,255
+public,v_cbu_members_detail,entity_lei,9,,YES,character varying,20
+public,v_cbu_members_detail,is_primary,10,,YES,boolean,
+public,v_cbu_members_detail,effective_date,11,,YES,date,
+public,v_cbu_members_detail,expiry_date,12,,YES,date,
+public,v_cbu_members_detail,contact_email,13,,YES,character varying,255
+public,v_cbu_members_detail,is_active,14,,YES,boolean,
+public,v_cbu_members_detail,has_trading_authority,15,,YES,boolean,
+public,v_cbu_members_detail,has_settlement_authority,16,,YES,boolean,
+public,v_cbu_members_detail,notes,17,,YES,text,
+public,v_cbu_members_detail,created_at,18,,YES,timestamp with time zone,
+public,v_cbu_members_detail,updated_at,19,,YES,timestamp with time zone,
+public,v_cbu_product_subscriptions,cbu_id,1,,YES,character varying,100
+public,v_cbu_product_subscriptions,cbu_name,2,,YES,character varying,255
+public,v_cbu_product_subscriptions,product_id,3,,YES,character varying,100
+public,v_cbu_product_subscriptions,product_name,4,,YES,character varying,255
+public,v_cbu_product_subscriptions,line_of_business,5,,YES,character varying,100
+public,v_cbu_product_subscriptions,subscription_status,6,,YES,character varying,20
+public,v_cbu_product_subscriptions,subscription_date,7,,YES,timestamp with time zone,
+public,v_cbu_product_subscriptions,activation_date,8,,YES,timestamp with time zone,
+public,v_cbu_product_subscriptions,primary_contact_role,9,,YES,character varying,100
+public,v_cbu_roles_taxonomy,id,1,,YES,integer,
+public,v_cbu_roles_taxonomy,role_code,2,,YES,character varying,50
+public,v_cbu_roles_taxonomy,role_name,3,,YES,character varying,100
+public,v_cbu_roles_taxonomy,description,4,,YES,text,
+public,v_cbu_roles_taxonomy,role_category,5,,YES,character varying,50
+public,v_cbu_roles_taxonomy,display_order,6,,YES,integer,
+public,v_cbu_roles_taxonomy,is_active,7,,YES,boolean,
+public,v_cbu_roles_taxonomy,usage_count,8,,YES,bigint,
+public,v_cbu_summary,id,1,,YES,integer,
+public,v_cbu_summary,cbu_id,2,,YES,character varying,100
+public,v_cbu_summary,cbu_name,3,,YES,character varying,255
+public,v_cbu_summary,description,4,,YES,text,
+public,v_cbu_summary,primary_lei,5,,YES,character varying,20
+public,v_cbu_summary,domicile_country,6,,YES,character,2
+public,v_cbu_summary,business_type,7,,YES,character varying,50
+public,v_cbu_summary,status,8,,YES,character varying,20
+public,v_cbu_summary,created_date,9,,YES,date,
+public,v_cbu_summary,member_count,10,,YES,bigint,
+public,v_cbu_summary,role_count,11,,YES,bigint,
+public,v_cbu_summary,roles,12,,YES,text,
+public,v_cbu_summary,created_at,13,,YES,timestamp with time zone,
+public,v_cbu_summary,updated_at,14,,YES,timestamp with time zone,
+public,v_mandate_summary,mandate_id,1,,YES,character varying,100
+public,v_mandate_summary,cbu_id,2,,YES,character varying,100
+public,v_mandate_summary,asset_owner_name,3,,YES,character varying,255
+public,v_mandate_summary,asset_owner_lei,4,,YES,character varying,20
+public,v_mandate_summary,investment_manager_name,5,,YES,character varying,255
+public,v_mandate_summary,investment_manager_lei,6,,YES,character varying,20
+public,v_mandate_summary,base_currency,7,,YES,character,3
+public,v_mandate_summary,effective_date,8,,YES,date,
+public,v_mandate_summary,expiry_date,9,,YES,date,
+public,v_mandate_summary,instrument_count,10,,YES,bigint,
+public,v_mandate_summary,benchmark_count,11,,YES,bigint,
+public,v_mandate_summary,created_at,12,,YES,timestamp with time zone,
+public,v_mandate_summary,updated_at,13,,YES,timestamp with time zone,
+public,v_onboarding_progress,request_id,1,,YES,character varying,100
+public,v_onboarding_progress,cbu_name,2,,YES,character varying,255
+public,v_onboarding_progress,product_name,3,,YES,character varying,255
+public,v_onboarding_progress,request_status,4,,YES,character varying,20
+public,v_onboarding_progress,target_go_live_date,5,,YES,date,
+public,v_onboarding_progress,total_tasks,6,,YES,bigint,
+public,v_onboarding_progress,completed_tasks,7,,YES,bigint,
+public,v_onboarding_progress,blocked_tasks,8,,YES,bigint,
+public,v_onboarding_progress,completion_percentage,9,,YES,numeric,
+public,v_onboarding_task_details,task_id,1,,YES,integer,
+public,v_onboarding_task_details,workflow_id,2,,YES,character varying,50
+public,v_onboarding_task_details,cbu_name,3,,YES,character varying,255
+public,v_onboarding_task_details,resource_template_name,4,,YES,character varying,200
+public,v_onboarding_task_details,resource_type,5,,YES,character varying,50
+public,v_onboarding_task_details,capability_name,6,,YES,character varying,200
+public,v_onboarding_task_details,capability_type,7,,YES,character varying,50
+public,v_onboarding_task_details,task_order,8,,YES,integer,
+public,v_onboarding_task_details,task_status,9,,YES,character varying,20
+public,v_onboarding_task_details,assigned_to,10,,YES,character varying,100
+public,v_onboarding_task_details,started_at,11,,YES,timestamp with time zone,
+public,v_onboarding_task_details,completed_at,12,,YES,timestamp with time zone,
+public,v_onboarding_task_details,estimated_hours,13,,YES,real,
+public,v_onboarding_task_details,actual_hours,14,,YES,real,
+public,v_onboarding_task_details,blocking_issues,15,,YES,text,
+public,v_onboarding_task_details,retry_count,16,,YES,integer,
+public,v_onboarding_task_details,created_at,17,,YES,timestamp with time zone,
+public,v_product_hierarchy,product_id,1,,YES,character varying,100
+public,v_product_hierarchy,product_name,2,,YES,character varying,255
+public,v_product_hierarchy,line_of_business,3,,YES,character varying,100
+public,v_product_hierarchy,product_status,4,,YES,character varying,20
+public,v_product_hierarchy,service_id,5,,YES,character varying,100
+public,v_product_hierarchy,service_name,6,,YES,character varying,255
+public,v_product_hierarchy,service_category,7,,YES,character varying,100
+public,v_product_hierarchy,service_required,8,,YES,boolean,
+public,v_product_hierarchy,resource_id,9,,YES,character varying,100
+public,v_product_hierarchy,resource_name,10,,YES,character varying,255
+public,v_product_hierarchy,resource_type,11,,YES,character varying,50
+public,v_product_hierarchy,resource_role,12,,YES,character varying,100
+public,v_product_hierarchy,resource_priority,13,,YES,integer,
+public,v_product_service_resource_hierarchy,product_id,1,,YES,character varying,100
+public,v_product_service_resource_hierarchy,product_name,2,,YES,character varying,255
+public,v_product_service_resource_hierarchy,line_of_business,3,,YES,character varying,100
+public,v_product_service_resource_hierarchy,service_id,4,,YES,character varying,100
+public,v_product_service_resource_hierarchy,service_name,5,,YES,character varying,255
+public,v_product_service_resource_hierarchy,service_category,6,,YES,character varying,100
+public,v_product_service_resource_hierarchy,is_mandatory,7,,YES,boolean,
+public,v_product_service_resource_hierarchy,delivery_sequence,8,,YES,integer,
+public,v_product_service_resource_hierarchy,resource_id,9,,YES,integer,
+public,v_product_service_resource_hierarchy,resource_name,10,,YES,character varying,100
+public,v_product_service_resource_hierarchy,resource_type,11,,YES,character varying,100
+public,v_product_service_resource_hierarchy,resource_role,12,,YES,character varying,100
+public,v_product_service_resource_hierarchy,resource_priority,13,,YES,integer,
+public,v_product_service_resource_hierarchy,template_id,14,,YES,character varying,50
+public,v_product_service_resource_hierarchy,template_name,15,,YES,character varying,200
+public,v_product_service_resource_hierarchy,dsl_template,16,,YES,text,
+public,v_resource_provisioning_status,workflow_id,1,,YES,character varying,50
+public,v_resource_provisioning_status,resource_template_name,2,,YES,character varying,200
+public,v_resource_provisioning_status,resource_type,3,,YES,character varying,50
+public,v_resource_provisioning_status,total_capabilities,4,,YES,bigint,
+public,v_resource_provisioning_status,completed_capabilities,5,,YES,bigint,
+public,v_resource_provisioning_status,failed_capabilities,6,,YES,bigint,
+public,v_resource_provisioning_status,current_capability,7,,YES,character varying,200
+public,v_resource_provisioning_status,provision_status,8,,YES,text,
+public,v_resource_template_capabilities,template_id,1,,YES,character varying,50
+public,v_resource_template_capabilities,template_name,2,,YES,character varying,200
+public,v_resource_template_capabilities,part_of_product,3,,YES,character varying,100
+public,v_resource_template_capabilities,implements_service,4,,YES,character varying,100
+public,v_resource_template_capabilities,capability_id,5,,YES,character varying,50
+public,v_resource_template_capabilities,capability_name,6,,YES,character varying,200
+public,v_resource_template_capabilities,capability_type,7,,YES,character varying,50
+public,v_resource_template_capabilities,required_attributes,8,,YES,jsonb,
+public,v_resource_template_capabilities,optional_attributes,9,,YES,jsonb,
+public,v_resource_template_capabilities,output_attributes,10,,YES,jsonb,
+public,v_resource_template_capabilities,capability_order,11,,YES,integer,
+public,v_resource_template_capabilities,capability_required,12,,YES,boolean,
+public,v_resource_template_capabilities,configuration_overrides,13,,YES,jsonb,

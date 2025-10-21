@@ -1,0 +1,788 @@
+table_schema,table_name,view_definition
+public,attribute_classification_view," SELECT ao.id,
+    ao.attribute_name,
+    ao.attribute_class,
+    ao.visibility_scope,
+    ao.data_type,
+    ao.description,
+    ao.extended_description,
+        CASE
+            WHEN ((ao.attribute_class)::text = 'real'::text) THEN 'Real/Public Attribute'::text
+            WHEN ((ao.attribute_class)::text = 'derived'::text) THEN 'Derived/Synthetic Attribute'::text
+            ELSE NULL::text
+        END AS classification_description,
+    ao.derivation_rule_ebnf,
+    ao.derivation_dependencies,
+    ao.derivation_complexity,
+    ao.derivation_frequency,
+    ao.materialization_strategy,
+        CASE
+            WHEN ((ao.attribute_class)::text = 'derived'::text) THEN ( SELECT array_agg(jsonb_build_object('id', src_ao.id, 'name', src_ao.attribute_name, 'type', src_ao.data_type, 'class', src_ao.attribute_class)) AS array_agg
+               FROM (unnest(ao.derivation_dependencies) dep_id(dep_id)
+                 JOIN attribute_objects src_ao ON ((src_ao.id = dep_id.dep_id))))
+            ELSE NULL::jsonb[]
+        END AS source_attribute_details,
+    array_agg(
+        CASE
+            WHEN (dar.id IS NOT NULL) THEN jsonb_build_object('rule_name', dar.rule_name, 'ebnf_grammar', dar.ebnf_grammar, 'rule_type', dar.rule_type, 'execution_order', dar.execution_order, 'is_active', dar.is_active)
+            ELSE NULL::jsonb
+        END) FILTER (WHERE (dar.id IS NOT NULL)) AS derivation_rules,
+    daqm.success_rate,
+    daqm.avg_execution_time_ms,
+    daqm.data_quality_score,
+    daqm.completeness_rate,
+    ao.ai_context,
+    ao.semantic_tags,
+    ao.ui_component_type,
+    ao.ui_layout_config,
+    concat_ws(' | '::text, ao.attribute_name,
+        CASE ao.attribute_class
+            WHEN 'real'::text THEN 'Real attribute directly collected from users or systems'::text
+            WHEN 'derived'::text THEN ('Derived attribute computed from other attributes using: '::text || COALESCE(ao.derivation_rule_ebnf, 'undefined rules'::text))
+            ELSE NULL::text
+        END, ao.description, ao.extended_description, ao.business_context) AS full_ai_context
+   FROM ((attribute_objects ao
+     LEFT JOIN derived_attribute_rules dar ON (((dar.derived_attribute_id = ao.id) AND (dar.is_active = true))))
+     LEFT JOIN derived_attribute_quality_metrics daqm ON (((daqm.attribute_id = ao.id) AND (daqm.metric_date = ( SELECT max(daqm2.metric_date) AS max
+           FROM derived_attribute_quality_metrics daqm2
+          WHERE (daqm2.attribute_id = ao.id))))))
+  GROUP BY ao.id, ao.attribute_name, ao.attribute_class, ao.visibility_scope, ao.data_type, ao.description, ao.extended_description, ao.derivation_rule_ebnf, ao.derivation_dependencies, ao.derivation_complexity, ao.derivation_frequency, ao.materialization_strategy, ao.ai_context, ao.semantic_tags, ao.ui_component_type, ao.ui_layout_config, ao.business_context, daqm.success_rate, daqm.avg_execution_time_ms, daqm.data_quality_score, daqm.completeness_rate;"
+public,attribute_comprehensive_filter_view," SELECT ao.id,
+    ao.attribute_name,
+    ao.attribute_class,
+    ao.visibility_scope,
+    ao.data_type,
+    ao.description,
+    ao.extended_description,
+    ao.business_context,
+    ao.technical_context,
+    ao.ui_component_type,
+    ao.ui_group,
+    ao.derivation_complexity,
+    ao.materialization_strategy,
+    kod.domain_name,
+    kod.regulatory_framework,
+    adm.compliance_criticality,
+    adm.data_sensitivity,
+    array_agg(DISTINCT avc.cluster_name) FILTER (WHERE (avc.cluster_name IS NOT NULL)) AS cluster_names,
+    array_agg(DISTINCT avc.cluster_type) FILTER (WHERE (avc.cluster_type IS NOT NULL)) AS cluster_types,
+    array_agg(DISTINCT acm.membership_strength) FILTER (WHERE (acm.membership_strength IS NOT NULL)) AS cluster_memberships,
+    array_agg(DISTINCT at.tag_name) FILTER (WHERE (at.tag_name IS NOT NULL)) AS tags,
+    array_agg(DISTINCT at.tag_category) FILTER (WHERE (at.tag_category IS NOT NULL)) AS tag_categories,
+    ao.semantic_tags,
+    ao.search_keywords,
+    ao.ai_context,
+    daqm.success_rate,
+    daqm.data_quality_score,
+    daqm.completeness_rate,
+    ps.system_name AS persistence_system,
+    ps.system_type AS persistence_type,
+    ao.embedding_vector,
+    concat_ws(' '::text, ao.attribute_name, ao.description, ao.extended_description, ao.business_context, ao.technical_context, string_agg(DISTINCT (at.tag_name)::text, ' '::text), string_agg(DISTINCT (avc.cluster_name)::text, ' '::text), kod.domain_name) AS searchable_text,
+    jsonb_build_object('basic_info', jsonb_build_object('id', ao.id, 'name', ao.attribute_name, 'class', ao.attribute_class, 'visibility', ao.visibility_scope, 'type', ao.data_type), 'classification', jsonb_build_object('domain', kod.domain_name, 'compliance', adm.compliance_criticality, 'sensitivity', adm.data_sensitivity, 'derivation_complexity', ao.derivation_complexity), 'clustering', jsonb_build_object('clusters', array_agg(DISTINCT avc.cluster_name) FILTER (WHERE (avc.cluster_name IS NOT NULL)), 'cluster_types', array_agg(DISTINCT avc.cluster_type) FILTER (WHERE (avc.cluster_type IS NOT NULL))), 'ui_metadata', jsonb_build_object('component_type', ao.ui_component_type, 'group', ao.ui_group, 'display_order', ao.ui_display_order), 'persistence', jsonb_build_object('system', ps.system_name, 'type', ps.system_type), 'tags', array_agg(DISTINCT at.tag_name) FILTER (WHERE (at.tag_name IS NOT NULL))) AS filter_metadata
+   FROM (((((((((attribute_objects ao
+     LEFT JOIN attribute_domain_mappings adm ON ((adm.attribute_id = ao.id)))
+     LEFT JOIN kyc_onboarding_domains kod ON ((kod.id = adm.domain_id)))
+     LEFT JOIN attribute_cluster_memberships acm ON ((acm.attribute_id = ao.id)))
+     LEFT JOIN attribute_vector_clusters avc ON ((avc.id = acm.cluster_id)))
+     LEFT JOIN attribute_tag_assignments ata ON ((ata.attribute_id = ao.id)))
+     LEFT JOIN attribute_tags at ON ((at.id = ata.tag_id)))
+     LEFT JOIN derived_attribute_quality_metrics daqm ON (((daqm.attribute_id = ao.id) AND (daqm.metric_date = ( SELECT max(derived_attribute_quality_metrics.metric_date) AS max
+           FROM derived_attribute_quality_metrics
+          WHERE (derived_attribute_quality_metrics.attribute_id = ao.id))))))
+     LEFT JOIN persistence_entities pe ON ((pe.id = ao.primary_persistence_entity_id)))
+     LEFT JOIN persistence_systems ps ON ((ps.id = pe.system_id)))
+  GROUP BY ao.id, ao.attribute_name, ao.attribute_class, ao.visibility_scope, ao.data_type, ao.description, ao.extended_description, ao.business_context, ao.technical_context, ao.ui_component_type, ao.ui_group, ao.ui_display_order, ao.derivation_complexity, ao.materialization_strategy, kod.domain_name, kod.regulatory_framework, adm.compliance_criticality, adm.data_sensitivity, ao.semantic_tags, ao.search_keywords, ao.ai_context, daqm.success_rate, daqm.data_quality_score, daqm.completeness_rate, ps.system_name, ps.system_type, ao.embedding_vector;"
+public,attribute_value_resolution_view," SELECT ao.id AS attribute_id,
+    ao.attribute_name,
+    ao.data_type,
+    ao.description,
+    ps.system_name AS primary_system,
+    ps.system_type,
+    pe.entity_name AS primary_entity,
+    pe.entity_config,
+    apm.field_mapping,
+    apm.transformation_rules,
+    apm.sync_strategy,
+    kod.domain_name,
+    kod.regulatory_framework,
+    adm.context_role,
+    adm.compliance_criticality,
+    ao.semantic_tags,
+    ao.ai_context,
+    ao.ui_component_type,
+    ao.ui_layout_config,
+    jsonb_build_object('persistence', jsonb_build_object('primary_system', ps.system_name, 'entity', pe.entity_name, 'field_mapping', apm.field_mapping, 'sync_strategy', apm.sync_strategy), 'domain', jsonb_build_object('name', kod.domain_name, 'compliance', adm.compliance_criticality, 'role', adm.context_role), 'ui', jsonb_build_object('component_type', ao.ui_component_type, 'layout_config', ao.ui_layout_config, 'styling', ao.ui_styling), 'ai', jsonb_build_object('context', ao.ai_context, 'semantic_tags', ao.semantic_tags, 'search_keywords', ao.search_keywords)) AS full_metadata
+   FROM (((((attribute_objects ao
+     LEFT JOIN persistence_entities pe ON ((pe.id = ao.primary_persistence_entity_id)))
+     LEFT JOIN persistence_systems ps ON ((ps.id = pe.system_id)))
+     LEFT JOIN attribute_persistence_mappings apm ON (((apm.attribute_id = ao.id) AND (apm.persistence_entity_id = pe.id))))
+     LEFT JOIN attribute_domain_mappings adm ON ((adm.attribute_id = ao.id)))
+     LEFT JOIN kyc_onboarding_domains kod ON ((kod.id = adm.domain_id)));"
+public,cbu_entity_structure_view," SELECT cbu.id AS cbu_internal_id,
+    cbu.cbu_id,
+    cbu.cbu_name,
+    cbu.description AS cbu_description,
+    cbu.business_type AS cbu_business_type,
+    cbu.status AS cbu_status,
+    pe.entity_id AS primary_entity_id,
+    pe.entity_name AS primary_entity_name,
+    pe.entity_type AS primary_entity_type,
+    pe.legal_form AS primary_legal_form,
+    pe.incorporation_country AS primary_country,
+    pe.lei_code AS primary_lei,
+    jsonb_agg(DISTINCT jsonb_build_object('entity_id', le.entity_id, 'entity_name', le.entity_name, 'entity_type', le.entity_type, 'legal_form', le.legal_form, 'association_type', cea.association_type, 'role_in_cbu', cea.role_in_cbu, 'ownership_stake', cea.ownership_stake, 'control_level', cea.control_level, 'active', cea.active_in_cbu, 'primary_contact', cea.primary_contact, 'lei_code', le.lei_code, 'incorporation_country', le.incorporation_country, 'risk_rating', le.risk_rating, 'kyc_status', le.kyc_status)) FILTER (WHERE (le.id IS NOT NULL)) AS associated_entities,
+    count(DISTINCT lea.id) AS total_entities,
+    count(DISTINCT
+        CASE
+            WHEN cea.active_in_cbu THEN lea.id
+            ELSE NULL::integer
+        END) AS active_entities,
+    count(DISTINCT
+        CASE
+            WHEN ((le.entity_type)::text = 'spv'::text) THEN lea.id
+            ELSE NULL::integer
+        END) AS spv_count,
+    count(DISTINCT
+        CASE
+            WHEN ((le.entity_type)::text = 'corporation'::text) THEN lea.id
+            ELSE NULL::integer
+        END) AS corporation_count,
+    count(DISTINCT
+        CASE
+            WHEN ((le.entity_type)::text = 'partnership'::text) THEN lea.id
+            ELSE NULL::integer
+        END) AS partnership_count,
+    count(DISTINCT
+        CASE
+            WHEN (le.regulatory_structure IS NOT NULL) THEN lea.id
+            ELSE NULL::integer
+        END) AS regulated_entities,
+    avg(((le.risk_rating)::text)::integer) FILTER (WHERE ((le.risk_rating)::text ~ '^[0-9]+$'::text)) AS avg_entity_risk,
+    array_agg(DISTINCT le.incorporation_country) FILTER (WHERE (le.incorporation_country IS NOT NULL)) AS jurisdictions,
+    cbu.created_at AS cbu_created_at,
+    cbu.updated_at AS cbu_updated_at
+   FROM ((((client_business_units cbu
+     LEFT JOIN legal_entities pe ON (((pe.entity_id)::text = (cbu.primary_entity_id)::text)))
+     LEFT JOIN cbu_entity_associations cea ON ((cea.cbu_id = cbu.id)))
+     LEFT JOIN legal_entities lea ON ((lea.id = cea.entity_id)))
+     LEFT JOIN legal_entities le ON ((le.id = cea.entity_id)))
+  GROUP BY cbu.id, cbu.cbu_id, cbu.cbu_name, cbu.description, cbu.business_type, cbu.status, pe.entity_id, pe.entity_name, pe.entity_type, pe.legal_form, pe.incorporation_country, pe.lei_code, cbu.created_at, cbu.updated_at;"
+public,cbu_investment_mandate_structure," SELECT cbu.cbu_id,
+    cbu.cbu_name,
+    cbu.business_type,
+    cbu.description AS cbu_description,
+    im.mandate_id,
+    im.asset_owner_name,
+    im.asset_owner_lei,
+    im.investment_manager_name,
+    im.investment_manager_lei,
+    im.base_currency,
+    im.effective_date,
+    im.expiry_date,
+    im.gross_exposure_pct,
+    im.net_exposure_pct,
+    im.leverage_max,
+    im.issuer_concentration_pct,
+    im.country_concentration_pct,
+    im.sector_concentration_pct,
+    count(DISTINCT mi.id) AS total_instruments,
+    count(DISTINCT mi.instrument_family) AS instrument_families,
+    sum(mi.exposure_pct) AS total_exposure_pct,
+    string_agg(DISTINCT (mi.instrument_family)::text, ', '::text ORDER BY (mi.instrument_family)::text) AS families,
+    im.pre_trade_checks_required,
+    im.maker_checker,
+    im.stp_required,
+    im.breach_handling,
+    im.intraday_status,
+    im.matching_model,
+    avg(
+        CASE
+            WHEN ((mi.rating_floor)::text = 'AAA'::text) THEN 1
+            WHEN ((mi.rating_floor)::text = 'AA'::text) THEN 2
+            WHEN ((mi.rating_floor)::text = 'A'::text) THEN 3
+            WHEN ((mi.rating_floor)::text = 'BBB'::text) THEN 4
+            ELSE 5
+        END) AS avg_rating_numeric,
+    count(
+        CASE
+            WHEN mi.short_allowed THEN 1
+            ELSE NULL::integer
+        END) AS instruments_allow_short,
+    im.created_at AS mandate_created_at,
+    im.updated_at AS mandate_updated_at
+   FROM ((client_business_units cbu
+     LEFT JOIN investment_mandates im ON (((im.cbu_id)::text = (cbu.cbu_id)::text)))
+     LEFT JOIN mandate_instruments mi ON (((mi.mandate_id)::text = (im.mandate_id)::text)))
+  GROUP BY cbu.cbu_id, cbu.cbu_name, cbu.business_type, cbu.description, im.mandate_id, im.asset_owner_name, im.asset_owner_lei, im.investment_manager_name, im.investment_manager_lei, im.base_currency, im.effective_date, im.expiry_date, im.gross_exposure_pct, im.net_exposure_pct, im.leverage_max, im.issuer_concentration_pct, im.country_concentration_pct, im.sector_concentration_pct, im.pre_trade_checks_required, im.maker_checker, im.stp_required, im.breach_handling, im.intraday_status, im.matching_model, im.created_at, im.updated_at;"
+public,cbu_member_investment_roles," SELECT cbu.cbu_id,
+    cbu.cbu_name,
+    cm.entity_name,
+    cm.entity_lei,
+    cr.role_name,
+    cr.role_code,
+    cm.has_trading_authority,
+    cm.has_settlement_authority,
+    im.mandate_id,
+        CASE
+            WHEN ((cr.role_code)::text = 'ASSET_OWNER'::text) THEN 'Mandate Owner & Capital Provider'::text
+            WHEN ((cr.role_code)::text = 'INVESTMENT_MANAGER'::text) THEN 'Portfolio Management & Trading'::text
+            WHEN ((cr.role_code)::text = 'CUSTODIAN'::text) THEN 'Asset Safekeeping & Settlement'::text
+            WHEN ((cr.role_code)::text = 'ADMINISTRATOR'::text) THEN 'Fund Administration & Reporting'::text
+            WHEN ((cr.role_code)::text = 'PROCESSOR'::text) THEN 'Payment Processing & Liquidity'::text
+            WHEN ((cr.role_code)::text = 'COMPLIANCE_OFFICER'::text) THEN 'Compliance Monitoring & Risk'::text
+            ELSE 'Other Investment Role'::text
+        END AS investment_responsibility,
+        CASE
+            WHEN ((im.asset_owner_lei)::text = (cm.entity_lei)::text) THEN im.base_currency
+            ELSE NULL::bpchar
+        END AS mandate_currency,
+        CASE
+            WHEN ((im.asset_owner_lei)::text = (cm.entity_lei)::text) THEN im.leverage_max
+            ELSE NULL::numeric
+        END AS leverage_limit,
+        CASE
+            WHEN ((im.investment_manager_lei)::text = (cm.entity_lei)::text) THEN concat(im.gross_exposure_pct, '% gross / ', im.net_exposure_pct, '% net exposure')
+            ELSE NULL::text
+        END AS exposure_limits,
+    cm.is_primary,
+    cm.effective_date AS member_effective_date,
+    cm.notes AS member_notes
+   FROM (((client_business_units cbu
+     JOIN cbu_members cm ON ((cm.cbu_id = cbu.id)))
+     JOIN cbu_roles cr ON ((cr.id = cm.role_id)))
+     LEFT JOIN investment_mandates im ON ((((im.cbu_id)::text = (cbu.cbu_id)::text) AND (((im.asset_owner_lei)::text = (cm.entity_lei)::text) OR ((im.investment_manager_lei)::text = (cm.entity_lei)::text)))))
+  ORDER BY cbu.cbu_id, cm.is_primary DESC, cr.role_code;"
+public,commercial_taxonomy_view," SELECT p.id AS product_id,
+    p.product_name,
+    p.description AS product_description,
+    p.contract_type,
+    p.commercial_status,
+    p.pricing_model,
+    p.target_market,
+    s.id AS service_id,
+    s.service_name,
+    s.description AS service_description,
+    s.service_type,
+    s.delivery_model,
+    s.billable AS service_billable,
+    r.id AS resource_id,
+    r.resource_name,
+    r.description AS resource_description,
+    r.resource_type,
+    r.criticality_level,
+    r.operational_status,
+    count(DISTINCT a.id) AS attribute_count,
+    array_agg(DISTINCT a.attribute_name ORDER BY a.attribute_name) FILTER (WHERE (a.id IS NOT NULL)) AS attributes,
+    psm.mapping_type AS service_inclusion_type,
+    psm.is_mandatory AS service_mandatory,
+    srm.usage_type AS resource_usage_type,
+    srm.dependency_level AS resource_dependency,
+    count(DISTINCT cc.id) AS active_contracts,
+    avg(cc.contract_value) AS avg_contract_value,
+    p.compliance_requirements,
+    r.compliance_classification,
+    r.audit_required,
+    count(DISTINCT
+        CASE
+            WHEN ((r.operational_status)::text = 'active'::text) THEN r.id
+            ELSE NULL::integer
+        END) AS active_resources,
+    count(DISTINCT
+        CASE
+            WHEN ((s.service_type)::text = 'core'::text) THEN s.id
+            ELSE NULL::integer
+        END) AS core_services,
+    p.created_at AS product_created_at,
+    p.updated_at AS product_updated_at
+   FROM ((((((products p
+     LEFT JOIN product_service_mappings psm ON ((psm.product_id = p.id)))
+     LEFT JOIN services s ON ((s.id = psm.service_id)))
+     LEFT JOIN service_resource_mappings srm ON ((srm.service_id = s.id)))
+     LEFT JOIN resource_objects r ON ((r.id = srm.resource_id)))
+     LEFT JOIN attribute_objects a ON ((a.resource_id = r.id)))
+     LEFT JOIN commercial_contracts cc ON (((cc.product_id = p.id) AND ((cc.contract_status)::text = 'active'::text))))
+  GROUP BY p.id, p.product_name, p.description, p.contract_type, p.commercial_status, p.pricing_model, p.target_market, p.compliance_requirements, p.created_at, p.updated_at, s.id, s.service_name, s.description, s.service_type, s.delivery_model, s.billable, r.id, r.resource_name, r.description, r.resource_type, r.criticality_level, r.operational_status, r.compliance_classification, r.audit_required, psm.mapping_type, psm.is_mandatory, srm.usage_type, srm.dependency_level;"
+public,enhanced_attributes_view," SELECT ao.id,
+    ao.resource_id,
+    ao.attribute_name,
+    ao.data_type,
+    ao.description,
+    ao.is_required,
+    ao.min_length,
+    ao.max_length,
+    ao.min_value,
+    ao.max_value,
+    ao.allowed_values,
+    ao.validation_pattern,
+    ao.persistence_system,
+    ao.persistence_entity,
+    ao.persistence_identifier,
+    ao.ui_group,
+    ao.ui_display_order,
+    ao.ui_render_hint,
+    ao.ui_label,
+    ao.ui_help_text,
+    ao.wizard_step,
+    ao.wizard_step_title,
+    ao.wizard_next_button,
+    ao.wizard_previous_button,
+    ao.wizard_description,
+    ao.generation_examples,
+    ao.rules_dsl,
+    ao.created_at,
+    ao.updated_at,
+    ao.semantic_tags,
+    ao.ai_context,
+    ao.embedding_vector,
+    ao.search_keywords,
+    ao.ui_component_type,
+    ao.ui_layout_config,
+    ao.ui_styling,
+    ao.ui_behavior,
+    ao.conditional_logic,
+    ao.relationship_metadata,
+    ao.ai_prompt_templates,
+    ao.form_generation_rules,
+    ao.accessibility_config,
+    ao.responsive_config,
+    ao.data_flow_config,
+    ac.context_name,
+    ac.prompt_template,
+    uct.template_config AS ui_template_config,
+    uct.styling_defaults,
+    uct.behavior_defaults,
+    array_agg(DISTINCT ar_source.relationship_type) FILTER (WHERE (ar_source.relationship_type IS NOT NULL)) AS outgoing_relationships,
+    array_agg(DISTINCT ar_target.relationship_type) FILTER (WHERE (ar_target.relationship_type IS NOT NULL)) AS incoming_relationships,
+    count(DISTINCT ap.id) AS perspective_count
+   FROM (((((attribute_objects ao
+     LEFT JOIN ai_metadata_contexts ac ON (((ac.context_name)::text = 'attribute_discovery'::text)))
+     LEFT JOIN ui_component_templates uct ON (((uct.component_type)::text = (ao.ui_component_type)::text)))
+     LEFT JOIN attribute_relationships ar_source ON ((ar_source.source_attribute_id = ao.id)))
+     LEFT JOIN attribute_relationships ar_target ON ((ar_target.target_attribute_id = ao.id)))
+     LEFT JOIN attribute_perspectives ap ON ((ap.attribute_id = ao.id)))
+  GROUP BY ao.id, ac.context_name, ac.prompt_template, uct.template_config, uct.styling_defaults, uct.behavior_defaults;"
+public,enhanced_commercial_taxonomy_view," SELECT p.id AS product_id,
+    p.product_id AS product_code,
+    p.product_name,
+    p.line_of_business,
+    p.description AS product_description,
+    p.contract_type,
+    p.commercial_status,
+    p.pricing_model AS product_pricing_model,
+    p.target_market,
+    po.id AS option_id,
+    po.option_id AS option_code,
+    po.option_name,
+    po.option_category,
+    po.option_type,
+    po.option_value,
+    po.pricing_impact AS option_pricing_impact,
+    s.id AS service_id,
+    s.service_id AS service_code,
+    s.service_name,
+    s.service_category,
+    s.description AS service_description,
+    s.service_type,
+    s.delivery_model,
+    s.billable AS service_billable,
+    r.id AS resource_id,
+    r.resource_name,
+    r.description AS resource_description,
+    r.resource_type,
+    r.criticality_level,
+    r.operational_status,
+    count(DISTINCT a.id) AS attribute_count,
+    array_agg(DISTINCT a.attribute_name ORDER BY a.attribute_name) FILTER (WHERE (a.id IS NOT NULL)) AS attributes,
+    psm.mapping_type AS service_inclusion_type,
+    psm.is_mandatory AS service_mandatory,
+    posm.mapping_relationship AS option_service_relationship,
+    srm.usage_type AS resource_usage_type,
+    srm.dependency_level AS resource_dependency,
+    count(DISTINCT cc.id) AS active_contracts,
+    avg(cc.contract_value) AS avg_contract_value,
+    count(DISTINCT po.id) AS total_options,
+    count(DISTINCT
+        CASE
+            WHEN ((po.option_type)::text = 'required'::text) THEN po.id
+            ELSE NULL::integer
+        END) AS required_options,
+    count(DISTINCT
+        CASE
+            WHEN ((po.option_type)::text = 'premium'::text) THEN po.id
+            ELSE NULL::integer
+        END) AS premium_options,
+    p.compliance_requirements,
+    po.regulatory_approval_required,
+    r.compliance_classification,
+    r.audit_required,
+    count(DISTINCT
+        CASE
+            WHEN ((r.operational_status)::text = 'active'::text) THEN r.id
+            ELSE NULL::integer
+        END) AS active_resources,
+    count(DISTINCT
+        CASE
+            WHEN ((s.service_type)::text = 'custody'::text) THEN s.id
+            ELSE NULL::integer
+        END) AS custody_services,
+    count(DISTINCT
+        CASE
+            WHEN ((s.service_type)::text = 'reconciliation'::text) THEN s.id
+            ELSE NULL::integer
+        END) AS reconciliation_services,
+    p.created_at AS product_created_at,
+    p.updated_at AS product_updated_at
+   FROM ((((((((products p
+     LEFT JOIN product_options po ON ((po.product_id = p.id)))
+     LEFT JOIN product_option_service_mappings posm ON ((posm.product_option_id = po.id)))
+     LEFT JOIN services s ON ((s.id = posm.service_id)))
+     LEFT JOIN product_service_mappings psm ON (((psm.product_id = p.id) AND (psm.service_id = s.id))))
+     LEFT JOIN service_resource_mappings srm ON ((srm.service_id = s.id)))
+     LEFT JOIN resource_objects r ON ((r.id = srm.resource_id)))
+     LEFT JOIN attribute_objects a ON ((a.resource_id = r.id)))
+     LEFT JOIN commercial_contracts cc ON (((cc.product_id = p.id) AND ((cc.contract_status)::text = 'active'::text))))
+  GROUP BY p.id, p.product_id, p.product_name, p.line_of_business, p.description, p.contract_type, p.commercial_status, p.pricing_model, p.target_market, p.compliance_requirements, p.created_at, p.updated_at, po.id, po.option_id, po.option_name, po.option_category, po.option_type, po.option_value, po.pricing_impact, po.regulatory_approval_required, s.id, s.service_id, s.service_name, s.service_category, s.description, s.service_type, s.delivery_model, s.billable, r.id, r.resource_name, r.description, r.resource_type, r.criticality_level, r.operational_status, r.compliance_classification, r.audit_required, psm.mapping_type, psm.is_mandatory, posm.mapping_relationship, srm.usage_type, srm.dependency_level;"
+public,resource_management_view," SELECT rd.dictionary_name,
+    rd.version AS dictionary_version,
+    ro.id AS resource_id,
+    ro.resource_name,
+    ro.description,
+    ro.version AS resource_version,
+    ro.category,
+    ro.status,
+    ro.ui_layout,
+    count(ao.id) AS total_attributes,
+    count(
+        CASE
+            WHEN ao.is_required THEN 1
+            ELSE NULL::integer
+        END) AS required_attributes,
+    count(
+        CASE
+            WHEN ((ao.attribute_class)::text = 'derived'::text) THEN 1
+            ELSE NULL::integer
+        END) AS derived_attributes,
+    count(
+        CASE
+            WHEN ((ao.attribute_class)::text = 'real'::text) THEN 1
+            ELSE NULL::integer
+        END) AS real_attributes,
+    count(
+        CASE
+            WHEN (ao.extended_description IS NOT NULL) THEN 1
+            ELSE NULL::integer
+        END) AS documented_attributes,
+    round((((count(
+        CASE
+            WHEN (ao.extended_description IS NOT NULL) THEN 1
+            ELSE NULL::integer
+        END))::numeric / (GREATEST(count(ao.id), (1)::bigint))::numeric) * (100)::numeric), 2) AS documentation_percentage,
+    count(
+        CASE
+            WHEN (ao.ui_component_type IS NOT NULL) THEN 1
+            ELSE NULL::integer
+        END) AS ui_configured_attributes,
+    round((((count(
+        CASE
+            WHEN (ao.ui_component_type IS NOT NULL) THEN 1
+            ELSE NULL::integer
+        END))::numeric / (GREATEST(count(ao.id), (1)::bigint))::numeric) * (100)::numeric), 2) AS ui_configuration_percentage,
+    count(
+        CASE
+            WHEN ((ao.semantic_tags IS NOT NULL) AND (ao.semantic_tags <> '[]'::jsonb)) THEN 1
+            ELSE NULL::integer
+        END) AS ai_enhanced_attributes,
+    round((((count(
+        CASE
+            WHEN ((ao.semantic_tags IS NOT NULL) AND (ao.semantic_tags <> '[]'::jsonb)) THEN 1
+            ELSE NULL::integer
+        END))::numeric / (GREATEST(count(ao.id), (1)::bigint))::numeric) * (100)::numeric), 2) AS ai_enhancement_percentage,
+    count(
+        CASE
+            WHEN ((ao.validation_pattern IS NOT NULL) OR (ao.allowed_values IS NOT NULL)) THEN 1
+            ELSE NULL::integer
+        END) AS validated_attributes,
+    array_agg(DISTINCT ao.ui_group ORDER BY ao.ui_group) FILTER (WHERE (ao.ui_group IS NOT NULL)) AS ui_groups,
+    ro.updated_at AS last_modified,
+    max(ao.updated_at) AS last_attribute_change
+   FROM ((resource_dictionaries rd
+     JOIN resource_objects ro ON ((ro.dictionary_id = rd.id)))
+     LEFT JOIN attribute_objects ao ON ((ao.resource_id = ro.id)))
+  GROUP BY rd.id, rd.dictionary_name, rd.version, ro.id, ro.resource_name, ro.description, ro.version, ro.category, ro.status, ro.ui_layout, ro.updated_at;"
+public,service_resources_hierarchy," SELECT s.id AS service_id,
+    s.service_id AS service_code,
+    s.service_name,
+    s.service_category,
+    s.service_type,
+    s.delivery_model,
+    s.billable,
+    s.description AS service_description,
+    s.status AS service_status,
+    ro.id AS resource_id,
+    ro.resource_name,
+    ro.description AS resource_description,
+    ro.version AS resource_version,
+    ro.category AS resource_category,
+    ro.resource_type,
+    ro.criticality_level,
+    ro.operational_status,
+    ro.owner_team,
+    srm.usage_type,
+    srm.resource_role,
+    srm.cost_allocation_percentage,
+    srm.dependency_level,
+    srm.performance_requirements,
+    srm.configuration_parameters
+   FROM ((services s
+     JOIN service_resource_mappings srm ON ((srm.service_id = s.id)))
+     JOIN resource_objects ro ON ((ro.id = srm.resource_id)))
+  WHERE (((s.status)::text = 'active'::text) AND ((ro.status)::text = 'active'::text))
+  ORDER BY s.service_name, srm.dependency_level, ro.resource_name;"
+public,v_attribute_dependencies," SELECT r.rule_id,
+    r.rule_name,
+    (((da.entity_name)::text || '.'::text) || (da.attribute_name)::text) AS target_attribute,
+    array_agg((((ba.entity_name)::text || '.'::text) || (ba.attribute_name)::text) ORDER BY ba.attribute_name) AS source_attributes
+   FROM (((rules r
+     LEFT JOIN derived_attributes da ON ((r.target_attribute_id = da.id)))
+     LEFT JOIN rule_dependencies rd ON ((rd.rule_id = r.id)))
+     LEFT JOIN business_attributes ba ON ((rd.attribute_id = ba.id)))
+  GROUP BY r.id, r.rule_id, r.rule_name, da.entity_name, da.attribute_name;"
+public,v_cbu_members_detail," SELECT cm.id,
+    cbu.cbu_id,
+    cbu.cbu_name,
+    cr.role_code,
+    cr.role_name,
+    cr.role_category,
+    cm.entity_id,
+    cm.entity_name,
+    cm.entity_lei,
+    cm.is_primary,
+    cm.effective_date,
+    cm.expiry_date,
+    cm.contact_email,
+    cm.is_active,
+    cm.has_trading_authority,
+    cm.has_settlement_authority,
+    cm.notes,
+    cm.created_at,
+    cm.updated_at
+   FROM ((cbu_members cm
+     JOIN client_business_units cbu ON ((cm.cbu_id = cbu.id)))
+     JOIN cbu_roles cr ON ((cm.role_id = cr.id)))
+  ORDER BY cbu.cbu_name, cr.display_order, cm.entity_name;"
+public,v_cbu_product_subscriptions," SELECT cbu.cbu_id,
+    cbu.cbu_name,
+    p.product_id,
+    p.product_name,
+    p.line_of_business,
+    cps.subscription_status,
+    cps.subscription_date,
+    cps.activation_date,
+    cr.role_name AS primary_contact_role
+   FROM (((client_business_units cbu
+     JOIN cbu_product_subscriptions cps ON ((cbu.id = cps.cbu_id)))
+     JOIN products p ON ((cps.product_id = p.id)))
+     LEFT JOIN cbu_roles cr ON ((cps.primary_contact_role_id = cr.id)))
+  ORDER BY cbu.cbu_name, p.product_name;"
+public,v_cbu_roles_taxonomy," SELECT cr.id,
+    cr.role_code,
+    cr.role_name,
+    cr.description,
+    cr.role_category,
+    cr.display_order,
+    cr.is_active,
+    count(DISTINCT cm.cbu_id) AS usage_count
+   FROM (cbu_roles cr
+     LEFT JOIN cbu_members cm ON (((cr.id = cm.role_id) AND (cm.is_active = true))))
+  GROUP BY cr.id, cr.role_code, cr.role_name, cr.description, cr.role_category, cr.display_order, cr.is_active
+  ORDER BY cr.role_category, cr.display_order;"
+public,v_cbu_summary," SELECT cbu.id,
+    cbu.cbu_id,
+    cbu.cbu_name,
+    cbu.description,
+    cbu.primary_lei,
+    cbu.domicile_country,
+    cbu.business_type,
+    cbu.status,
+    cbu.created_date,
+    count(DISTINCT cm.id) AS member_count,
+    count(DISTINCT cm.role_id) AS role_count,
+    string_agg(DISTINCT (cr.role_name)::text, ', '::text ORDER BY (cr.role_name)::text) AS roles,
+    cbu.created_at,
+    cbu.updated_at
+   FROM ((client_business_units cbu
+     LEFT JOIN cbu_members cm ON (((cbu.id = cm.cbu_id) AND (cm.is_active = true))))
+     LEFT JOIN cbu_roles cr ON ((cm.role_id = cr.id)))
+  GROUP BY cbu.id;"
+public,v_mandate_summary," SELECT m.mandate_id,
+    m.cbu_id,
+    m.asset_owner_name,
+    m.asset_owner_lei,
+    m.investment_manager_name,
+    m.investment_manager_lei,
+    m.base_currency,
+    m.effective_date,
+    m.expiry_date,
+    count(DISTINCT mi.id) AS instrument_count,
+    count(DISTINCT mb.id) AS benchmark_count,
+    m.created_at,
+    m.updated_at
+   FROM ((investment_mandates m
+     LEFT JOIN mandate_instruments mi ON (((m.mandate_id)::text = (mi.mandate_id)::text)))
+     LEFT JOIN mandate_benchmarks mb ON (((m.mandate_id)::text = (mb.mandate_id)::text)))
+  GROUP BY m.mandate_id;"
+public,v_onboarding_progress," SELECT or_main.request_id,
+    cbu.cbu_name,
+    p.product_name,
+    or_main.request_status,
+    or_main.target_go_live_date,
+    count(ot.id) AS total_tasks,
+    count(
+        CASE
+            WHEN ((ot.task_status)::text = 'completed'::text) THEN 1
+            ELSE NULL::integer
+        END) AS completed_tasks,
+    count(
+        CASE
+            WHEN ((ot.task_status)::text = 'blocked'::text) THEN 1
+            ELSE NULL::integer
+        END) AS blocked_tasks,
+    round((((count(
+        CASE
+            WHEN ((ot.task_status)::text = 'completed'::text) THEN 1
+            ELSE NULL::integer
+        END))::numeric / (NULLIF(count(ot.id), 0))::numeric) * (100)::numeric), 1) AS completion_percentage
+   FROM (((onboarding_requests or_main
+     JOIN client_business_units cbu ON ((or_main.cbu_id = cbu.id)))
+     JOIN products p ON ((or_main.product_id = p.id)))
+     LEFT JOIN onboarding_tasks ot ON ((or_main.id = ot.onboarding_request_id)))
+  GROUP BY or_main.id, or_main.request_id, cbu.cbu_name, p.product_name, or_main.request_status, or_main.target_go_live_date
+  ORDER BY or_main.created_at DESC;"
+public,v_onboarding_task_details," SELECT ort.id AS task_id,
+    ow.workflow_id,
+    cbu.cbu_name,
+    rt.template_name AS resource_template_name,
+    rt.resource_type,
+    rc.capability_name,
+    rc.capability_type,
+    ort.task_order,
+    ort.task_status,
+    ort.assigned_to,
+    ort.started_at,
+    ort.completed_at,
+    ort.estimated_hours,
+    ort.actual_hours,
+    ort.blocking_issues,
+    ort.retry_count,
+    ort.created_at
+   FROM ((((onboarding_resource_tasks ort
+     JOIN onboarding_workflows ow ON ((ort.workflow_id = ow.id)))
+     JOIN client_business_units cbu ON ((ow.cbu_id = cbu.id)))
+     JOIN resource_templates rt ON ((ort.resource_template_id = rt.id)))
+     JOIN resource_capabilities rc ON ((ort.capability_id = rc.id)))
+  ORDER BY ow.workflow_id, ort.task_order;"
+public,v_product_hierarchy," SELECT p.product_id,
+    p.product_name,
+    p.line_of_business,
+    p.status AS product_status,
+    s.service_id,
+    s.service_name,
+    s.service_category,
+    ps.is_required AS service_required,
+    r.resource_id,
+    r.resource_name,
+    r.resource_type,
+    sr.resource_role,
+    sr.priority AS resource_priority
+   FROM ((((products p
+     JOIN product_services ps ON ((p.id = ps.product_id)))
+     JOIN services s ON ((ps.service_id = s.id)))
+     JOIN service_resources sr ON ((s.id = sr.service_id)))
+     JOIN resources r ON ((sr.resource_id = r.id)))
+  WHERE (((p.status)::text = 'active'::text) AND ((s.status)::text = 'active'::text) AND ((r.status)::text = 'active'::text))
+  ORDER BY p.product_name, ps.display_order, sr.priority;"
+public,v_product_service_resource_hierarchy," SELECT p.product_id,
+    p.product_name,
+    p.line_of_business,
+    s.service_id,
+    s.service_name,
+    s.service_category,
+    psm.is_mandatory,
+    psm.delivery_sequence,
+    r.id AS resource_id,
+    r.resource_name,
+    r.resource_type,
+    srm.resource_role,
+    srm.dependency_level AS resource_priority,
+    rt.template_id,
+    rt.template_name,
+    rt.dsl_template
+   FROM (((((products p
+     LEFT JOIN product_service_mappings psm ON ((p.id = psm.product_id)))
+     LEFT JOIN services s ON ((psm.service_id = s.id)))
+     LEFT JOIN service_resource_mappings srm ON ((s.id = srm.service_id)))
+     LEFT JOIN resource_objects r ON ((srm.resource_id = r.id)))
+     LEFT JOIN resource_templates rt ON (((r.resource_type)::text = (rt.resource_type)::text)))
+  WHERE (((p.status)::text = 'active'::text) AND ((s.status IS NULL) OR ((s.status)::text = 'active'::text)) AND ((r.status IS NULL) OR ((r.status)::text = 'active'::text)))
+  ORDER BY p.product_name, psm.delivery_sequence, srm.dependency_level;"
+public,v_resource_provisioning_status," SELECT ow.workflow_id,
+    rt.template_name AS resource_template_name,
+    rt.resource_type,
+    count(ort.*) AS total_capabilities,
+    count(
+        CASE
+            WHEN ((ort.task_status)::text = 'completed'::text) THEN 1
+            ELSE NULL::integer
+        END) AS completed_capabilities,
+    count(
+        CASE
+            WHEN ((ort.task_status)::text = 'failed'::text) THEN 1
+            ELSE NULL::integer
+        END) AS failed_capabilities,
+    ( SELECT rc.capability_name
+           FROM (resource_capabilities rc
+             JOIN onboarding_resource_tasks ort2 ON ((rc.id = ort2.capability_id)))
+          WHERE ((ort2.workflow_id = ow.id) AND ((ort2.task_status)::text = 'in_progress'::text))
+         LIMIT 1) AS current_capability,
+        CASE
+            WHEN (count(
+            CASE
+                WHEN ((ort.task_status)::text = 'failed'::text) THEN 1
+                ELSE NULL::integer
+            END) > 0) THEN 'failed'::text
+            WHEN (count(
+            CASE
+                WHEN ((ort.task_status)::text = 'completed'::text) THEN 1
+                ELSE NULL::integer
+            END) = count(ort.*)) THEN 'completed'::text
+            WHEN (count(
+            CASE
+                WHEN ((ort.task_status)::text = ANY ((ARRAY['in_progress'::character varying, 'completed'::character varying])::text[])) THEN 1
+                ELSE NULL::integer
+            END) > 0) THEN 'in_progress'::text
+            ELSE 'pending'::text
+        END AS provision_status
+   FROM ((onboarding_workflows ow
+     JOIN onboarding_resource_tasks ort ON ((ow.id = ort.workflow_id)))
+     JOIN resource_templates rt ON ((ort.resource_template_id = rt.id)))
+  GROUP BY ow.workflow_id, rt.template_name, rt.resource_type, ow.id
+  ORDER BY ow.workflow_id, rt.template_name;"
+public,v_resource_template_capabilities," SELECT rt.template_id,
+    rt.template_name,
+    rt.part_of_product,
+    rt.implements_service,
+    rc.capability_id,
+    rc.capability_name,
+    rc.capability_type,
+    rc.required_attributes,
+    rc.optional_attributes,
+    rc.output_attributes,
+    rtc.capability_order,
+    rtc.is_required AS capability_required,
+    rtc.configuration_overrides
+   FROM ((resource_templates rt
+     JOIN resource_template_capabilities rtc ON ((rt.id = rtc.template_id)))
+     JOIN resource_capabilities rc ON ((rtc.capability_id = rc.id)))
+  WHERE (((rt.status)::text = 'active'::text) AND ((rc.status)::text = 'active'::text))
+  ORDER BY rt.template_name, rtc.capability_order;"
