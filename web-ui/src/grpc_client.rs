@@ -106,6 +106,98 @@ pub struct AiSuggestion {
     pub applicable_contexts: Vec<String>,
 }
 
+// Product CRUD types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProductRequest {
+    pub product_id: String,
+    pub product_name: String,
+    pub line_of_business: String,
+    pub description: Option<String>,
+    pub contract_type: Option<String>,
+    pub commercial_status: Option<String>,
+    pub pricing_model: Option<String>,
+    pub target_market: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProductResponse {
+    pub success: bool,
+    pub message: String,
+    pub product: Option<ProductDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetProductRequest {
+    pub product_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetProductResponse {
+    pub success: bool,
+    pub message: String,
+    pub product: Option<ProductDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateProductRequest {
+    pub product_id: String,
+    pub product_name: String,
+    pub line_of_business: String,
+    pub description: Option<String>,
+    pub contract_type: Option<String>,
+    pub commercial_status: Option<String>,
+    pub pricing_model: Option<String>,
+    pub target_market: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateProductResponse {
+    pub success: bool,
+    pub message: String,
+    pub product: Option<ProductDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteProductRequest {
+    pub product_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteProductResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProductsRequest {
+    pub status_filter: Option<String>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProductsResponse {
+    pub products: Vec<ProductDetails>,
+    pub total_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductDetails {
+    pub product_id: String,
+    pub product_name: String,
+    pub line_of_business: String,
+    pub description: String,
+    pub contract_type: String,
+    pub commercial_status: String,
+    pub pricing_model: String,
+    pub target_market: String,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct GrpcClient {
     base_url: String,
@@ -367,6 +459,47 @@ impl GrpcClient {
         request: GetEntitiesRequest,
     ) -> Result<GetEntitiesResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetEntities", &request)
+            .await
+    }
+
+    // Product CRUD operations
+    pub async fn create_product(
+        &self,
+        request: CreateProductRequest,
+    ) -> Result<CreateProductResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/CreateProduct", &request)
+            .await
+    }
+
+    pub async fn get_product(
+        &self,
+        request: GetProductRequest,
+    ) -> Result<GetProductResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetProduct", &request)
+            .await
+    }
+
+    pub async fn update_product(
+        &self,
+        request: UpdateProductRequest,
+    ) -> Result<UpdateProductResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/UpdateProduct", &request)
+            .await
+    }
+
+    pub async fn delete_product(
+        &self,
+        request: DeleteProductRequest,
+    ) -> Result<DeleteProductResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/DeleteProduct", &request)
+            .await
+    }
+
+    pub async fn list_products(
+        &self,
+        request: ListProductsRequest,
+    ) -> Result<ListProductsResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ListProducts", &request)
             .await
     }
 }

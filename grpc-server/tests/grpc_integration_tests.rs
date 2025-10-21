@@ -89,7 +89,6 @@ async fn test_get_services() {
 
     let request = GetServicesRequest {
         status_filter: Some("active".to_string()),
-        service_category: None,
         limit: Some(5),
         offset: None,
     };
@@ -101,9 +100,9 @@ async fn test_get_services() {
 
     if !services_response.services.is_empty() {
         let first_service = &services_response.services[0];
-        assert!(!first_service.service_name.is_empty(), "Service name should not be empty");
+        assert!(!first_service.name.is_empty(), "Service name should not be empty");
 
-        println!("✅ First service: {}", first_service.service_name);
+        println!("✅ First service: {}", first_service.name);
     }
 }
 
@@ -112,8 +111,6 @@ async fn test_get_cbu_mandate_structure() {
     let mut client = create_grpc_client().await.expect("Failed to connect to gRPC server");
 
     let request = GetCbuMandateStructureRequest {
-        cbu_id: None,
-        mandate_id: None,
         limit: Some(3),
         offset: None,
     };
@@ -137,8 +134,6 @@ async fn test_get_cbu_member_roles() {
     let mut client = create_grpc_client().await.expect("Failed to connect to gRPC server");
 
     let request = GetCbuMemberRolesRequest {
-        cbu_id: None,
-        role_code: None,
         limit: Some(3),
         offset: None,
     };
@@ -162,8 +157,8 @@ async fn test_get_taxonomy_hierarchy() {
     let mut client = create_grpc_client().await.expect("Failed to connect to gRPC server");
 
     let request = GetTaxonomyHierarchyRequest {
-        max_levels: Some(3),
-        item_type_filter: None,
+        item_type: None,
+        parent_id: None,
     };
 
     let response = client.get_taxonomy_hierarchy(request).await.expect("Failed to get taxonomy hierarchy");
@@ -283,7 +278,6 @@ async fn test_concurrent_requests() {
 
     let services_req = GetServicesRequest {
         status_filter: Some("active".to_string()),
-        service_category: None,
         limit: Some(5),
         offset: None,
     };
@@ -384,7 +378,6 @@ async fn test_end_to_end_data_flow() {
     // 4. Get services
     let services_request = GetServicesRequest {
         status_filter: Some("active".to_string()),
-        service_category: None,
         limit: Some(3),
         offset: None,
     };
@@ -394,8 +387,6 @@ async fn test_end_to_end_data_flow() {
 
     // 5. Get CBU data
     let cbu_request = GetCbuMandateStructureRequest {
-        cbu_id: None,
-        mandate_id: None,
         limit: Some(2),
         offset: None,
     };
@@ -414,9 +405,7 @@ async fn test_keychain_integration() {
     println!("🔑 Testing keychain integration...");
 
     // Test listing stored API keys
-    let list_request = ListApiKeysRequest {
-        client_id: "test-client".to_string(),
-    };
+    let list_request = ListApiKeysRequest {};
     let list_response = client.list_api_keys(list_request).await.expect("Failed to list API keys");
     let list_result = list_response.into_inner();
 
@@ -426,7 +415,6 @@ async fn test_keychain_integration() {
     // Test retrieving Anthropic API key (should exist from previous storage)
     let get_request = GetApiKeyRequest {
         provider: "anthropic".to_string(),
-        client_id: "test-client".to_string(),
     };
     let get_response = client.get_api_key(get_request).await.expect("Failed to get Anthropic API key");
     let get_result = get_response.into_inner();

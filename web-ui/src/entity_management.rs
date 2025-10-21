@@ -813,10 +813,41 @@ impl EntityManagementUI {
         self.loading = false;
     }
 
-    fn load_product_list(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // TODO: Implement actual gRPC call to load Product list
+    fn load_product_list(&mut self, grpc_client: Option<&GrpcClient>) {
         self.loading = true;
-        // For now, load sample data
+
+        if let Some(client) = grpc_client {
+            let request = crate::grpc_client::ListProductsRequest {
+                status_filter: Some("active".to_string()),
+                limit: Some(100),
+                offset: None,
+            };
+
+            // Store the client for async operation
+            let client_clone = client.clone();
+
+            // Use spawn_local for WASM async operation
+            wasm_bindgen_futures::spawn_local(async move {
+                match client_clone.list_products(request).await {
+                    Ok(response) => {
+                        crate::wasm_utils::console_log(&format!("✅ Retrieved {} products from gRPC", response.products.len()));
+                        // TODO: Update UI state with loaded products
+                        // Note: In a real implementation, we'd need a way to communicate back to the UI
+                        // For now, we just log the success
+                    }
+                    Err(e) => {
+                        crate::wasm_utils::console_log(&format!("❌ Error loading products: {:?}", e));
+                    }
+                }
+            });
+
+            // Show a loading message
+            crate::wasm_utils::console_log("📡 Loading products from gRPC server...");
+        } else {
+            crate::wasm_utils::console_log("⚠️ No gRPC client available - using sample data");
+        }
+
+        // For now, still load sample data (until we implement proper state management for async results)
         self.product_list = vec![
             ProductRecord {
                 id: 1,
@@ -899,11 +930,128 @@ impl EntityManagementUI {
         self.load_cbu_list(_grpc_client);
     }
 
-    fn save_product(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // TODO: Implement actual gRPC call to create/update Product
-        self.success_message = Some("Product saved successfully".to_string());
+    fn save_product(&mut self, grpc_client: Option<&GrpcClient>) {
+        if let Some(client) = grpc_client {
+            // Check if this is a new product (empty ID) or an update
+            let is_new_product = self.new_product_form.product_id.is_empty();
+
+            if is_new_product {
+                // Generate a new product ID for new products
+                let product_id = format!("PROD{:03}", self.product_list.len() + 1);
+
+                let request = crate::grpc_client::CreateProductRequest {
+                    product_id: product_id.clone(),
+                    product_name: self.new_product_form.product_name.clone(),
+                    line_of_business: self.new_product_form.line_of_business.clone(),
+                    description: if self.new_product_form.description.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.description.clone())
+                    },
+                    contract_type: if self.new_product_form.contract_type.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.contract_type.clone())
+                    },
+                    commercial_status: if self.new_product_form.commercial_status.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.commercial_status.clone())
+                    },
+                    pricing_model: if self.new_product_form.pricing_model.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.pricing_model.clone())
+                    },
+                    target_market: if self.new_product_form.target_market.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.target_market.clone())
+                    },
+                    status: self.new_product_form.status.clone(),
+                };
+
+                // Store the client for async operation
+                let client_clone = client.clone();
+
+                // Use spawn_local for WASM async operation
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client_clone.create_product(request).await {
+                        Ok(response) => {
+                            if response.success {
+                                crate::wasm_utils::console_log("✅ Product created successfully");
+                            } else {
+                                crate::wasm_utils::console_log(&format!("❌ Failed to create product: {}", response.message));
+                            }
+                        }
+                        Err(e) => {
+                            crate::wasm_utils::console_log(&format!("❌ Error creating product: {:?}", e));
+                        }
+                    }
+                });
+
+                self.success_message = Some("Product creation request sent".to_string());
+            } else {
+                // Update existing product
+                let request = crate::grpc_client::UpdateProductRequest {
+                    product_id: self.new_product_form.product_id.clone(),
+                    product_name: self.new_product_form.product_name.clone(),
+                    line_of_business: self.new_product_form.line_of_business.clone(),
+                    description: if self.new_product_form.description.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.description.clone())
+                    },
+                    contract_type: if self.new_product_form.contract_type.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.contract_type.clone())
+                    },
+                    commercial_status: if self.new_product_form.commercial_status.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.commercial_status.clone())
+                    },
+                    pricing_model: if self.new_product_form.pricing_model.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.pricing_model.clone())
+                    },
+                    target_market: if self.new_product_form.target_market.is_empty() {
+                        None
+                    } else {
+                        Some(self.new_product_form.target_market.clone())
+                    },
+                    status: self.new_product_form.status.clone(),
+                };
+
+                // Store the client for async operation
+                let client_clone = client.clone();
+
+                // Use spawn_local for WASM async operation
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client_clone.update_product(request).await {
+                        Ok(response) => {
+                            if response.success {
+                                crate::wasm_utils::console_log("✅ Product updated successfully");
+                            } else {
+                                crate::wasm_utils::console_log(&format!("❌ Failed to update product: {}", response.message));
+                            }
+                        }
+                        Err(e) => {
+                            crate::wasm_utils::console_log(&format!("❌ Error updating product: {:?}", e));
+                        }
+                    }
+                });
+
+                self.success_message = Some("Product update request sent".to_string());
+            }
+        } else {
+            self.success_message = Some("No gRPC client available - using fallback".to_string());
+        }
+
         self.show_product_form = false;
-        self.load_product_list(_grpc_client);
+        self.load_product_list(grpc_client);
     }
 
     fn edit_product(&mut self, product: &ProductRecord) {

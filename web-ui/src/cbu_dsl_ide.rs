@@ -820,23 +820,14 @@ QUERY CBU WHERE status = 'active'"#
 
         let mut open = self.show_floating_entity_picker;
 
-        // Create window with size persistence
-        let mut window = egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
+        // Create window with minimal constraints - let egui handle sizing naturally
+        let window = egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
             .open(&mut open)
             .resizable(true)
-            .min_width(600.0)
-            .min_height(400.0)
-            .max_width(1200.0)
-            .max_height(800.0);
+            .default_size([800.0, 600.0])
+            .id(egui::Id::new("entity_picker_window")); // Use stable ID for egui's built-in size persistence
 
-        // Set size from stored state or use defaults
-        if let Some(stored_size) = self.entity_picker_window_size {
-            window = window.default_size(stored_size);
-        } else {
-            window = window.default_size([800.0, 600.0]);
-        }
-
-        let response = window.show(ctx, |ui| {
+        let _response = window.show(ctx, |ui| {
                 wasm_utils::console_log(&format!("🎯 Rendering floating entity picker with {} entities available", self.available_entities.len()));
 
                 // Track entity selections to avoid borrowing issues
@@ -913,11 +904,10 @@ QUERY CBU WHERE status = 'active'"#
                     self.entity_filter_jurisdiction, self.entity_filter_type, self.entity_search_name));
                 ui.separator();
 
-                // Large scrollable list of filtered entities with more space
-                // Calculate available height for scroll area (window height minus controls)
-                let available_height = ui.available_height() - 40.0; // Reserve space for bottom controls
+                // Large scrollable list of filtered entities with fixed height
+                // Use fixed height to prevent layout recalculation when content below changes
                 egui::ScrollArea::vertical()
-                    .max_height(available_height.max(200.0)) // Use available height but minimum 200px
+                    .max_height(400.0) // Fixed height to prevent resize issues when selected entities appear
                     .auto_shrink([false, false]) // Don't auto-shrink in either direction
                     .show(ui, |ui| {
                         for entity in &filtered_entities {
@@ -1027,11 +1017,7 @@ QUERY CBU WHERE status = 'active'"#
                 }
         });
 
-        // Capture and store window size after rendering
-        if let Some(response) = response {
-            // Store the current window size for persistence
-            self.entity_picker_window_size = Some(response.response.rect.size());
-        }
+        // Let egui handle window state naturally without manual interference
 
         // Update state if window was closed via X button
         self.show_floating_entity_picker = open;
