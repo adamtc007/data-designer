@@ -914,9 +914,11 @@ QUERY CBU WHERE status = 'active'"#
                 ui.separator();
 
                 // Large scrollable list of filtered entities with more space
+                // Calculate available height for scroll area (window height minus controls)
+                let available_height = ui.available_height() - 40.0; // Reserve space for bottom controls
                 egui::ScrollArea::vertical()
-                    .max_height(500.0) // Fixed reasonable height that allows window resizing
-                    .auto_shrink([false, true]) // Don't auto-shrink, let user control window size
+                    .max_height(available_height.max(200.0)) // Use available height but minimum 200px
+                    .auto_shrink([false, false]) // Don't auto-shrink in either direction
                     .show(ui, |ui| {
                         for entity in &filtered_entities {
                             ui.group(|ui| {
