@@ -38,6 +38,7 @@ pub struct CbuDslIDE {
     // Entity picker state
     show_entity_picker: bool,
     show_floating_entity_picker: bool, // New floating panel state
+    entity_picker_window_size: Option<egui::Vec2>, // Track window size
     entity_filter_jurisdiction: String,
     entity_filter_type: String,
     entity_search_name: String,
@@ -73,6 +74,7 @@ impl CbuDslIDE {
             loading_entities: false,
             show_entity_picker: false,
             show_floating_entity_picker: false,
+            entity_picker_window_size: None,
             entity_filter_jurisdiction: "All".to_string(),
             entity_filter_type: "All".to_string(),
             entity_search_name: String::new(),
@@ -818,16 +820,23 @@ QUERY CBU WHERE status = 'active'"#
 
         let mut open = self.show_floating_entity_picker;
 
-        egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
+        // Create window with size persistence
+        let mut window = egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
             .open(&mut open)
             .resizable(true)
-            .default_width(800.0)
-            .default_height(600.0)
             .min_width(600.0)
             .min_height(400.0)
             .max_width(1200.0)
-            .max_height(800.0)
-            .show(ctx, |ui| {
+            .max_height(800.0);
+
+        // Set size from stored state or use defaults
+        if let Some(stored_size) = self.entity_picker_window_size {
+            window = window.default_size(stored_size);
+        } else {
+            window = window.default_size([800.0, 600.0]);
+        }
+
+        let response = window.show(ctx, |ui| {
                 wasm_utils::console_log(&format!("🎯 Rendering floating entity picker with {} entities available", self.available_entities.len()));
 
                 // Track entity selections to avoid borrowing issues
@@ -1014,7 +1023,13 @@ QUERY CBU WHERE status = 'active'"#
                     self.generate_cbu_dsl_from_selection();
                     self.show_floating_entity_picker = false; // Auto-close after generating DSL
                 }
-            });
+        });
+
+        // Capture and store window size after rendering
+        if let Some(response) = response {
+            // Store the current window size for persistence
+            self.entity_picker_window_size = Some(response.response.rect.size());
+        }
 
         // Update state if window was closed via X button
         self.show_floating_entity_picker = open;
