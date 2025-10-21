@@ -94,7 +94,7 @@ impl GrammarOperations {
         DbOperations::query_one(pool, query).await
     }
 
-    /// Get compact grammar info for Monaco Editor
+    /// Get compact grammar info for syntax highlighting
     pub async fn get_compact_grammar_info(pool: &DbPool) -> Result<CompactGrammarInfo, String> {
         println!("🔍 Starting get_compact_grammar_info...");
 

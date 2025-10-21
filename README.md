@@ -319,6 +319,7 @@ cd web-ui && ./serve-web.sh   # Serve on localhost:8080
 # Testing & Quality
 cargo build                   # Build entire workspace
 cargo test --all             # Run comprehensive test suite (20+ tests)
+./test-web-app.sh            # Test Web-First architecture components
 cargo clippy                 # Code quality checks
 ```
 
