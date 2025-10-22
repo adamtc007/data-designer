@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Json},
+    extract::{Path, Json, State},
     http::StatusCode,
     response::Json as ResponseJson,
     routing::{get, post},
@@ -10,6 +10,10 @@ use std::collections::HashMap;
 use tokio::fs;
 use tracing::{info, error};
 use tower_http::cors::CorsLayer;
+use sqlx::PgPool;
+use data_designer_core::cbu_dsl::CbuDslParser;
+use data_designer_core::lisp_cbu_dsl::LispCbuParser;
+use data_designer_core::dsl_utils;
 
 // Template data structures matching the WASM client
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,11 +45,6 @@ pub struct GetAllTemplatesResponse {
     pub templates: HashMap<String, ResourceTemplate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpsertTemplateResponse {
-    pub success: bool,
-    pub message: String,
-}
 
 // White Truffle HTTP API structures
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +129,7 @@ pub struct AiSuggestion {
 
 const TEMPLATES_FILE_PATH: &str = "../resource_templates.json";
 
-pub fn create_template_router() -> Router {
+pub fn create_template_router(db_pool: PgPool) -> Router {
     Router::new()
         .route("/api/health", get(health_check))
         .route("/api/templates", get(get_all_templates))
@@ -140,7 +139,12 @@ pub fn create_template_router() -> Router {
         // White Truffle HTTP endpoints
         .route("/api/instantiate", post(instantiate_resource_http))
         .route("/api/execute-dsl", post(execute_dsl_http))
+        .route("/api/execute-cbu-dsl", post(execute_cbu_dsl_http))
+        .route("/api/list-cbus", post(list_cbus_http))
         .route("/api/ai-suggestions", post(get_ai_suggestions_http))
+        .route("/api/entities", post(get_entities_http))
+        .route("/api/list-products", post(list_products_http))
+        .with_state(db_pool)
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
 
@@ -194,50 +198,6 @@ async fn get_template(Path(id): Path<String>) -> Result<ResponseJson<ResourceTem
     }
 }
 
-async fn upsert_template(
-    Path(id): Path<String>,
-    Json(template): Json<ResourceTemplate>,
-) -> Result<ResponseJson<UpsertTemplateResponse>, StatusCode> {
-    info!("Upserting template with id: {}", id);
-
-    match load_templates_from_file().await {
-        Ok(mut templates) => {
-            // Update or insert the template
-            let mut updated_template = template;
-            updated_template.id = id.clone(); // Ensure ID matches URL path
-
-            let is_new = !templates.contains_key(&id);
-            templates.insert(id.clone(), updated_template);
-
-            // Save back to file
-            match save_templates_to_file(&templates).await {
-                Ok(_) => {
-                    let message = if is_new {
-                        format!("Template '{}' created successfully", id)
-                    } else {
-                        format!("Template '{}' updated successfully", id)
-                    };
-
-                    info!("{}", message);
-
-                    let response = UpsertTemplateResponse {
-                        success: true,
-                        message,
-                    };
-                    Ok(ResponseJson(response))
-                }
-                Err(e) => {
-                    error!("Failed to save templates: {}", e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to load templates: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
 
 async fn load_templates_from_file() -> Result<HashMap<String, ResourceTemplate>, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(TEMPLATES_FILE_PATH).await?;
@@ -245,31 +205,6 @@ async fn load_templates_from_file() -> Result<HashMap<String, ResourceTemplate>,
     Ok(templates)
 }
 
-async fn save_templates_to_file(templates: &HashMap<String, ResourceTemplate>) -> Result<(), Box<dyn std::error::Error>> {
-    let content = serde_json::to_string_pretty(templates)?;
-    fs::write(TEMPLATES_FILE_PATH, content).await?;
-    Ok(())
-}
-
-// Helper function to create a new template from baseline
-pub async fn create_template_from_baseline(new_id: &str) -> Result<ResourceTemplate, Box<dyn std::error::Error>> {
-    let templates = load_templates_from_file().await?;
-
-    match templates.get("baseline_template") {
-        Some(baseline) => {
-            let new_template = ResourceTemplate {
-                id: new_id.to_string(),
-                description: format!("New template based on baseline: {}", new_id),
-                attributes: baseline.attributes.clone(),
-                dsl: baseline.dsl.clone(),
-            };
-            Ok(new_template)
-        }
-        None => {
-            Err("Baseline template not found".into())
-        }
-    }
-}
 
 // White Truffle HTTP endpoint handlers
 async fn instantiate_resource_http(
@@ -396,6 +331,198 @@ async fn get_ai_suggestions_http(
     Ok(ResponseJson(response))
 }
 
+async fn list_products_http(
+    Json(_request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ListProducts called");
+
+    // For now, return a mock response that simulates the gRPC call
+    let products = vec![
+        serde_json::json!({
+            "product_id": "CUSTODY_001",
+            "product_name": "Institutional Custody",
+            "line_of_business": "custody",
+            "description": "Comprehensive custody services for institutional clients",
+            "status": "active",
+            "contract_type": "Service Agreement",
+            "commercial_status": "Generally Available",
+            "pricing_model": "Asset-based",
+            "target_market": "Institutional"
+        }),
+        serde_json::json!({
+            "product_id": "PRIME_BROKERAGE_001",
+            "product_name": "Prime Brokerage Platform",
+            "line_of_business": "prime_brokerage",
+            "description": "Full-service prime brokerage for hedge funds",
+            "status": "active",
+            "contract_type": "Master Agreement",
+            "commercial_status": "Generally Available",
+            "pricing_model": "Commission-based",
+            "target_market": "Hedge Funds"
+        }),
+        serde_json::json!({
+            "product_id": "FUND_ADMIN_001",
+            "product_name": "Fund Administration",
+            "line_of_business": "fund_administration",
+            "description": "Complete fund administration services",
+            "status": "active",
+            "contract_type": "Service Agreement",
+            "commercial_status": "Generally Available",
+            "pricing_model": "Fixed Fee",
+            "target_market": "Asset Managers"
+        })
+    ];
+
+    let response = serde_json::json!({
+        "products": products,
+        "total_count": products.len()
+    });
+
+    Ok(ResponseJson(response))
+}
+
+async fn execute_cbu_dsl_http(
+    State(pool): State<PgPool>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ExecuteCbuDsl called");
+
+    // Extract the dsl_script from the request
+    let dsl_script = request["dsl_script"].as_str()
+        .unwrap_or("")
+        .to_string();
+
+    if dsl_script.is_empty() {
+        let error_response = serde_json::json!({
+            "success": false,
+            "message": "DSL script is required",
+            "cbu_id": null,
+            "validation_errors": ["DSL script cannot be empty"],
+            "data": null
+        });
+        return Ok(ResponseJson(error_response));
+    }
+
+    info!("Processing DSL script: {}", dsl_script);
+
+    // Try LISP parser first (for S-expression syntax)
+    // Check for LISP syntax: starts with '(' or contains LISP comments ';'
+    let cleaned_dsl = dsl_utils::strip_comments(&dsl_script);
+    let is_lisp_syntax = dsl_script.trim_start().starts_with('(') ||
+                        dsl_script.contains(';') ||
+                        cleaned_dsl.trim_start().starts_with('(');
+
+    if is_lisp_syntax {
+        info!("Detected LISP syntax, using LISP parser");
+        let mut lisp_parser = LispCbuParser::new(Some(pool.clone()));
+
+        match lisp_parser.parse_and_eval(&dsl_script) {
+            Ok(result) => {
+                let response = serde_json::json!({
+                    "success": true,
+                    "message": format!("LISP DSL executed successfully: {}", result.message),
+                    "cbu_id": result.cbu_id,
+                    "validation_errors": [],
+                    "data": result.data
+                });
+                Ok(ResponseJson(response))
+            }
+            Err(e) => {
+                let error_response = serde_json::json!({
+                    "success": false,
+                    "message": format!("LISP Parse failed: {}", e),
+                    "cbu_id": null,
+                    "validation_errors": [e.to_string()],
+                    "data": null
+                });
+                Ok(ResponseJson(error_response))
+            }
+        }
+    } else {
+        // Fallback to original EBNF parser for compatibility
+        info!("Using traditional EBNF parser");
+        let parser = CbuDslParser::new(Some(pool.clone()));
+
+        match parser.parse_cbu_dsl(&dsl_script) {
+            Ok(command) => {
+                match parser.execute_cbu_dsl(command).await {
+                    Ok(result) => {
+                        let response = serde_json::json!({
+                            "success": result.success,
+                            "message": result.message,
+                            "cbu_id": result.cbu_id,
+                            "validation_errors": result.validation_errors,
+                            "data": result.data.map(|d| serde_json::to_string(&d).unwrap_or_default())
+                        });
+                        Ok(ResponseJson(response))
+                    }
+                    Err(e) => {
+                        let error_response = serde_json::json!({
+                            "success": false,
+                            "message": format!("Execution failed: {}", e),
+                            "cbu_id": null,
+                            "validation_errors": [e.to_string()],
+                            "data": null
+                        });
+                        Ok(ResponseJson(error_response))
+                    }
+                }
+            }
+            Err(e) => {
+                let error_response = serde_json::json!({
+                    "success": false,
+                    "message": format!("Parse failed: {}", e),
+                    "cbu_id": null,
+                    "validation_errors": [e.to_string()],
+                    "data": null
+                });
+                Ok(ResponseJson(error_response))
+            }
+        }
+    }
+}
+
+async fn list_cbus_http(
+    Json(_request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ListCbus called");
+
+    // For now, return a mock response that simulates the gRPC call
+    let cbus = vec![
+        serde_json::json!({
+            "id": 1,
+            "cbu_id": "CBU_001",
+            "cbu_name": "Alpha Growth Fund",
+            "description": "Diversified growth-focused investment fund",
+            "legal_entity_name": "Alpha Growth Fund LLC",
+            "jurisdiction": "Delaware",
+            "business_model": "Investment Fund",
+            "status": "active",
+            "created_at": "2024-01-15T10:30:00Z",
+            "updated_at": "2024-10-22T12:00:00Z"
+        }),
+        serde_json::json!({
+            "id": 2,
+            "cbu_id": "CBU_002",
+            "cbu_name": "Beta Conservative Fund",
+            "description": "Conservative fixed-income investment strategy",
+            "legal_entity_name": "Beta Conservative Fund LP",
+            "jurisdiction": "New York",
+            "business_model": "Investment Fund",
+            "status": "active",
+            "created_at": "2024-03-20T14:15:00Z",
+            "updated_at": "2024-10-22T12:00:00Z"
+        })
+    ];
+
+    let response = serde_json::json!({
+        "cbus": cbus,
+        "total_count": cbus.len()
+    });
+
+    Ok(ResponseJson(response))
+}
+
 // Helper modules for HTTP endpoints
 mod uuid {
     pub struct Uuid;
@@ -452,4 +579,48 @@ mod chrono {
             )
         }
     }
+}
+
+async fn get_entities_http(
+    Json(_request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP GetEntities called");
+
+    // For now, return a mock response that simulates the gRPC call
+    let entities = vec![
+        serde_json::json!({
+            "entity_id": "ENT_001",
+            "entity_name": "Alpha Capital Management",
+            "jurisdiction": "Delaware",
+            "entity_type": "Investment Manager",
+            "country_code": "US",
+            "lei_code": "ALPHA123456789012345",
+            "status": "Active"
+        }),
+        serde_json::json!({
+            "entity_id": "ENT_002",
+            "entity_name": "Beta Asset Owners LLC",
+            "jurisdiction": "New York",
+            "entity_type": "Asset Owner",
+            "country_code": "US",
+            "lei_code": "BETA9876543210987654",
+            "status": "Active"
+        }),
+        serde_json::json!({
+            "entity_id": "ENT_003",
+            "entity_name": "Gamma Services Group",
+            "jurisdiction": "Nevada",
+            "entity_type": "Managing Company",
+            "country_code": "US",
+            "lei_code": "GAMMA55555555555555",
+            "status": "Active"
+        })
+    ];
+
+    let response = serde_json::json!({
+        "entities": entities,
+        "total_count": entities.len()
+    });
+
+    Ok(ResponseJson(response))
 }

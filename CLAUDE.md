@@ -25,7 +25,7 @@
 - **gRPC Server**: Financial taxonomy service with Protocol Buffers (`grpc-server/`)
 - **Core Library**: Expression engine with database layer (`data-designer-core/`)
 - **Database**: PostgreSQL with pgvector for semantic similarity
-- **Communication**: gRPC-first (port 50051) with database fallback (hybrid reliability)
+- **Communication**: gRPC-first (port 50051) with HTTP fallback (port 8080) - hybrid reliability with automatic endpoint detection
 - **Key Management**: System keychain with security command fallback
 - **Build System**: Clean Cargo workspace with WASM support
 
@@ -102,6 +102,7 @@ cargo test --all             # Run comprehensive test suite (16+ tests)
 - ✅ **Clean Microservice Architecture** - Zero hardcoded functionality, all data-driven through gRPC APIs
 - ✅ **Deal Record API Framework** - Complete API definitions ready for overarching onboarding state management
 - ✅ **Code Quality** - Cargo clippy integration with zero compilation errors
+- ✅ **HTTP Fallback API** - Complete HTTP endpoints for all gRPC services with automatic fallback
 
 ### AI Features Status
 **🎯 COMPLETE: All 7 AI features successfully implemented and tested with gRPC integration**

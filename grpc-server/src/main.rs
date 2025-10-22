@@ -362,6 +362,59 @@ impl FinancialTaxonomyService for TaxonomyServer {
         }
     }
 
+    async fn get_entities(
+        &self,
+        request: Request<GetEntitiesRequest>,
+    ) -> Result<Response<GetEntitiesResponse>, Status> {
+        let req = request.into_inner();
+        info!("Received GetEntities request");
+
+        // For simplicity, just get all active entities for now
+        // TODO: Add proper filtering based on request parameters
+        let query = r#"
+            SELECT
+                entity_id,
+                entity_name,
+                entity_type,
+                jurisdiction,
+                country_code,
+                lei_code
+            FROM legal_entities
+            WHERE status = 'active'
+            ORDER BY entity_name
+            LIMIT 100
+        "#;
+
+        info!("Executing entity query: {}", query);
+
+        match sqlx::query(query)
+            .fetch_all(&self.db_pool)
+            .await
+        {
+            Ok(rows) => {
+                let entities: Vec<EntityInfo> = rows
+                    .iter()
+                    .map(|row| EntityInfo {
+                        entity_id: row.get("entity_id"),
+                        entity_name: row.get("entity_name"),
+                        entity_type: row.get("entity_type"),
+                        jurisdiction: row.get("jurisdiction"),
+                        country_code: row.get("country_code"),
+                        lei_code: row.get("lei_code"),
+                    })
+                    .collect();
+
+                info!("Retrieved {} entities", entities.len());
+
+                Ok(Response::new(GetEntitiesResponse { entities }))
+            }
+            Err(e) => {
+                error!("Database error in get_entities: {}", e);
+                Err(Status::internal(format!("Database error: {}", e)))
+            }
+        }
+    }
+
     async fn get_cbu_mandate_structure(
         &self,
         request: Request<GetCbuMandateStructureRequest>,
@@ -1554,10 +1607,80 @@ impl FinancialTaxonomyService for TaxonomyServer {
 
     async fn list_products(
         &self,
-        _request: Request<ListProductsRequest>,
+        request: Request<ListProductsRequest>,
     ) -> Result<Response<ListProductsResponse>, Status> {
-        // TODO: Implement products listing
-        Err(Status::unimplemented("list_products not yet implemented"))
+        let req = request.into_inner();
+        info!("Received ListProducts request with status filter: {:?}", req.status_filter);
+
+        let status_filter = req.status_filter.unwrap_or_else(|| "active".to_string());
+        let limit = req.limit.unwrap_or(100) as i64;
+        let offset = req.offset.unwrap_or(0) as i64;
+
+        // Build query with optional line_of_business filter
+        let mut query = r#"
+            SELECT id, product_id, product_name, line_of_business, description, status,
+                   contract_type, commercial_status, pricing_model, target_market,
+                   created_at, updated_at
+            FROM products
+            WHERE status = $1
+        "#.to_string();
+
+        let mut param_count = 1;
+        if req.line_of_business_filter.is_some() {
+            param_count += 1;
+            query.push_str(&format!(" AND line_of_business = ${}", param_count));
+        }
+
+        query.push_str(" ORDER BY product_name");
+        query.push_str(&format!(" LIMIT ${} OFFSET ${}", param_count + 1, param_count + 2));
+
+        let mut query_builder = sqlx::query(&query).bind(&status_filter);
+
+        if let Some(lob_filter) = &req.line_of_business_filter {
+            query_builder = query_builder.bind(lob_filter);
+        }
+
+        query_builder = query_builder.bind(limit).bind(offset);
+
+        match query_builder.fetch_all(&self.pool).await {
+            Ok(rows) => {
+                let products: Vec<ProductDetails> = rows.into_iter().map(|row| {
+                    ProductDetails {
+                        id: row.get::<i32, _>("id"),
+                        product_id: row.get("product_id"),
+                        product_name: row.get("product_name"),
+                        line_of_business: row.get("line_of_business"),
+                        description: row.get::<Option<String>, _>("description"),
+                        contract_type: row.get::<Option<String>, _>("contract_type"),
+                        commercial_status: row.get::<Option<String>, _>("commercial_status"),
+                        pricing_model: row.get::<Option<String>, _>("pricing_model"),
+                        target_market: row.get::<Option<String>, _>("target_market"),
+                        status: row.get("status"),
+                        created_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("created_at")
+                            .map(|dt| prost_types::Timestamp {
+                                seconds: dt.timestamp(),
+                                nanos: dt.timestamp_subsec_nanos() as i32,
+                            }),
+                        updated_at: row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("updated_at")
+                            .map(|dt| prost_types::Timestamp {
+                                seconds: dt.timestamp(),
+                                nanos: dt.timestamp_subsec_nanos() as i32,
+                            }),
+                    }
+                }).collect();
+
+                let total_count = products.len() as i32; // Simplified count
+
+                Ok(Response::new(ListProductsResponse {
+                    products,
+                    total_count,
+                }))
+            }
+            Err(e) => {
+                error!("Database error in list_products: {}", e);
+                Err(Status::internal(format!("Database error: {}", e)))
+            }
+        }
     }
 
     async fn create_service(
@@ -1738,42 +1861,81 @@ impl FinancialTaxonomyService for TaxonomyServer {
         let req = request.into_inner();
         info!("Executing CBU DSL: {}", req.dsl_script);
 
-        let parser = CbuDslParser::new(Some(self.pool.clone()));
+        // Auto-detect LISP vs EBNF syntax and use appropriate parser
+        use data_designer_core::dsl_utils;
+        use data_designer_core::lisp_cbu_dsl::LispCbuParser;
+        use data_designer_core::cbu_dsl::CbuDslParser;
 
-        match parser.parse_cbu_dsl(&req.dsl_script) {
-            Ok(command) => {
-                match parser.execute_cbu_dsl(command).await {
-                    Ok(result) => {
-                        let response = ExecuteCbuDslResponse {
-                            success: result.success,
-                            message: result.message,
-                            cbu_id: result.cbu_id,
-                            validation_errors: result.validation_errors,
-                            data: result.data.map(|d| serde_json::to_string(&d).unwrap_or_default()),
-                        };
-                        Ok(Response::new(response))
-                    }
-                    Err(e) => {
-                        let response = ExecuteCbuDslResponse {
-                            success: false,
-                            message: format!("Execution failed: {}", e),
-                            cbu_id: None,
-                            validation_errors: vec![e.to_string()],
-                            data: None,
-                        };
-                        Ok(Response::new(response))
-                    }
+        let cleaned_dsl = dsl_utils::strip_comments(&req.dsl_script);
+        let is_lisp_syntax = req.dsl_script.trim_start().starts_with('(') ||
+                            req.dsl_script.contains(';') ||
+                            cleaned_dsl.trim_start().starts_with('(');
+
+        if is_lisp_syntax {
+            info!("Detected LISP syntax, using LISP parser");
+            let mut lisp_parser = LispCbuParser::new(Some(self.pool.clone()));
+
+            match lisp_parser.parse_and_eval(&req.dsl_script) {
+                Ok(result) => {
+                    let response = ExecuteCbuDslResponse {
+                        success: result.success,
+                        message: result.message,
+                        cbu_id: result.cbu_id,
+                        validation_errors: result.errors,
+                        data: result.data.map(|d| serde_json::to_string(&d).unwrap_or_default()),
+                    };
+                    Ok(Response::new(response))
+                }
+                Err(e) => {
+                    let response = ExecuteCbuDslResponse {
+                        success: false,
+                        message: format!("LISP Parse failed: {}", e),
+                        cbu_id: None,
+                        validation_errors: vec![e.to_string()],
+                        data: None,
+                    };
+                    Ok(Response::new(response))
                 }
             }
-            Err(e) => {
-                let response = ExecuteCbuDslResponse {
-                    success: false,
-                    message: format!("Parse failed: {}", e),
-                    cbu_id: None,
-                    validation_errors: vec![e.to_string()],
-                    data: None,
-                };
-                Ok(Response::new(response))
+        } else {
+            info!("Detected EBNF syntax, using EBNF parser");
+            let parser = CbuDslParser::new(Some(self.pool.clone()));
+
+            match parser.parse_cbu_dsl(&req.dsl_script) {
+                Ok(command) => {
+                    match parser.execute_cbu_dsl(command).await {
+                        Ok(result) => {
+                            let response = ExecuteCbuDslResponse {
+                                success: result.success,
+                                message: result.message,
+                                cbu_id: result.cbu_id,
+                                validation_errors: result.validation_errors,
+                                data: result.data.map(|d| serde_json::to_string(&d).unwrap_or_default()),
+                            };
+                            Ok(Response::new(response))
+                        }
+                        Err(e) => {
+                            let response = ExecuteCbuDslResponse {
+                                success: false,
+                                message: format!("Execution failed: {}", e),
+                                cbu_id: None,
+                                validation_errors: vec![e.to_string()],
+                                data: None,
+                            };
+                            Ok(Response::new(response))
+                        }
+                    }
+                }
+                Err(e) => {
+                    let response = ExecuteCbuDslResponse {
+                        success: false,
+                        message: format!("Parse failed: {}", e),
+                        cbu_id: None,
+                        validation_errors: vec![e.to_string()],
+                        data: None,
+                    };
+                    Ok(Response::new(response))
+                }
             }
         }
     }
@@ -1996,7 +2158,7 @@ impl SimpleAiAssistant {
         };
 
         // Enhance with capability-aware suggestions if database is available
-        if let Some(pool) = &self.pool {
+        if let Some(_pool) = &self.pool {
             let mut rag_suggestions = self.get_rag_suggestions(query, 5).await;
             suggestions.append(&mut rag_suggestions);
         }
@@ -2489,10 +2651,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Database connection established");
 
     // Create gRPC service
-    let taxonomy_service = TaxonomyServer::new(db_pool);
+    let taxonomy_service = TaxonomyServer::new(db_pool.clone());
 
     // Create HTTP template API router
-    let template_router = template_api::create_template_router();
+    let template_router = template_api::create_template_router(db_pool);
 
     // Server addresses
     let grpc_addr = "0.0.0.0:50051".parse::<std::net::SocketAddr>()?;
