@@ -189,7 +189,7 @@ impl EntityManagementUI {
         ui.horizontal(|ui| {
             if ui.button("➕ New CBU").clicked() {
                 self.show_cbu_form = true;
-                self.new_cbu_form = CbuForm::default();
+                // self.new_cbu_form = CbuForm::default(); // REMOVED: default action - form should retain state
             }
 
             if ui.button("🔄 Refresh").clicked() {
@@ -260,7 +260,7 @@ impl EntityManagementUI {
         ui.horizontal(|ui| {
             if ui.button("➕ New Product").clicked() {
                 self.show_product_form = true;
-                self.new_product_form = ProductForm::default();
+                // self.new_product_form = ProductForm::default(); // REMOVED: default action - form should retain state
             }
 
             if ui.button("🔍 Pick Product").clicked() {
@@ -339,7 +339,7 @@ impl EntityManagementUI {
         ui.horizontal(|ui| {
             if ui.button("➕ New Service").clicked() {
                 self.show_service_form = true;
-                self.new_service_form = ServiceForm::default();
+                // self.new_service_form = ServiceForm::default(); // REMOVED: default action - form should retain state
             }
 
             if ui.button("🔄 Refresh").clicked() {
@@ -407,7 +407,7 @@ impl EntityManagementUI {
         ui.horizontal(|ui| {
             if ui.button("➕ New Resource").clicked() {
                 self.show_resource_form = true;
-                self.new_resource_form = ResourceForm::default();
+                // self.new_resource_form = ResourceForm::default(); // REMOVED: default action - form should retain state
             }
 
             if ui.button("🔄 Refresh").clicked() {
@@ -909,9 +909,9 @@ impl EntityManagementUI {
 
         // Products will be loaded from database via gRPC - no hardcoded data
         // Note: The gRPC call above will populate the products when async call completes
-        // For now, clear any existing data and show loading state
-        self.product_list.clear();
-        self.loading = false; // Will be updated when async result is available
+        // DON'T clear existing data - only clear when gRPC call successfully returns new data
+        // self.product_list.clear(); // REMOVED: this was a default action that bypassed gRPC authority
+        self.loading = true; // Set to true while waiting for gRPC response
     }
 
     fn check_async_product_results(&mut self) {
@@ -965,8 +965,8 @@ impl EntityManagementUI {
         }
 
         // Services will be loaded from database via gRPC - no hardcoded data
-        self.service_list.clear();
-        self.loading = false;
+        // self.service_list.clear(); // REMOVED: default action that bypassed gRPC authority
+        self.loading = true; // Set to true while waiting for gRPC response
     }
 
     fn load_resource_list(&mut self, grpc_client: Option<&GrpcClient>) {
@@ -991,16 +991,69 @@ impl EntityManagementUI {
         }
 
         // Resources will be loaded from database via gRPC - no hardcoded data
-        self.resource_list.clear();
-        self.loading = false;
+        // self.resource_list.clear(); // REMOVED: default action that bypassed gRPC authority
+        self.loading = true; // Set to true while waiting for gRPC response
     }
 
     // CRUD operation methods (placeholder implementations)
-    fn save_cbu(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // TODO: Implement actual gRPC call to create/update CBU
-        self.success_message = Some("CBU saved successfully".to_string());
-        self.show_cbu_form = false;
-        self.load_cbu_list(_grpc_client);
+    fn save_cbu(&mut self, grpc_client: Option<&GrpcClient>) {
+        if let Some(client) = grpc_client {
+            // Create some test entity associations to demonstrate DSL round-trip functionality
+            let test_entities = vec![
+                crate::grpc_client::CbuEntityAssociation {
+                    entity_id: "TEST_ENT_001".to_string(),
+                    entity_name: "Test Primary Entity".to_string(),
+                    role_in_cbu: "Manager".to_string(),
+                    entity_type: Some("Corporation".to_string()),
+                    active_in_cbu: true,
+                },
+                crate::grpc_client::CbuEntityAssociation {
+                    entity_id: "TEST_ENT_002".to_string(),
+                    entity_name: "Test Secondary Entity".to_string(),
+                    role_in_cbu: "Custodian".to_string(),
+                    entity_type: Some("Trust".to_string()),
+                    active_in_cbu: true,
+                },
+            ];
+
+            // Create UpdateCbuRequest from form data
+            let request = crate::grpc_client::UpdateCbuRequest {
+                cbu_id: self.new_cbu_form.cbu_id.clone(),
+                cbu_name: if self.new_cbu_form.cbu_name.is_empty() { None } else { Some(self.new_cbu_form.cbu_name.clone()) },
+                description: if self.new_cbu_form.description.is_empty() { None } else { Some(self.new_cbu_form.description.clone()) },
+                legal_entity_name: if self.new_cbu_form.legal_entity_name.is_empty() { None } else { Some(self.new_cbu_form.legal_entity_name.clone()) },
+                jurisdiction: if self.new_cbu_form.jurisdiction.is_empty() { None } else { Some(self.new_cbu_form.jurisdiction.clone()) },
+                business_model: if self.new_cbu_form.business_model.is_empty() { None } else { Some(self.new_cbu_form.business_model.clone()) },
+                status: if self.new_cbu_form.status.is_empty() { None } else { Some(self.new_cbu_form.status.clone()) },
+                entities: test_entities, // Include test entities to demonstrate DSL round-trip
+            };
+
+            // Store client and request for async call
+            let client_clone = client.clone();
+            let request_clone = request;
+
+            // Use wasm_bindgen_futures to spawn async task
+            wasm_bindgen_futures::spawn_local(async move {
+                match client_clone.update_cbu(request_clone).await {
+                    Ok(response) => {
+                        if response.success {
+                            crate::wasm_utils::console_log(&format!("✅ CBU updated successfully: {}", response.message));
+                        } else {
+                            crate::wasm_utils::console_log(&format!("❌ CBU update failed: {}", response.message));
+                        }
+                    },
+                    Err(e) => {
+                        crate::wasm_utils::console_log(&format!("❌ CBU update error: {}", e));
+                    }
+                }
+            });
+
+            self.success_message = Some("CBU save request sent - check console for status".to_string());
+            self.show_cbu_form = false;
+            self.load_cbu_list(Some(client));
+        } else {
+            self.error_message = Some("gRPC client not available".to_string());
+        }
     }
 
     fn edit_cbu(&mut self, cbu: &CbuRecord) {

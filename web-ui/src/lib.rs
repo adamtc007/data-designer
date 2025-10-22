@@ -13,6 +13,8 @@ mod data_designer;
 mod entity_management;
 mod cbu_dsl_ide;
 mod dsl_syntax_highlighter;
+mod dsl_state_manager;
+mod call_tracer;
 
 
 /// This is the entry-point for all the web-assembly.

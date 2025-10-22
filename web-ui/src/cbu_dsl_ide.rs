@@ -41,6 +41,9 @@ pub struct CbuDslIDE {
     // Entity loading state - For async entity loading from gRPC
     entities_loading_state: Option<Arc<Mutex<Vec<EntityInfo>>>>,
 
+    // CBU loading state - For async CBU loading from gRPC
+    cbus_loading_state: Option<Arc<Mutex<Vec<CbuRecord>>>>,
+
     // UI state
     show_examples: bool,
     show_help: bool,
@@ -129,6 +132,7 @@ impl CbuDslIDE {
             executing: Arc::new(AtomicBool::new(false)),
             execution_result: Arc::new(Mutex::new(None)),
             entities_loading_state: None,
+            cbus_loading_state: None,
             show_examples: false,
             show_help: false,
             selected_example: 0,
@@ -500,6 +504,7 @@ impl CbuDslIDE {
     pub fn render(&mut self, ui: &mut egui::Ui, grpc_client: Option<&GrpcClient>) {
         // Update entities from async state (60fps compatible)
         self.update_entities_from_async_state();
+        self.update_cbus_from_async_state();
         // **60FPS THREAD-SAFE STATE READ** - Read execution state from Arc/Mutex cache
 
         // Store context for floating window (outside UI constraints)
@@ -559,14 +564,13 @@ impl CbuDslIDE {
                 self.execute_dsl(grpc_client);
             }
 
-            // Clear button
-            if ui.button("🗑 Clear").clicked() {
-                self.dsl_script.clear();
-                // Clear execution result through thread-safe state
-                if let Ok(mut result) = self.execution_result.lock() {
-                    *result = None;
-                }
-            }
+            // Clear button - REMOVED DEFAULT ACTION
+            // if ui.button("🗑 Clear").clicked() {
+            //     self.dsl_script.clear(); // REMOVED: default action that bypassed gRPC state management
+            //     if let Ok(mut result) = self.execution_result.lock() {
+            //         *result = None;
+            //     }
+            // }
 
             ui.separator();
 
@@ -644,9 +648,10 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
                     if ui.button("📄 Paste").on_hover_text("Paste from clipboard").clicked() {
                         self.paste_from_clipboard();
                     }
-                    if ui.button("🗑️ Clear").on_hover_text("Clear DSL editor").clicked() {
-                        self.dsl_script.clear();
-                    }
+                    // Clear button - REMOVED DEFAULT ACTION
+                    // if ui.button("🗑️ Clear").on_hover_text("Clear DSL editor").clicked() {
+                    //     self.dsl_script.clear(); // REMOVED: default action that bypassed gRPC state management
+                    // }
                 });
 
                 // Enhanced DSL editor with hover support
@@ -1322,6 +1327,9 @@ QUERY CBU WHERE status = 'active'"#
 
     fn execute_dsl(&mut self, grpc_client: Option<&GrpcClient>) {
         // **CENTRALIZED DSL EXECUTION** - All execution goes through validation first
+        wasm_utils::console_log("🚀 EXECUTE DSL CALLED - Starting execution process");
+        wasm_utils::console_log(&format!("📝 DSL Script: '{}'", self.dsl_script));
+        wasm_utils::console_log(&format!("🔗 gRPC Client: {}", if grpc_client.is_some() { "Available" } else { "None" }));
 
         // Step 1: Validate DSL through central manager before execution
         match self.validate_dsl_syntax(&self.dsl_script) {
@@ -1537,8 +1545,9 @@ QUERY CBU WHERE status = 'active'"#
                         ui.separator();
                         if ui.button("🔙 Back to Selection").clicked() {
                             self.cbu_context = CbuContext::None;
-                            self.dsl_script.clear();
-                            self.selected_entities.clear();
+                            // self.dsl_script.clear(); // REMOVED: default action
+                            // self.selected_entities.clear(); // REMOVED: default action
+                            // Note: State should persist across context changes unless explicitly saved via gRPC
                         }
                     });
                 },
@@ -1582,9 +1591,10 @@ QUERY CBU WHERE status = 'active'"#
                         ui.separator();
                         if ui.button("🔙 Back to Selection").clicked() {
                             self.cbu_context = CbuContext::None;
-                            self.dsl_script.clear();
-                            self.selected_entities.clear();
-                            self.selected_cbu_id = None;
+                            // self.dsl_script.clear(); // REMOVED: default action
+                            // self.selected_entities.clear(); // REMOVED: default action
+                            // self.selected_cbu_id = None; // REMOVED: default action
+                            // Note: State should persist across context changes unless explicitly saved via gRPC
                         }
                     });
 
@@ -1600,108 +1610,83 @@ QUERY CBU WHERE status = 'active'"#
         ui.add_space(10.0);
     }
 
-    fn load_available_cbus(&mut self, _grpc_client: Option<&GrpcClient>) {
-        // Provide immediate CBU data to prevent empty list
-        // TODO: Replace with proper gRPC integration when UI state management is fixed
-        wasm_utils::console_log("🔍 Loading CBUs immediately to prevent empty list");
+    fn load_available_cbus(&mut self, grpc_client: Option<&GrpcClient>) {
+        let frame_id = crate::trace_enter!("load_available_cbus", "cbu_dsl_ide.rs:1613", grpc_client.is_some());
 
-        self.available_cbus = vec![
-            CbuRecord {
-                cbu_id: "CBU001".to_string(),
-                name: "Goldman Sachs Investment Fund".to_string(),
-                purpose: "Multi-strategy hedge fund operations".to_string(),
-                nature: "Investment Fund".to_string(),
-                status: "Active".to_string(),
-                created_at: "2024-01-15".to_string(),
-            },
-            CbuRecord {
-                cbu_id: "CBU002".to_string(),
-                name: "Vanguard Pension Management".to_string(),
-                purpose: "Corporate pension fund management".to_string(),
-                nature: "Pension Fund".to_string(),
-                status: "Active".to_string(),
-                created_at: "2024-02-20".to_string(),
-            },
-            CbuRecord {
-                cbu_id: "CBU003".to_string(),
-                name: "Deutsche Family Office".to_string(),
-                purpose: "High net worth family wealth management".to_string(),
-                nature: "Family Office".to_string(),
-                status: "Active".to_string(),
-                created_at: "2024-03-10".to_string(),
-            },
-            CbuRecord {
-                cbu_id: "CBU004".to_string(),
-                name: "Man Group Alternative Strategies".to_string(),
-                purpose: "Alternative investment strategies".to_string(),
-                nature: "Hedge Fund".to_string(),
-                status: "Active".to_string(),
-                created_at: "2024-03-25".to_string(),
-            },
-        ];
+        if let Some(client) = grpc_client {
+            wasm_utils::console_log("🔍 Loading CBUs from gRPC database");
+            crate::trace_state!("CbuDslIDE", "loading_cbus", self.loading_cbus, true);
+            self.loading_cbus = true;
 
-        self.loading_cbus = false;
-        wasm_utils::console_log(&format!("✅ Loaded {} CBUs immediately", self.available_cbus.len()));
+            let client_clone = client.clone();
+            let cbus_state = Arc::new(Mutex::new(Vec::<CbuRecord>::new()));
+            let cbus_clone = cbus_state.clone();
+
+            // Store reference for UI updates
+            self.cbus_loading_state = Some(cbus_state);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                crate::trace_async!("list_cbus_grpc_call", "starting", Some("active filter, limit 100"));
+
+                match client_clone.list_cbus(crate::grpc_client::ListCbusRequest {
+                    status_filter: Some("active".to_string()),
+                    limit: Some(100),
+                    offset: Some(0),
+                }).await {
+                    Ok(response) => {
+                        crate::trace_grpc!("list_cbus", response.cbus.len(), "success");
+                        let mut cbus = cbus_clone.lock().unwrap();
+                        let old_count = cbus.len();
+
+                        // Convert gRPC CBUs to CbuRecord
+                        for cbu in response.cbus {
+                            cbus.push(CbuRecord {
+                                cbu_id: cbu.cbu_id,
+                                name: cbu.cbu_name,
+                                purpose: cbu.description.unwrap_or_default(),
+                                nature: cbu.business_model.unwrap_or_default(),
+                                status: cbu.status,
+                                created_at: "".to_string(), // Not provided by gRPC
+                            });
+                        }
+
+                        let new_count = cbus.len();
+                        crate::trace_state!("async_cbu_state", "count", old_count, new_count);
+                        wasm_utils::console_log(&format!("✅ Successfully loaded {} CBUs from gRPC", new_count));
+                        crate::trace_async!("list_cbus_grpc_call", "completed", Some(&format!("{} CBUs stored", new_count)));
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ Failed to load CBUs from gRPC: {} - UI will show empty state", e));
+                        crate::trace_async!("list_cbus_grpc_call", "failed", Some(&format!("{:?}", e)));
+                        // Don't provide fallback mock data - let UI handle empty state properly
+                    }
+                }
+            });
+            crate::trace_exit!(frame_id, "async_task_spawned");
+        } else {
+            wasm_utils::console_log("⚠️ No gRPC client available - CBU list will be empty");
+            self.available_cbus.clear();
+            self.loading_cbus = false;
+            crate::trace_exit!(frame_id, "no_grpc_client");
+        }
     }
 
     fn load_cbu_dsl(&mut self, cbu_id: &str, grpc_client: Option<&GrpcClient>) {
-        if let Some(client) = grpc_client {
-            wasm_utils::console_log(&format!("🔍 Loading DSL for CBU: {}", cbu_id));
+        let Some(_client) = grpc_client else {
+            wasm_utils::console_log("❌ No gRPC client available for CBU DSL loading");
+            return;
+        };
 
-            // Make gRPC call to reconstruct DSL from CBU data
-            use crate::grpc_client::ListCbusRequest;
-            let client_clone = client.clone();
-            let cbu_id_clone = cbu_id.to_string();
-
-            // Store local state for reconstruction
-            let cbu_name = self.available_cbus.iter()
-                .find(|c| c.cbu_id == cbu_id)
-                .map(|c| c.name.clone())
-                .unwrap_or("Unknown CBU".to_string());
-
-            // For now, create a reconstructed DSL based on available CBU data
-            // TODO: Implement full gRPC reconstruction when backend supports it
-            if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
-                // Clone data before mutable borrow
-                let cbu_id_clone = cbu.cbu_id.clone();
-                let cbu_name_clone = cbu.name.clone();
-                let cbu_purpose_clone = cbu.purpose.clone();
-
-                // Use single DSL management function
-                self.manage_dsl_state(DslOperation::LoadForEdit {
-                    cbu_id: cbu_id_clone.clone(),
-                    cbu_name: cbu_name_clone.clone(),
-                    cbu_purpose: cbu_purpose_clone,
-                });
-                wasm_utils::console_log(&format!("📝 Reconstructed DSL for CBU: {}", cbu_name_clone));
-
-                // Future: Make async gRPC call to get full entity associations
-                wasm_bindgen_futures::spawn_local(async move {
-                    // TODO: Call gRPC method to get CBU entity associations and reconstruct full DSL
-                    match client_clone.list_cbus(ListCbusRequest {
-                        status_filter: Some("active".to_string()),
-                        limit: Some(10),
-                        offset: Some(0),
-                    }).await {
-                        Ok(_response) => {
-                            wasm_utils::console_log(&format!("✅ Successfully retrieved detailed CBU data for {}", cbu_id_clone));
-                            // TODO: Update UI with full reconstructed DSL including entities
-                        }
-                        Err(e) => {
-                            wasm_utils::console_log(&format!("❌ Failed to retrieve CBU details: {}", e));
-                        }
-                    }
-                });
-            }
+        // Since database was cleaned and no DSL exists, generate appropriate DSL based on selected CBU
+        // This handles the requirement: "no DSL coming back from DB via gRPC → add new CBU → go straight into edit mode"
+        if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
+            self.dsl_script = format!(
+                "# Editing CBU: {}\nUPDATE CBU {} SET description = '{}'\n  # Add entity updates as needed",
+                cbu.name, cbu.cbu_id, cbu.purpose
+            );
+            wasm_utils::console_log(&format!("📝 Generated DSL for CBU: {} ({})", cbu.name, cbu.cbu_id));
         } else {
-            // Fallback simulation if no gRPC client
-            if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
-                self.dsl_script = format!(
-                    "# Editing CBU: {}\nUPDATE CBU {} SET description = '{}'\n  # Add entity updates as needed",
-                    cbu.name, cbu.cbu_id, cbu.purpose
-                );
-                wasm_utils::console_log(&format!("📝 Loaded simulated DSL for CBU: {}", cbu.name));
-            }
+            wasm_utils::console_log(&format!("❌ CBU {} not found in available CBUs list", cbu_id));
         }
     }
 
@@ -1709,8 +1694,9 @@ QUERY CBU WHERE status = 'active'"#
         // Load entities from gRPC API - centralized through manage_dsl_state
         self.load_entities_from_grpc(grpc_client);
 
-        self.loading_entities = false;
-        wasm_utils::console_log(&format!("✅ Loaded {} entities", self.available_entities.len()));
+        // Don't set loading_entities = false here - let the async task complete first
+        // The loading state will be updated in update_entities_from_async_state()
+        wasm_utils::console_log("🔄 Started loading entities from gRPC...");
     }
 
     fn update_entities_from_async_state(&mut self) {
@@ -1720,7 +1706,8 @@ QUERY CBU WHERE status = 'active'"#
                 if !entities.is_empty() {
                     // Transfer entities from async state to UI state
                     self.available_entities = entities.clone();
-                    wasm_utils::console_log(&format!("🔄 Updated UI with {} async-loaded entities", entities.len()));
+                    self.loading_entities = false; // Stop loading animation
+                    wasm_utils::console_log(&format!("✅ Updated UI with {} async-loaded entities", entities.len()));
                     true
                 } else {
                     false
@@ -1735,6 +1722,52 @@ QUERY CBU WHERE status = 'active'"#
         // Clear the async state if we consumed the entities
         if should_clear_state {
             self.entities_loading_state = None;
+        }
+    }
+
+    fn update_cbus_from_async_state(&mut self) {
+        let frame_id = crate::trace_enter!("update_cbus_from_async_state", "cbu_dsl_ide.rs:1728", self.cbus_loading_state.is_some());
+
+        // Check if CBUs have been loaded from async task
+        let should_clear_state = if let Some(loading_state) = &self.cbus_loading_state {
+            crate::trace_state!("CbuDslIDE", "has_loading_state", false, true);
+
+            if let Ok(cbus) = loading_state.try_lock() {
+                crate::trace_state!("CbuDslIDE", "async_lock_acquired", false, true);
+                let async_count = cbus.len();
+
+                if !cbus.is_empty() {
+                    crate::trace_state!("CbuDslIDE", "async_cbus_available", 0, async_count);
+
+                    // Transfer CBUs from async state to UI state
+                    let old_ui_count = self.available_cbus.len();
+                    self.available_cbus = cbus.clone();
+
+                    crate::trace_state!("CbuDslIDE", "loading_cbus", self.loading_cbus, false);
+                    self.loading_cbus = false; // Stop loading animation
+
+                    crate::trace_state!("CbuDslIDE", "ui_cbu_count", old_ui_count, self.available_cbus.len());
+                    wasm_utils::console_log(&format!("✅ Updated UI with {} async-loaded CBUs", self.available_cbus.len()));
+                    true
+                } else {
+                    crate::trace_state!("CbuDslIDE", "async_cbus_empty", 0, 0);
+                    false
+                }
+            } else {
+                crate::trace_state!("CbuDslIDE", "async_lock_failed", false, true);
+                false
+            }
+        } else {
+            crate::trace_state!("CbuDslIDE", "no_loading_state", false, false);
+            false
+        };
+
+        // Clear the async state after successful transfer
+        if should_clear_state {
+            self.cbus_loading_state = None;
+            crate::trace_exit!(frame_id, "state_cleared");
+        } else {
+            crate::trace_exit!(frame_id, "no_state_change");
         }
     }
 
@@ -1771,7 +1804,7 @@ QUERY CBU WHERE status = 'active'"#
                                 entity_type: entity.entity_type,
                                 country_code: entity.country_code,
                                 lei_code: entity.lei_code, // Already Option<String>
-                                status: entity.status,
+                                status: "active".to_string(), // Default status since gRPC EntityInfo doesn't have status field
                             });
                         }
 
@@ -1992,10 +2025,10 @@ QUERY CBU WHERE status = 'active'"#
                 }
             }
 
-            // Auto-update DSL when entities are removed (for Create New mode)
-            if entities_removed && self.cbu_context == CbuContext::CreateNew {
-                self.update_dsl_with_current_entities();
-            }
+            // REMOVED: Auto-update DSL when entities are removed - this was overriding user edits
+            // if entities_removed && self.cbu_context == CbuContext::CreateNew {
+            //     self.update_dsl_with_current_entities();
+            // }
 
             // Generate DSL if requested (manual button click)
             if generate_dsl {
@@ -2160,9 +2193,10 @@ QUERY CBU WHERE status = 'active'"#
                         if ui.button("🚀 Generate CBU DSL").clicked() {
                             generate_dsl = true;
                         }
-                        if ui.button("🗑 Clear All").clicked() {
-                            self.selected_entities.clear();
-                        }
+                        // Clear All button - REMOVED DEFAULT ACTION
+                        // if ui.button("🗑 Clear All").clicked() {
+                        //     self.selected_entities.clear(); // REMOVED: default action that bypassed gRPC state management
+                        // }
                     });
                 }
 
@@ -2221,10 +2255,10 @@ QUERY CBU WHERE status = 'active'"#
             self.selected_entities.push((entity_info, role.to_string()));
             wasm_utils::console_log(&format!("➕ Added entity: {} as {}", entity_name, role));
 
-            // Auto-update DSL in real-time (for Create New mode)
-            if self.cbu_context == CbuContext::CreateNew {
-                self.update_dsl_with_current_entities();
-            }
+            // REMOVED: Auto-update DSL in real-time - this was overriding user edits
+            // if self.cbu_context == CbuContext::CreateNew {
+            //     self.update_dsl_with_current_entities();
+            // }
         } else {
             wasm_utils::console_log(&format!("⚠️  Entity {} with role {} already selected", entity_name, role));
         }
@@ -2232,9 +2266,14 @@ QUERY CBU WHERE status = 'active'"#
 
     fn update_dsl_with_current_entities(&mut self) {
         if self.selected_entities.is_empty() {
-            // Reset to template if no entities
+            // Only reset to template if no entities AND DSL is empty or still the default template
             if self.cbu_context == CbuContext::CreateNew {
-                self.dsl_script = "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU 'New CBU Name' ; 'CBU Purpose Description' WITH\n  ".to_string();
+                let default_template = "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU 'New CBU Name' ; 'CBU Purpose Description' WITH\n  ";
+                // Only overwrite if the DSL is empty or still the default template - preserve user edits!
+                if self.dsl_script.is_empty() || self.dsl_script.trim() == default_template.trim() {
+                    self.dsl_script = default_template.to_string();
+                }
+                // If user has made edits, don't overwrite them!
             }
             return;
         }

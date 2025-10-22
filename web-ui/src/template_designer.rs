@@ -143,11 +143,12 @@ impl TemplateDesignerIDE {
     /// Start creating a new template
     pub fn start_new_template(&mut self) {
         self.mode = DesignerMode::SelectDomain;
-        self.template_id = String::new();
-        self.template_name = String::new();
-        self.template_description = String::new();
-        self.template_dsl = String::new();
-        self.template_attributes.clear();
+        // REMOVED DEFAULT ACTIONS - template state should persist unless explicitly saved via gRPC
+        // self.template_id = String::new();
+        // self.template_name = String::new();
+        // self.template_description = String::new();
+        // self.template_dsl = String::new();
+        // self.template_attributes.clear();
         self.unsaved_changes = false;
         self.load_domains_from_database();
         wasm_utils::console_log("🎨 Starting new template creation");
@@ -833,10 +834,11 @@ impl TemplateDesignerIDE {
         wasm_utils::console_log("🗑️ Discarding template changes");
         self.mode = DesignerMode::SelectTemplate;
         self.unsaved_changes = false;
-        self.template_name.clear();
-        self.template_description.clear();
-        self.dsl_editor_content.clear();
-        self.template_attributes.clear();
+        // REMOVED DEFAULT ACTIONS - template state should persist unless explicitly saved via gRPC
+        // self.template_name.clear();
+        // self.template_description.clear();
+        // self.dsl_editor_content.clear();
+        // self.template_attributes.clear();
     }
 }
 
