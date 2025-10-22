@@ -233,13 +233,13 @@ impl OrchestrationFunctionLibrary {
         Ok(Value::List(required_resources.into_iter().map(Value::String).collect()))
     }
 
-    fn analyze_product_requirements(&mut self, args: &[Value], _context: &mut ExecutionContext) -> Result<Value> {
+    fn analyze_product_requirements(&mut self, _args: &[Value], _context: &mut ExecutionContext) -> Result<Value> {
         // Analyze specific requirements for products
         // Returns a structured analysis of what's needed
         Ok(Value::String("Product analysis complete".to_string()))
     }
 
-    fn get_regulatory_requirements(&mut self, args: &[Value], _context: &mut ExecutionContext) -> Result<Value> {
+    fn get_regulatory_requirements(&mut self, _args: &[Value], _context: &mut ExecutionContext) -> Result<Value> {
         // Get regulatory requirements for jurisdiction/products
         Ok(Value::List(vec![
             Value::String("AML_SCREENING".to_string()),
@@ -363,13 +363,13 @@ impl OrchestrationFunctionLibrary {
 
     fn build_master_dictionary(&mut self, args: &[Value], context: &mut ExecutionContext) -> Result<Value> {
         // Combine data dictionaries from multiple resources
-        let combined_requirements: Vec<String> = Vec::new();
+        let _combined_requirements: Vec<String> = Vec::new();
         let mut field_count = 0;
 
         if !args.is_empty() {
             if let Value::List(resource_names) = &args[0] {
                 for resource_name in resource_names {
-                    if let Value::String(name) = resource_name {
+                    if let Value::String(_name) = resource_name {
                         // Get resource dictionary and merge
                         field_count += 10; // Simulated for now
                     }

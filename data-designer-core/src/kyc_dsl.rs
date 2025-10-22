@@ -343,7 +343,7 @@ impl KYCFunctionLibrary {
 
     fn validate_document_completeness(&mut self, _args: &[Value], context: &mut ExecutionContext, kyc_context: &mut KYCContext) -> Result<Value> {
         let total_required = kyc_context.documents.iter().filter(|d| d.required).count();
-        let collected_required = kyc_context.documents.iter().filter(|d| d.required && d.collected).count();
+        let _collected_required = kyc_context.documents.iter().filter(|d| d.required && d.collected).count();
         let verified_required = kyc_context.documents.iter().filter(|d| d.required && d.verified).count();
 
         let completeness = if total_required > 0 {
@@ -447,7 +447,7 @@ impl KYCFunctionLibrary {
             _ => bail!("Screening source must be a string"),
         };
 
-        let match_threshold = match &args[2] {
+        let _match_threshold = match &args[2] {
             Value::Float(f) => *f,
             Value::Number(n) => *n,
             _ => bail!("Match threshold must be a number"),
@@ -509,12 +509,12 @@ impl KYCFunctionLibrary {
             _ => bail!("Risk factors must be a list"),
         };
 
-        let assessment_model = match &args[1] {
+        let _assessment_model = match &args[1] {
             Value::String(s) => s.clone(),
             _ => bail!("Assessment model must be a string"),
         };
 
-        let output_variable = match &args[2] {
+        let _output_variable = match &args[2] {
             Value::String(s) => s.clone(),
             _ => bail!("Output variable must be a string"),
         };
@@ -604,7 +604,7 @@ impl KYCFunctionLibrary {
             _ => bail!("Jurisdiction must be a string"),
         };
 
-        let products = match &args[1] {
+        let _products = match &args[1] {
             Value::List(items) => items.iter()
                 .filter_map(|v| match v {
                     Value::String(s) => Some(s.clone()),

@@ -2,6 +2,7 @@ use tonic::{transport::Server, Request, Response, Status};
 use sqlx::{PgPool, Row};
 use std::env;
 use std::process::Command;
+use std::sync::Arc;
 use tracing::{info, error};
 use std::collections::HashMap;
 
@@ -161,6 +162,43 @@ impl TaxonomyServer {
         }
     }
 
+    /// Query taxonomy hierarchy from database
+    async fn query_taxonomy_hierarchy(&self) -> Result<Vec<TaxonomyHierarchyItem>, sqlx::Error> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT p.product_id as id, p.product_name as name, p.description as description,
+                   'product' as item_type, 1 as level, NULL::INTEGER as parent_id
+            FROM products p
+            WHERE p.product_id IS NOT NULL
+            UNION ALL
+            SELECT s.service_id as id, s.service_name as name, s.description as description,
+                   'service' as item_type, 2 as level, NULL::INTEGER as parent_id
+            FROM services s
+            WHERE s.service_id IS NOT NULL
+            ORDER BY level, id
+            LIMIT 100
+            "#
+        ).fetch_all(&self.pool).await?;
+
+        let items = rows.into_iter().map(|row| TaxonomyHierarchyItem {
+            level: row.level.unwrap_or(1),
+            item_type: row.item_type.unwrap_or_default(),
+            item_id: row.id.map(|id| {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                id.hash(&mut hasher);
+                hasher.finish() as i32
+            }).unwrap_or(0),
+            item_name: row.name.unwrap_or_default(),
+            item_description: row.description,
+            parent_id: row.parent_id,
+            configuration: None,
+            metadata: None,
+        }).collect();
+
+        Ok(items)
+    }
 }
 
 #[tonic::async_trait]
@@ -376,8 +414,8 @@ impl FinancialTaxonomyService for TaxonomyServer {
                 entity_id,
                 entity_name,
                 entity_type,
-                jurisdiction,
-                country_code,
+                incorporation_jurisdiction as jurisdiction,
+                incorporation_country as country_code,
                 lei_code
             FROM legal_entities
             WHERE status = 'active'
@@ -533,29 +571,14 @@ impl FinancialTaxonomyService for TaxonomyServer {
         let _req = request.into_inner();
         info!("Received GetTaxonomyHierarchy request");
 
-        // For now, return sample data
-        let items = vec![
-            TaxonomyHierarchyItem {
-                level: 1,
-                item_type: "product".to_string(),
-                item_id: 1,
-                item_name: "Institutional Custody Plus".to_string(),
-                item_description: Some("Comprehensive custody services".to_string()),
-                parent_id: None,
-                configuration: None,
-                metadata: None,
-            },
-            TaxonomyHierarchyItem {
-                level: 2,
-                item_type: "product_option".to_string(),
-                item_id: 2,
-                item_name: "US Market Settlement".to_string(),
-                item_description: Some("Settlement in US markets".to_string()),
-                parent_id: Some(1),
-                configuration: None,
-                metadata: None,
-            },
-        ];
+        // Query actual taxonomy hierarchy from database
+        let items = match self.query_taxonomy_hierarchy().await {
+            Ok(hierarchy_items) => hierarchy_items,
+            Err(e) => {
+                error!("Failed to query taxonomy hierarchy: {}", e);
+                vec![] // Return empty if query fails
+            }
+        };
 
         let response = GetTaxonomyHierarchyResponse { items };
         Ok(Response::new(response))
@@ -2354,7 +2377,7 @@ impl SimpleAiAssistant {
                         title: name.clone().unwrap_or("Template Example".to_string()),
                         dsl_code: code.to_string(),
                         description: format!("DSL example from template: {}", name.unwrap_or_default()),
-                        similarity_score: 0.8, // Mock similarity for now
+                        similarity_score: self.calculate_similarity_score(&code, query).await
                     });
                 }
             }
@@ -2630,6 +2653,29 @@ impl SimpleAiAssistant {
         suggestions
     }
 
+    /// Calculate similarity score between DSL code and query
+    async fn calculate_similarity_score(&self, dsl_code: &str, query: &str) -> f32 {
+        // Simple text similarity based on common words
+        let dsl_lower = dsl_code.to_lowercase();
+        let query_lower = query.to_lowercase();
+
+        let dsl_words: std::collections::HashSet<&str> = dsl_lower
+            .split_whitespace()
+            .collect();
+        let query_words: std::collections::HashSet<&str> = query_lower
+            .split_whitespace()
+            .collect();
+
+        let intersection_count = dsl_words.intersection(&query_words).count() as f32;
+        let union_count = dsl_words.union(&query_words).count() as f32;
+
+        if union_count > 0.0 {
+            intersection_count / union_count
+        } else {
+            0.0
+        }
+    }
+
 }
 
 // Helper function to create AI assistant
@@ -2650,11 +2696,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = PgPool::connect(&database_url).await?;
     info!("Database connection established");
 
-    // Create gRPC service
-    let taxonomy_service = TaxonomyServer::new(db_pool.clone());
+    // Create gRPC service (owned instance for gRPC server)
+    let taxonomy_service_grpc = TaxonomyServer::new(db_pool.clone());
 
-    // Create HTTP template API router
-    let template_router = template_api::create_template_router(db_pool);
+    // Create Arc-wrapped service for HTTP delegation
+    let taxonomy_service_http = Arc::new(TaxonomyServer::new(db_pool.clone()));
+
+    // Create HTTP template API router with Arc-wrapped gRPC service for delegation
+    let template_router = template_api::create_template_router(db_pool, taxonomy_service_http);
 
     // Server addresses
     let grpc_addr = "0.0.0.0:50051".parse::<std::net::SocketAddr>()?;
@@ -2665,7 +2714,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run both servers concurrently
     let grpc_server = Server::builder()
-        .add_service(FinancialTaxonomyServiceServer::new(taxonomy_service))
+        .add_service(FinancialTaxonomyServiceServer::new(taxonomy_service_grpc))
         .serve(grpc_addr);
 
     let http_server = axum::serve(

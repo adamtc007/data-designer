@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::db::DbPool;
 use crate::capability_engine::CapabilityEngine;
+use crate::dsl_utils;
 use sqlx::Row;
 
 /// Helper structs for template loading
@@ -893,15 +894,16 @@ impl RuntimeOrchestrator {
 
     /// Parse DSL code into individual commands
     fn parse_dsl_commands(&self, dsl_code: &str) -> Result<Vec<String>, RuntimeError> {
+        let cleaned_text = dsl_utils::strip_comments(dsl_code);
         let mut commands = Vec::new();
-        let lines: Vec<&str> = dsl_code.lines().collect();
+        let lines: Vec<&str> = cleaned_text.lines().collect();
         let mut current_command = String::new();
 
         for line in lines {
             let trimmed = line.trim();
 
-            // Skip empty lines and comments
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#") {
+            // Skip empty lines
+            if trimmed.is_empty() {
                 continue;
             }
 
@@ -1128,8 +1130,8 @@ impl Default for CommandExecutor {
 }
 
 impl CommandExecutor {
-    pub async fn new_with_capability_engine(db_pool: DbPool) -> Result<Self, RuntimeError> {
-        let capability_engine = CapabilityEngine::new(db_pool.clone()).await
+    pub async fn new_with_capability_engine(_db_pool: DbPool) -> Result<Self, RuntimeError> {
+        let capability_engine = CapabilityEngine::new().await
             .map_err(RuntimeError::CapabilityEngineError)?;
 
         Ok(Self {
@@ -1486,9 +1488,9 @@ impl CommandExecutor {
     async fn get_data_from_customer_database(
         &self,
         attribute_path: &str,
-        condition: Option<&str>,
+        _condition: Option<&str>,
         execution_context: &ExecutionContext,
-        db_pool: &DbPool,
+        _db_pool: &DbPool,
         result: &mut PopulateDataResult,
     ) -> Result<(), RuntimeError> {
         // Mock implementation - in production would query actual customer database
@@ -1508,9 +1510,9 @@ impl CommandExecutor {
     async fn get_data_from_reference_database(
         &self,
         attribute_path: &str,
-        condition: Option<&str>,
-        execution_context: &ExecutionContext,
-        db_pool: &DbPool,
+        _condition: Option<&str>,
+        _execution_context: &ExecutionContext,
+        _db_pool: &DbPool,
         result: &mut PopulateDataResult,
     ) -> Result<(), RuntimeError> {
         tracing::info!("📖 Querying reference database for {}", attribute_path);
@@ -1529,8 +1531,8 @@ impl CommandExecutor {
     async fn get_data_from_external_api(
         &self,
         attribute_path: &str,
-        condition: Option<&str>,
-        execution_context: &ExecutionContext,
+        _condition: Option<&str>,
+        _execution_context: &ExecutionContext,
         result: &mut PopulateDataResult,
     ) -> Result<(), RuntimeError> {
         tracing::info!("🌐 Calling external API for {}", attribute_path);
@@ -1677,7 +1679,7 @@ impl EbnfRuleExecutor {
     /// Execute concatenation rule
     fn execute_concatenation_rule(
         &self,
-        rule: &str,
+        _rule: &str,
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         let mut result = String::new();
@@ -1698,7 +1700,7 @@ impl EbnfRuleExecutor {
     /// Execute arithmetic rule
     fn execute_arithmetic_rule(
         &self,
-        rule: &str,
+        _rule: &str,
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Simple arithmetic - sum all numeric values
@@ -1722,7 +1724,7 @@ impl EbnfRuleExecutor {
     /// Execute conditional rule
     fn execute_conditional_rule(
         &self,
-        rule: &str,
+        _rule: &str,
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Simple conditional: if any value is true-ish, return "true", else "false"
@@ -1741,7 +1743,7 @@ impl EbnfRuleExecutor {
     /// Execute lookup rule
     fn execute_lookup_rule(
         &self,
-        rule: &str,
+        _rule: &str,
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Mock lookup table
@@ -1768,7 +1770,7 @@ impl EbnfRuleExecutor {
     /// Execute validation rule
     fn execute_validation_rule(
         &self,
-        rule: &str,
+        _rule: &str,
         source_values: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value, RuntimeError> {
         // Simple validation: check if all values are non-null and non-empty

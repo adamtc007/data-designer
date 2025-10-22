@@ -1,0 +1,136 @@
+{
+  "assistant": {
+    "default_model": {
+      "provider": "openai",
+      "model": "gpt-4"
+    },
+    "providers": {
+      "openai": {
+        "api_url": "https://api.openai.com/v1",
+        "low_speed_timeout_in_seconds": 30,
+        "available_models": [
+          {
+            "name": "gpt-4",
+            "max_tokens": 4096,
+            "max_completion_tokens": 4096
+          },
+          {
+            "name": "gpt-4-turbo",
+            "max_tokens": 4096,
+            "max_completion_tokens": 4096
+          },
+          {
+            "name": "gpt-3.5-turbo",
+            "max_tokens": 4096,
+            "max_completion_tokens": 4096
+          }
+        ]
+      },
+      "anthropic": {
+        "api_url": "https://api.anthropic.com",
+        "low_speed_timeout_in_seconds": 30,
+        "available_models": [
+          {
+            "name": "claude-3-5-sonnet-20241022",
+            "max_tokens": 8192,
+            "max_completion_tokens": 8192
+          },
+          {
+            "name": "claude-3-opus-20240229",
+            "max_tokens": 4096,
+            "max_completion_tokens": 4096
+          },
+          {
+            "name": "claude-3-haiku-20240307",
+            "max_tokens": 4096,
+            "max_completion_tokens": 4096
+          }
+        ]
+      }
+    }
+  },
+  "language_servers": {
+    "cbu-dsl-lsp": {
+      "binary": {
+        "path": "./target/release/cbu-dsl-lsp-server",
+        "arguments": []
+      }
+    }
+  },
+  "languages": {
+    "LISP": {
+      "language_servers": ["cbu-dsl-lsp"],
+      "file_types": ["lisp", "cbu"],
+      "hard_tabs": false,
+      "tab_size": 2,
+      "formatter": "language_server"
+    }
+  },
+  "file_types": {
+    "*.cbu": "LISP",
+    "*.lisp": "LISP"
+  },
+  "vim_mode": true,
+  "ui_font_size": 16,
+  "buffer_font_size": 14,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
+  "project_panel": {
+    "dock": "left"
+  },
+  "outline_panel": {
+    "dock": "right"
+  },
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "notification_panel": {
+    "dock": "right"
+  },
+  "chat_panel": {
+    "dock": "right"
+  },
+  "format_on_save": "on",
+  "autosave": "on_focus_change",
+  "show_whitespaces": "selection",
+  "show_wrap_guides": true,
+  "wrap_guides": [80, 120],
+  "git": {
+    "git_gutter": "tracked_files",
+    "inline_blame": {
+      "enabled": true
+    }
+  },
+  "inlay_hints": {
+    "enabled": true,
+    "show_type_hints": true,
+    "show_parameter_hints": true,
+    "show_other_hints": true
+  },
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "rust-analyzer"
+      },
+      "initialization_options": {
+        "checkOnSave": {
+          "command": "clippy"
+        },
+        "cargo": {
+          "features": "all"
+        }
+      }
+    }
+  },
+  "terminal": {
+    "font_size": 14,
+    "working_directory": "current_project_directory"
+  },
+  "tabs": {
+    "file_icons": true,
+    "git_status": true
+  }
+}

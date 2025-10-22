@@ -1335,7 +1335,7 @@ impl DbOperations {
 
     /// Generate execution plan from product-service-resource mapping
     async fn generate_execution_plan(product_ids: &[String]) -> Result<Vec<ResourceProvisioningPlan>, String> {
-        let pool = Self::get_pool().await.map_err(|e| e.to_string())?;
+        let _pool = Self::get_pool().await.map_err(|e| e.to_string())?;
         let mut execution_plan = Vec::new();
 
         for product_id in product_ids {

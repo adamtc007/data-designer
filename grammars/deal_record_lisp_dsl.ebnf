@@ -1,0 +1,153 @@
+(* EBNF Grammar for Deal Record LISP DSL *)
+(* Domain: Deal Record Management - Master Business Relationship Orchestrator *)
+(* Structure: LISP S-expressions with deal-specific verbs *)
+
+(* Root expression - Deal Record DSL program *)
+deal_dsl_program = { comment | s_expression } ;
+
+(* Comments - LISP style semicolon comments *)
+comment = ";" , { any_character - newline } , newline ;
+
+(* S-Expression structure *)
+s_expression = list | atom ;
+
+list = "(" , [ list_content ] , ")" ;
+list_content = s_expression , { whitespace , s_expression } ;
+
+atom = symbol | string | number | boolean ;
+
+(* Deal Record DSL Functions - Function Signatures *)
+
+(* Primary Deal CRUD Operations *)
+create_deal_expr = "(" , "create-deal" , string , string , string , [ deal_components ] , ")" ;
+update_deal_expr = "(" , "update-deal" , string , [ update_fields ] , ")" ;
+delete_deal_expr = "(" , "delete-deal" , string , ")" ;
+query_deal_expr = "(" , "query-deal" , [ query_params ] , ")" ;
+link_deal_expr = "(" , "link-deal" , string , resource_type , string , ")" ;
+unlink_deal_expr = "(" , "unlink-deal" , string , resource_type , string , ")" ;
+
+(* Deal Component Management *)
+deal_components = "(" , "components" , { deal_component } , ")" ;
+deal_component = cbu_component | product_component | contract_component |
+                kyc_component | service_map_component | opportunity_component ;
+
+cbu_component = "(" , "cbus" , { string } , ")" ;
+product_component = "(" , "products" , { string } , ")" ;
+contract_component = "(" , "contracts" , { string } , ")" ;
+kyc_component = "(" , "kyc-clearances" , { string } , ")" ;
+service_map_component = "(" , "service-maps" , { string } , ")" ;
+opportunity_component = "(" , "opportunities" , { string } , ")" ;
+
+(* Update Operations *)
+update_fields = "(" , "fields" , { field_update } , ")" ;
+field_update = "(" , "set" , symbol , atom , ")" ;
+
+(* Resource Types for Linking *)
+resource_type = "cbu" | "product" | "contract" | "kyc" | "service-map" | "opportunity" |
+               "workflow" | "onboarding-request" | "compliance-check" ;
+
+(* Function Signatures Documentation *)
+(*
+create-deal: (create-deal deal_id:string description:string primary_client:string [components:deal_components]) -> deal_result
+  - Creates comprehensive deal record linking all business components
+  - Components include CBUs, products, contracts, KYC clearances, service maps, opportunities
+  - Returns: (create-deal-result deal_id:string success:boolean data:list)
+
+update-deal: (update-deal deal_id:string [fields:update_fields]) -> deal_result
+  - Updates existing deal by ID with field modifications
+  - Returns: (update-deal-result deal_id:string success:boolean)
+
+delete-deal: (delete-deal deal_id:string) -> deal_result
+  - Deletes deal record and all associated links
+  - Returns: (delete-deal-result deal_id:string success:boolean)
+
+query-deal: (query-deal [params:query_params]) -> deal_query_result
+  - Queries deals with optional filtering, sorting, pagination
+  - Returns: (query-deal-result deal_list:list)
+
+link-deal: (link-deal deal_id:string resource_type:symbol resource_id:string) -> link_result
+  - Links deal to additional business resource
+  - Returns: (link-deal-result deal_id:string resource_type resource_id success:boolean)
+
+unlink-deal: (unlink-deal deal_id:string resource_type:symbol resource_id:string) -> unlink_result
+  - Removes link between deal and business resource
+  - Returns: (unlink-deal-result deal_id:string resource_type resource_id success:boolean)
+*)
+
+(* Query Parameters *)
+query_params = query_filter | query_sort | query_limit | query_include ;
+query_filter = "(" , "filter" , filter_expr , ")" ;
+query_sort = "(" , "sort" , sort_field , sort_direction , ")" ;
+query_limit = "(" , "limit" , number , ")" ;
+query_include = "(" , "include" , { resource_type } , ")" ;
+
+filter_expr = field_filter | and_filter | or_filter | date_filter | status_filter ;
+field_filter = "(" , "=" | "!=" | "like" | "in" , symbol , atom , ")" ;
+and_filter = "(" , "and" , { filter_expr } , ")" ;
+or_filter = "(" , "or" , { filter_expr } , ")" ;
+date_filter = "(" , "date-range" , symbol , string , string , ")" ;
+status_filter = "(" , "status" , deal_status , ")" ;
+
+sort_field = symbol ;
+sort_direction = "asc" | "desc" ;
+
+(* Deal Status Values *)
+deal_status = "active" | "pending" | "completed" | "cancelled" | "on-hold" | "in-negotiation" ;
+
+(* Primitive Types *)
+symbol = letter , { letter | digit | "-" | "_" } ;
+string = '"' , { string_char } , '"' ;
+string_char = ( any_character - '"' - "\" ) | escape_sequence ;
+escape_sequence = "\" , ( '"' | "\" | "n" | "t" | "r" ) ;
+
+number = [ "-" ] , ( integer | float ) ;
+integer = digit , { digit } ;
+float = integer , "." , integer ;
+
+boolean = "true" | "false" | "#t" | "#f" ;
+
+(* Lexical Elements *)
+whitespace = " " | "\t" | "\n" | "\r" ;
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
+         "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" |
+         "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" |
+         "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+any_character = ? any Unicode character ? ;
+newline = "\n" | "\r\n" ;
+
+(* Example Valid Expressions:
+
+   ; Create comprehensive deal record
+   (create-deal "DEAL_2024_001" "Alpha Growth Fund Onboarding" "Alpha Corp"
+     (components
+       (cbus "CBU_001" "CBU_002")
+       (products "CUSTODY_001" "PRIME_BROKERAGE_001")
+       (contracts "MSA_001" "SLA_001")
+       (kyc-clearances "KYC_001")
+       (service-maps "MAP_001")
+       (opportunities "OPP_001")))
+
+   ; Update deal with new information
+   (update-deal "DEAL_2024_001"
+     (fields
+       (set description "Updated Alpha Growth Fund Onboarding - Enhanced")
+       (set status active)))
+
+   ; Query deals with complex filtering
+   (query-deal
+     (filter
+       (and
+         (= status active)
+         (like primary_client "Alpha%")
+         (date-range created_date "2024-01-01" "2024-12-31")))
+     (include cbus products contracts)
+     (sort created_date desc)
+     (limit 10))
+
+   ; Link additional opportunity to existing deal
+   (link-deal "DEAL_2024_001" opportunity "OPP_002")
+
+   ; Remove contract from deal
+   (unlink-deal "DEAL_2024_001" contract "OLD_CONTRACT_001")
+*)

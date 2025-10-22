@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sqlx::{PgPool, Row};
+use crate::dsl_utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CbuEntity {
@@ -88,7 +89,8 @@ impl CbuDslParser {
 
     /// Parse CBU DSL command into structured format
     pub fn parse_cbu_dsl(&self, dsl_text: &str) -> Result<CbuDslCommand, CbuDslError> {
-        let dsl_text = dsl_text.trim();
+        let cleaned_text = dsl_utils::strip_comments(dsl_text);
+        let dsl_text = cleaned_text.trim();
 
         if dsl_text.to_uppercase().starts_with("CREATE CBU") {
             self.parse_create_command(dsl_text)
@@ -156,17 +158,28 @@ impl CbuDslParser {
     /// Parse UPDATE CBU command
     fn parse_update_command(&self, dsl_text: &str) -> Result<CbuDslCommand, CbuDslError> {
         // UPDATE CBU 'CBU001' SET description = 'Updated description'
+        // Also handle: UPDATE CBU 'CBU001' (without SET clause for basic updates)
         let content = dsl_text.strip_prefix("UPDATE CBU").unwrap().trim();
+
+        // Check if SET clause exists
         let parts: Vec<&str> = content.splitn(2, " SET ").collect();
 
-        if parts.len() != 2 {
-            return Err(CbuDslError::ParseError(
-                "UPDATE CBU command must include ' SET ' clause".to_string()
-            ));
-        }
-
-        let cbu_id = self.extract_quoted_string(parts[0].trim())?;
-        let set_clause = parts[1].trim();
+        let (cbu_id, set_clause) = if parts.len() == 2 {
+            // Normal case with SET clause
+            (self.extract_quoted_string(parts[0].trim())?, parts[1].trim())
+        } else {
+            // Handle case without SET clause - just extract CBU ID and use empty set clause
+            let cbu_id = self.extract_quoted_string(content)?;
+            return Ok(CbuDslCommand {
+                operation: CbuOperation::Update,
+                cbu_name: None,
+                cbu_id: Some(cbu_id),
+                description: None,
+                entities: Vec::new(),
+                update_fields: HashMap::new(), // Empty update fields
+                query_conditions: None,
+            });
+        };
 
         // Parse SET clause: field = 'value'
         let mut update_fields = HashMap::new();
@@ -374,8 +387,8 @@ impl CbuDslParser {
         let mut validation_errors = Vec::new();
 
         for entity in entities {
-            // Check if entity exists in client_entities table
-            let query = "SELECT COUNT(*) as count FROM client_entities WHERE entity_id = $1 AND entity_name = $2";
+            // Check if entity exists in legal_entities table
+            let query = "SELECT COUNT(*) as count FROM legal_entities WHERE entity_id = $1 AND entity_name = $2";
 
             match sqlx::query(query)
                 .bind(&entity.entity_id)
@@ -422,10 +435,15 @@ impl CbuDslParser {
         // Generate CBU ID (simplified for demo)
         let cbu_id = format!("CBU{:06}", 123456);
 
-        // Insert CBU into database
+        // Insert CBU into database (using existing schema)
         let insert_query = r#"
-            INSERT INTO cbu (cbu_id, cbu_name, description, legal_entity_name, jurisdiction, business_model, status, created_at, updated_at)
+            INSERT INTO client_business_units (cbu_id, cbu_name, description, domicile_country, regulatory_jurisdiction, business_type, status, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+            RETURNING id
+            ON CONFLICT (cbu_id) DO UPDATE SET
+                cbu_name = EXCLUDED.cbu_name,
+                description = EXCLUDED.description,
+                updated_at = NOW()
             RETURNING id
         "#;
 
@@ -441,24 +459,67 @@ impl CbuDslParser {
             .await
         {
             Ok(_) => {
-                // Insert entity relationships
+                // Insert entity relationships (using existing schema)
                 for entity in &command.entities {
-                    let role_name = match entity.role {
-                        EntityRole::AssetOwner => "Asset Owner",
-                        EntityRole::InvestmentManager => "Investment Manager",
-                        EntityRole::ManagingCompany => "Managing Company",
+                    let (role_name, association_type) = match entity.role {
+                        EntityRole::AssetOwner => ("Asset Owner", "ownership"),
+                        EntityRole::InvestmentManager => ("Investment Manager", "management"),
+                        EntityRole::ManagingCompany => ("Managing Company", "administration"),
+                    };
+
+                    // First get the entity ID from legal_entities table
+                    let entity_lookup_query = "SELECT id FROM legal_entities WHERE entity_id = $1";
+                    let entity_internal_id: i32 = match sqlx::query(entity_lookup_query)
+                        .bind(&entity.entity_id)
+                        .fetch_one(pool)
+                        .await
+                    {
+                        Ok(row) => row.get("id"),
+                        Err(e) => {
+                            return Ok(CbuDslResult {
+                                success: false,
+                                message: format!("Entity lookup failed for {}: {}", entity.entity_id, e),
+                                cbu_id: Some(cbu_id),
+                                validation_errors: Vec::new(),
+                                data: None,
+                            });
+                        }
                     };
 
                     let relationship_query = r#"
-                        INSERT INTO cbu_entity_relationships (cbu_id, entity_id, entity_name, role_name, created_at)
-                        VALUES ($1, $2, $3, $4, NOW())
+                        INSERT INTO cbu_entity_associations (cbu_id, entity_id, association_type, role_in_cbu, active_in_cbu, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                        ON CONFLICT (cbu_id, entity_id, association_type) DO UPDATE SET
+                            role_in_cbu = EXCLUDED.role_in_cbu,
+                            active_in_cbu = EXCLUDED.active_in_cbu,
+                            updated_at = NOW()
                     "#;
 
-                    if let Err(e) = sqlx::query(relationship_query)
+                    // Get the CBU internal ID that was just created
+                    let cbu_internal_id_query = "SELECT id FROM client_business_units WHERE cbu_id = $1";
+                    let cbu_internal_id: i32 = match sqlx::query(cbu_internal_id_query)
                         .bind(&cbu_id)
-                        .bind(&entity.entity_id)
-                        .bind(&entity.name)
+                        .fetch_one(pool)
+                        .await
+                    {
+                        Ok(row) => row.get("id"),
+                        Err(e) => {
+                            return Ok(CbuDslResult {
+                                success: false,
+                                message: format!("CBU lookup failed for {}: {}", cbu_id, e),
+                                cbu_id: Some(cbu_id),
+                                validation_errors: Vec::new(),
+                                data: None,
+                            });
+                        }
+                    };
+
+                    if let Err(e) = sqlx::query(relationship_query)
+                        .bind(cbu_internal_id)
+                        .bind(entity_internal_id)
+                        .bind(association_type)
                         .bind(role_name)
+                        .bind(true) // active_in_cbu
                         .execute(pool)
                         .await
                     {

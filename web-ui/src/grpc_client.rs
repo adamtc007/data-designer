@@ -38,6 +38,47 @@ pub struct ExecuteDslRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteCbuDslRequest {
+    pub dsl_script: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteCbuDslResponse {
+    pub success: bool,
+    pub message: String,
+    pub cbu_id: Option<String>,
+    pub validation_errors: Vec<String>,
+    pub data: Option<String>, // JSON string
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListCbusRequest {
+    pub status_filter: Option<String>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListCbusResponse {
+    pub cbus: Vec<CbuRecord>,
+    pub total_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CbuRecord {
+    pub id: i32,
+    pub cbu_id: String,
+    pub cbu_name: String,
+    pub description: Option<String>,
+    pub legal_entity_name: Option<String>,
+    pub jurisdiction: Option<String>,
+    pub business_model: Option<String>,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetEntitiesRequest {
     pub jurisdiction: Option<String>,
     pub entity_type: Option<String>,
@@ -218,14 +259,8 @@ impl GrpcClient {
         service_method: &str,
         request: &T,
     ) -> Result<R> {
-        // Try HTTP endpoint first, fall back to mock if not available
-        match self.try_http_call(service_method, request).await {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                wasm_utils::console_log(&format!("HTTP call failed: {}, falling back to mock", e));
-                self.create_mock_response(service_method, request).await
-            }
-        }
+        // Use HTTP endpoint directly - no mock fallback
+        self.try_http_call(service_method, request).await
     }
 
     /// Try to make an HTTP call to gRPC server
@@ -234,15 +269,22 @@ impl GrpcClient {
         service_method: &str,
         request: &T,
     ) -> Result<R> {
+        wasm_utils::console_log(&format!("🔍 Trying HTTP call for service method: '{}'", service_method));
         let endpoint = match service_method {
             "financial_taxonomy.FinancialTaxonomyService/InstantiateResource" => "/api/instantiate",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteDsl" => "/api/execute-dsl",
+            "financial_taxonomy.FinancialTaxonomyService/ExecuteCbuDsl" => "/api/execute-cbu-dsl",
+            "financial_taxonomy.FinancialTaxonomyService/ListCbus" => "/api/list-cbus",
             "financial_taxonomy.FinancialTaxonomyService/GetAiSuggestions" => "/api/ai-suggestions",
             "financial_taxonomy.FinancialTaxonomyService/GetEntities" => "/api/entities",
             "financial_taxonomy.FinancialTaxonomyService/ListProducts" => "/api/list-products",
-            _ => return Err(anyhow::anyhow!("Unknown service method: {}", service_method)),
+            _ => {
+                wasm_utils::console_log(&format!("❌ Unknown service method: '{}'", service_method));
+                return Err(anyhow::anyhow!("Unknown service method: {}", service_method));
+            }
         };
 
+        wasm_utils::console_log(&format!("✅ Matched endpoint: {}", endpoint));
         let url = format!("http://localhost:8080{}", endpoint);
         wasm_utils::console_log(&format!("Making HTTP request to: {}", url));
 
@@ -265,171 +307,6 @@ impl GrpcClient {
         Ok(response_body)
     }
 
-    async fn create_mock_response<T: Serialize, R: for<'de> Deserialize<'de>>(
-        &self,
-        service_method: &str,
-        request: &T,
-    ) -> Result<R> {
-        let request_json = serde_json::to_string(request)?;
-
-        let mock_response_json = match service_method {
-            "financial_taxonomy.FinancialTaxonomyService/InstantiateResource" => {
-                let req: InstantiateResourceRequest = serde_json::from_str(&request_json)?;
-                let response = InstantiateResourceResponse {
-                    success: true,
-                    message: "Resource instance created successfully".to_string(),
-                    instance: Some(ResourceInstance {
-                        instance_id: format!("wasm-instance-{}", uuid::Uuid::new_v4()),
-                        onboarding_request_id: req.onboarding_request_id,
-                        template_id: req.template_id,
-                        status: "pending".to_string(),
-                        instance_data: "{}".to_string(),
-                        created_at: Some(chrono::Utc::now().to_rfc3339()),
-                        updated_at: Some(chrono::Utc::now().to_rfc3339()),
-                        error_message: None,
-                    }),
-                };
-                serde_json::to_string(&response)?
-            }
-            "financial_taxonomy.FinancialTaxonomyService/ExecuteDsl" => {
-                let req: ExecuteDslRequest = serde_json::from_str(&request_json)?;
-                let response = ExecuteDslResponse {
-                    success: true,
-                    message: "DSL execution completed successfully".to_string(),
-                    result: Some(DslExecutionResult {
-                        instance_id: req.instance_id,
-                        execution_status: "success".to_string(),
-                        output_data: r#"{"result": "DSL executed successfully from WASM client"}"#.to_string(),
-                        log_messages: vec!["DSL execution started".to_string(), "DSL execution completed".to_string()],
-                        error_details: None,
-                        executed_at: Some(chrono::Utc::now().to_rfc3339()),
-                        execution_time_ms: 150.0,
-                    }),
-                };
-                serde_json::to_string(&response)?
-            }
-            "financial_taxonomy.FinancialTaxonomyService/GetAiSuggestions" => {
-                let req: GetAiSuggestionsRequest = serde_json::from_str(&request_json)?;
-                let response = GetAiSuggestionsResponse {
-                    suggestions: vec![
-                        AiSuggestion {
-                            title: "Generated DSL Code".to_string(),
-                            description: format!("AI-generated DSL for: {}", req.query),
-                            category: "code_generation".to_string(),
-                            confidence: 0.9,
-                            applicable_contexts: vec![req.context.unwrap_or("general".to_string())],
-                        }
-                    ],
-                    status_message: "AI suggestions generated successfully".to_string(),
-                };
-                serde_json::to_string(&response)?
-            }
-            "financial_taxonomy.FinancialTaxonomyService/GetEntities" => {
-                let response = GetEntitiesResponse {
-                    entities: vec![
-                        // US Entities
-                        ClientEntity {
-                            entity_id: "US001".to_string(),
-                            entity_name: "Manhattan Asset Management LLC".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "Delaware".to_string(),
-                            country_code: "US".to_string(),
-                            lei_code: Some("549300VPLTI2JI1A8N82".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "US002".to_string(),
-                            entity_name: "Goldman Sachs Asset Management".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "New York".to_string(),
-                            country_code: "US".to_string(),
-                            lei_code: Some("784F5XWPLTWKTBV3E584".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "US003".to_string(),
-                            entity_name: "BlackRock Institutional Trust".to_string(),
-                            entity_type: "Asset Owner".to_string(),
-                            jurisdiction: "Delaware".to_string(),
-                            country_code: "US".to_string(),
-                            lei_code: Some("549300WOTC9L6FP6DY29".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "US004".to_string(),
-                            entity_name: "State Street Global Services".to_string(),
-                            entity_type: "Service Provider".to_string(),
-                            jurisdiction: "Massachusetts".to_string(),
-                            country_code: "US".to_string(),
-                            lei_code: Some("571474TGEMMWANRLN572".to_string()),
-                            status: "active".to_string(),
-                        },
-                        // EU Entities
-                        ClientEntity {
-                            entity_id: "EU001".to_string(),
-                            entity_name: "Deutsche Asset Management".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "Germany".to_string(),
-                            country_code: "DE".to_string(),
-                            lei_code: Some("529900T8BM49AURSDO55".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "EU002".to_string(),
-                            entity_name: "BNP Paribas Asset Management".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "France".to_string(),
-                            country_code: "FR".to_string(),
-                            lei_code: Some("969500UP76J52A9OXU27".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "EU003".to_string(),
-                            entity_name: "UBS Asset Management AG".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "Switzerland".to_string(),
-                            country_code: "CH".to_string(),
-                            lei_code: Some("549300ZZK73H1MR76N74".to_string()),
-                            status: "active".to_string(),
-                        },
-                        // APAC Entities
-                        ClientEntity {
-                            entity_id: "AP001".to_string(),
-                            entity_name: "Nomura Asset Management".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "Japan".to_string(),
-                            country_code: "JP".to_string(),
-                            lei_code: Some("353800MLJIGSLQ3JGP81".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "AP002".to_string(),
-                            entity_name: "China Asset Management Co".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "China".to_string(),
-                            country_code: "CN".to_string(),
-                            lei_code: Some("300300S39XTBSNH66F17".to_string()),
-                            status: "active".to_string(),
-                        },
-                        ClientEntity {
-                            entity_id: "AP003".to_string(),
-                            entity_name: "DBS Asset Management".to_string(),
-                            entity_type: "Investment Manager".to_string(),
-                            jurisdiction: "Singapore".to_string(),
-                            country_code: "SG".to_string(),
-                            lei_code: Some("549300F4WH7V9NCKXX55".to_string()),
-                            status: "active".to_string(),
-                        },
-                    ],
-                };
-                serde_json::to_string(&response)?
-            }
-            _ => return Err(anyhow::anyhow!("Unknown service method: {}", service_method)),
-        };
-
-        let response: R = serde_json::from_str(&mock_response_json)?;
-        Ok(response)
-    }
 
     pub async fn instantiate_resource(
         &self,
@@ -501,6 +378,22 @@ impl GrpcClient {
         request: ListProductsRequest,
     ) -> Result<ListProductsResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ListProducts", &request)
+            .await
+    }
+
+    pub async fn execute_cbu_dsl(
+        &self,
+        request: ExecuteCbuDslRequest,
+    ) -> Result<ExecuteCbuDslResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteCbuDsl", &request)
+            .await
+    }
+
+    pub async fn list_cbus(
+        &self,
+        request: ListCbusRequest,
+    ) -> Result<ListCbusResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ListCbus", &request)
             .await
     }
 }

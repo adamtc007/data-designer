@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sqlx::{PgPool, Row};
+use crate::dsl_utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpportunityDslCommand {
@@ -137,7 +138,8 @@ impl OpportunityDslParser {
 
     /// Parse Opportunity DSL command into structured format
     pub fn parse_opportunity_dsl(&self, dsl_text: &str) -> Result<OpportunityDslCommand, OpportunityDslError> {
-        let dsl_text = dsl_text.trim();
+        let cleaned_text = dsl_utils::strip_comments(dsl_text);
+        let dsl_text = cleaned_text.trim();
 
         if dsl_text.to_uppercase().starts_with("CREATE OPPORTUNITY") {
             self.parse_create_command(dsl_text)

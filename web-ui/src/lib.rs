@@ -12,6 +12,7 @@ mod template_designer;
 mod data_designer;
 mod entity_management;
 mod cbu_dsl_ide;
+mod dsl_syntax_highlighter;
 
 
 /// This is the entry-point for all the web-assembly.
@@ -162,5 +163,20 @@ pub mod wasm_utils {
         get_browser_storage()?
             .get_item(key)
             .ok()?
+    }
+
+    // Convenience aliases for the async pattern used in entity_management.rs
+    pub fn set_local_storage(key: &str, value: &str) {
+        let _ = save_to_storage(key, value);
+    }
+
+    pub fn get_local_storage(key: &str) -> Option<String> {
+        load_from_storage(key)
+    }
+
+    pub fn remove_local_storage(key: &str) {
+        if let Some(storage) = get_browser_storage() {
+            let _ = storage.remove_item(key);
+        }
     }
 }

@@ -580,7 +580,7 @@ impl OnboardingOrchestrator {
         &self,
         workflow_id: &str,
         task_id: &str,
-        error: CapabilityError,
+        _error: CapabilityError,
     ) -> Result<(), OrchestrationError> {
         let workflow = {
             let active = self.active_workflows.read().await;
@@ -606,7 +606,7 @@ impl OnboardingOrchestrator {
     }
 
     /// Load workflow template from database
-    async fn load_workflow_template(&self, template_name: &str) -> Result<ExecutionPlan, OrchestrationError> {
+    async fn load_workflow_template(&self, _template_name: &str) -> Result<ExecutionPlan, OrchestrationError> {
         // TODO: Implement template loading from database
         // For now, return a basic execution plan
         Ok(ExecutionPlan {

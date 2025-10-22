@@ -1,0 +1,149 @@
+(* EBNF Grammar for Onboarding Request LISP DSL *)
+(* Domain: Onboarding Request Management with Deal Record Integration *)
+(* Structure: LISP S-expressions for onboarding workflows *)
+
+(* Root expression - Onboarding Request DSL program *)
+onboarding_dsl_program = { comment | s_expression } ;
+
+(* Comments - LISP style semicolon comments *)
+comment = ";" , { any_character - newline } , newline ;
+
+(* S-Expression structure *)
+s_expression = list | atom ;
+
+list = "(" , [ list_content ] , ")" ;
+list_content = s_expression , { whitespace , s_expression } ;
+
+atom = symbol | string | number | boolean ;
+
+(* Onboarding Request DSL Functions - Function Signatures *)
+
+(* Primary Onboarding CRUD Operations *)
+create_onboarding_expr = "(" , "create-onboarding-request" , string , string , string , onboarding_spec , ")" ;
+update_onboarding_expr = "(" , "update-onboarding-request" , string , [ update_fields ] , ")" ;
+delete_onboarding_expr = "(" , "delete-onboarding-request" , string , ")" ;
+query_onboarding_expr = "(" , "query-onboarding-request" , [ query_params ] , ")" ;
+
+(* Onboarding Specification *)
+onboarding_spec = "(" , "onboarding-spec" , cbu_spec , products_spec , [ workflow_options ] , ")" ;
+cbu_spec = "(" , "cbu" , string , ")" ;
+products_spec = "(" , "products" , { string } , ")" ;
+workflow_options = "(" , "workflow-options" , { workflow_option } , ")" ;
+
+workflow_option = priority_option | timeline_option | approval_chain_option | requirements_option ;
+priority_option = "(" , "priority" , priority_level , ")" ;
+timeline_option = "(" , "target-date" , string , ")" ;
+approval_chain_option = "(" , "approval-chain" , { string } , ")" ;
+requirements_option = "(" , "requirements" , requirement_type , { string } , ")" ;
+
+priority_level = "low" | "medium" | "high" | "critical" ;
+requirement_type = "business" | "compliance" | "technical" | "resource" ;
+
+(* Update Operations *)
+update_fields = "(" , "fields" , { field_update } , ")" ;
+field_update = "(" , "set" , symbol , atom , ")" ;
+
+(* Function Signatures Documentation *)
+(*
+create-onboarding-request: (create-onboarding-request deal_id:string description:string onboarding_id:string onboarding_spec:onboarding_spec) -> onboarding_result
+  - Creates new onboarding request linked to deal record
+  - Specifies CBU, products, and workflow configuration
+  - Returns: (create-onboarding-result onboarding_id:string deal_id:string success:boolean data:list)
+
+update-onboarding-request: (update-onboarding-request onboarding_id:string [fields:update_fields]) -> onboarding_result
+  - Updates existing onboarding request by ID
+  - Returns: (update-onboarding-result onboarding_id:string success:boolean)
+
+delete-onboarding-request: (delete-onboarding-request onboarding_id:string) -> onboarding_result
+  - Deletes onboarding request and associated workflow
+  - Returns: (delete-onboarding-result onboarding_id:string success:boolean)
+
+query-onboarding-request: (query-onboarding-request [params:query_params]) -> onboarding_query_result
+  - Queries onboarding requests with filtering and sorting
+  - Returns: (query-onboarding-result onboarding_list:list)
+*)
+
+(* Query Parameters *)
+query_params = query_filter | query_sort | query_limit | query_status ;
+query_filter = "(" , "filter" , filter_expr , ")" ;
+query_sort = "(" , "sort" , sort_field , sort_direction , ")" ;
+query_limit = "(" , "limit" , number , ")" ;
+query_status = "(" , "status" , onboarding_status , ")" ;
+
+filter_expr = field_filter | and_filter | or_filter | date_filter | deal_filter ;
+field_filter = "(" , "=" | "!=" | "like" | "in" , symbol , atom , ")" ;
+and_filter = "(" , "and" , { filter_expr } , ")" ;
+or_filter = "(" , "or" , { filter_expr } , ")" ;
+date_filter = "(" , "date-range" , symbol , string , string , ")" ;
+deal_filter = "(" , "deal-id" , string , ")" ;
+
+sort_field = symbol ;
+sort_direction = "asc" | "desc" ;
+
+(* Onboarding Status Values *)
+onboarding_status = "initiated" | "in-progress" | "completed" | "failed" | "cancelled" | "on-hold" ;
+
+(* Primitive Types *)
+symbol = letter , { letter | digit | "-" | "_" } ;
+string = '"' , { string_char } , '"' ;
+string_char = ( any_character - '"' - "\" ) | escape_sequence ;
+escape_sequence = "\" , ( '"' | "\" | "n" | "t" | "r" ) ;
+
+number = [ "-" ] , ( integer | float ) ;
+integer = digit , { digit } ;
+float = integer , "." , integer ;
+
+boolean = "true" | "false" | "#t" | "#f" ;
+
+(* Lexical Elements *)
+whitespace = " " | "\t" | "\n" | "\r" ;
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
+         "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" |
+         "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" |
+         "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+any_character = ? any Unicode character ? ;
+newline = "\n" | "\r\n" ;
+
+(* Example Valid Expressions:
+
+   ; Create comprehensive onboarding request
+   (create-onboarding-request
+     "DEAL_2024_001"
+     "Alpha Growth Fund Client Onboarding"
+     "ONBOARD_001"
+     (onboarding-spec
+       (cbu "CBU_001")
+       (products "CUSTODY_001" "PRIME_BROKERAGE_001" "FUND_ADMIN_001")
+       (workflow-options
+         (priority high)
+         (target-date "2024-12-31")
+         (approval-chain "manager@example.com" "compliance@example.com")
+         (requirements business "KYC documentation" "Risk assessment")
+         (requirements compliance "AML check" "Sanctions screening")
+         (requirements technical "Account setup" "System integration"))))
+
+   ; Update onboarding request status
+   (update-onboarding-request "ONBOARD_001"
+     (fields
+       (set status in-progress)
+       (set completion_percentage 45)
+       (set current_stage "technical-setup")))
+
+   ; Query onboarding requests by deal
+   (query-onboarding-request
+     (filter (deal-id "DEAL_2024_001"))
+     (status in-progress)
+     (sort created_date desc))
+
+   ; Query high priority onboarding requests
+   (query-onboarding-request
+     (filter
+       (and
+         (= priority high)
+         (date-range target_date "2024-11-01" "2024-12-31")))
+     (limit 5))
+
+   ; Delete completed onboarding request
+   (delete-onboarding-request "ONBOARD_COMPLETED_001")
+*)

@@ -28,6 +28,9 @@ service FinancialTaxonomyService {
   rpc GetCbuMemberRoles(GetCbuMemberRolesRequest) returns (GetCbuMemberRolesResponse);
   rpc GetTaxonomyHierarchy(GetTaxonomyHierarchyRequest) returns (GetTaxonomyHierarchyResponse);
 
+  // Entity management methods
+  rpc GetEntities(GetEntitiesRequest) returns (GetEntitiesResponse);
+
   // Health and status methods
   rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
   rpc GetDatabaseStatus(DatabaseStatusRequest) returns (DatabaseStatusResponse);
@@ -206,6 +209,26 @@ message GetTaxonomyHierarchyRequest {
 
 message GetTaxonomyHierarchyResponse {
   repeated TaxonomyHierarchyItem items = 1;
+}
+
+// Entity management messages
+message GetEntitiesRequest {
+  optional string jurisdiction = 1;  // Filter by jurisdiction
+  optional string entity_type = 2;   // Filter by entity type
+  optional string status = 3;        // Filter by status (e.g., "active")
+}
+
+message GetEntitiesResponse {
+  repeated EntityInfo entities = 1;
+}
+
+message EntityInfo {
+  string entity_id = 1;
+  string entity_name = 2;
+  string entity_type = 3;
+  string jurisdiction = 4;
+  string country_code = 5;
+  optional string lei_code = 6;
 }
 
 message Product {

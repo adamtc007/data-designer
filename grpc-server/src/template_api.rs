@@ -15,6 +15,16 @@ use data_designer_core::cbu_dsl::CbuDslParser;
 use data_designer_core::lisp_cbu_dsl::LispCbuParser;
 use data_designer_core::dsl_utils;
 
+// Import gRPC types for HTTP endpoint compatibility
+pub mod financial_taxonomy {
+    tonic::include_proto!("financial_taxonomy");
+}
+// use financial_taxonomy::*;  // Using explicit crate::financial_taxonomy:: instead
+
+// Import the gRPC service implementation and trait
+use crate::TaxonomyServer;
+use crate::financial_taxonomy::financial_taxonomy_service_server::FinancialTaxonomyService;
+
 // Template data structures matching the WASM client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceTemplate {
@@ -129,7 +139,7 @@ pub struct AiSuggestion {
 
 const TEMPLATES_FILE_PATH: &str = "../resource_templates.json";
 
-pub fn create_template_router(db_pool: PgPool) -> Router {
+pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<TaxonomyServer>) -> Router {
     Router::new()
         .route("/api/health", get(health_check))
         .route("/api/templates", get(get_all_templates))
@@ -137,14 +147,14 @@ pub fn create_template_router(db_pool: PgPool) -> Router {
         // TODO: Fix axum handler issue for PUT route
         // .route("/api/templates/:id", put(upsert_template))
         // White Truffle HTTP endpoints
-        .route("/api/instantiate", post(instantiate_resource_http))
-        .route("/api/execute-dsl", post(execute_dsl_http))
+        .route("/api/instantiate", post(instantiate_resource))
+        .route("/api/execute-dsl", post(execute_dsl))
         .route("/api/execute-cbu-dsl", post(execute_cbu_dsl_http))
-        .route("/api/list-cbus", post(list_cbus_http))
-        .route("/api/ai-suggestions", post(get_ai_suggestions_http))
-        .route("/api/entities", post(get_entities_http))
-        .route("/api/list-products", post(list_products_http))
-        .with_state(db_pool)
+        .route("/api/list-cbus", post(list_cbus))
+        .route("/api/ai-suggestions", post(get_ai_suggestions))
+        .route("/api/entities", post(get_entities))
+        .route("/api/list-products", post(list_products))
+        .with_state((db_pool, taxonomy_server))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
 
@@ -207,182 +217,12 @@ async fn load_templates_from_file() -> Result<HashMap<String, ResourceTemplate>,
 
 
 // White Truffle HTTP endpoint handlers
-async fn instantiate_resource_http(
-    Json(request): Json<InstantiateResourceRequest>,
-) -> Result<ResponseJson<InstantiateResourceResponse>, StatusCode> {
-    info!("HTTP InstantiateResource called for template: {}", request.template_id);
+// Removed old mock HTTP functions - using gRPC delegation pattern instead
 
-    // For now, return a mock response that simulates the gRPC call
-    let instance_id = format!("http-instance-{}", uuid::Uuid::new_v4());
-
-    let response = InstantiateResourceResponse {
-        success: true,
-        message: "Resource instance created successfully via HTTP".to_string(),
-        instance: Some(ResourceInstance {
-            instance_id: instance_id.clone(),
-            onboarding_request_id: request.onboarding_request_id,
-            template_id: request.template_id,
-            status: "pending".to_string(),
-            instance_data: "{}".to_string(),
-            created_at: Some(chrono::Utc::now().to_rfc3339()),
-            updated_at: Some(chrono::Utc::now().to_rfc3339()),
-            error_message: None,
-        }),
-    };
-
-    Ok(ResponseJson(response))
-}
-
-async fn execute_dsl_http(
-    Json(request): Json<ExecuteDslRequest>,
-) -> Result<ResponseJson<ExecuteDslResponse>, StatusCode> {
-    info!("HTTP ExecuteDsl called for instance: {}", request.instance_id);
-
-    // For now, return a mock response that simulates the gRPC call
-    let response = ExecuteDslResponse {
-        success: true,
-        message: "DSL execution completed successfully via HTTP".to_string(),
-        result: Some(DslExecutionResult {
-            instance_id: request.instance_id,
-            execution_status: "success".to_string(),
-            output_data: r#"{"result": "DSL executed successfully from HTTP client"}"#.to_string(),
-            log_messages: vec!["HTTP DSL execution started".to_string(), "HTTP DSL execution completed".to_string()],
-            error_details: None,
-            executed_at: Some(chrono::Utc::now().to_rfc3339()),
-            execution_time_ms: 125.0,
-        }),
-    };
-
-    Ok(ResponseJson(response))
-}
-
-async fn get_ai_suggestions_http(
-    Json(request): Json<GetAiSuggestionsRequest>,
-) -> Result<ResponseJson<GetAiSuggestionsResponse>, StatusCode> {
-    info!("HTTP GetAiSuggestions called for query: {}", request.query);
-
-    // Enhanced response with multiple AI-generated suggestions
-    let context = request.context.unwrap_or("general".to_string());
-    let mut suggestions = Vec::new();
-
-    // Generate context-specific suggestions based on the query and context
-    match context.as_str() {
-        "kyc" => {
-            suggestions.push(AiSuggestion {
-                title: "KYC Workflow DSL".to_string(),
-                description: format!("WORKFLOW \"{}\" {{\n  VALIDATE document_collection\n  VERIFY identity\n  ASSESS risk_level\n  APPROVE or REJECT\n}}", request.query.replace(" ", "_")),
-                category: "workflow_generation".to_string(),
-                confidence: 0.92,
-                applicable_contexts: vec!["kyc".to_string(), "onboarding".to_string()],
-            });
-        }
-        "onboarding" => {
-            suggestions.push(AiSuggestion {
-                title: "Client Onboarding DSL".to_string(),
-                description: format!("PROCESS \"{}\" {{\n  COLLECT client_data\n  VALIDATE requirements\n  CREATE account\n  NOTIFY stakeholders\n}}", request.query.replace(" ", "_")),
-                category: "process_generation".to_string(),
-                confidence: 0.88,
-                applicable_contexts: vec!["onboarding".to_string(), "client_management".to_string()],
-            });
-        }
-        "dsl" => {
-            suggestions.push(AiSuggestion {
-                title: "DSL Code Generation".to_string(),
-                description: format!("# Generated DSL for: {}\nRULE \"{}\" {{\n  WHEN condition_met\n  THEN execute_action\n  ELSE handle_exception\n}}", request.query, request.query.replace(" ", "_")),
-                category: "code_generation".to_string(),
-                confidence: 0.90,
-                applicable_contexts: vec!["dsl".to_string(), "rules".to_string()],
-            });
-        }
-        "validation" => {
-            suggestions.push(AiSuggestion {
-                title: "Validation Rules".to_string(),
-                description: format!("VALIDATE \"{}\" {{\n  CHECK data_integrity\n  VERIFY business_rules\n  ENSURE compliance\n  REPORT results\n}}", request.query.replace(" ", "_")),
-                category: "validation".to_string(),
-                confidence: 0.85,
-                applicable_contexts: vec!["validation".to_string(), "compliance".to_string()],
-            });
-        }
-        _ => {
-            suggestions.push(AiSuggestion {
-                title: "General DSL Template".to_string(),
-                description: format!("# AI-Generated DSL for: {}\nDEFINE \"{}\" {{\n  // Your implementation here\n  EXECUTE action\n  RETURN result\n}}", request.query, request.query.replace(" ", "_")),
-                category: "template_generation".to_string(),
-                confidence: 0.75,
-                applicable_contexts: vec!["general".to_string()],
-            });
-        }
-    }
-
-    // Add a second suggestion with different approach
-    suggestions.push(AiSuggestion {
-        title: "Alternative Implementation".to_string(),
-        description: format!("// Alternative approach for: {}\nFUNCTION {}() {{\n  // Step-by-step implementation\n  return solution;\n}}", request.query, request.query.replace(" ", "_").to_lowercase()),
-        category: "alternative_approach".to_string(),
-        confidence: 0.78,
-        applicable_contexts: vec![context.clone()],
-    });
-
-    let response = GetAiSuggestionsResponse {
-        suggestions,
-        status_message: format!("AI suggestions generated successfully for {} context", context),
-    };
-
-    Ok(ResponseJson(response))
-}
-
-async fn list_products_http(
-    Json(_request): Json<serde_json::Value>,
-) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
-    info!("HTTP ListProducts called");
-
-    // For now, return a mock response that simulates the gRPC call
-    let products = vec![
-        serde_json::json!({
-            "product_id": "CUSTODY_001",
-            "product_name": "Institutional Custody",
-            "line_of_business": "custody",
-            "description": "Comprehensive custody services for institutional clients",
-            "status": "active",
-            "contract_type": "Service Agreement",
-            "commercial_status": "Generally Available",
-            "pricing_model": "Asset-based",
-            "target_market": "Institutional"
-        }),
-        serde_json::json!({
-            "product_id": "PRIME_BROKERAGE_001",
-            "product_name": "Prime Brokerage Platform",
-            "line_of_business": "prime_brokerage",
-            "description": "Full-service prime brokerage for hedge funds",
-            "status": "active",
-            "contract_type": "Master Agreement",
-            "commercial_status": "Generally Available",
-            "pricing_model": "Commission-based",
-            "target_market": "Hedge Funds"
-        }),
-        serde_json::json!({
-            "product_id": "FUND_ADMIN_001",
-            "product_name": "Fund Administration",
-            "line_of_business": "fund_administration",
-            "description": "Complete fund administration services",
-            "status": "active",
-            "contract_type": "Service Agreement",
-            "commercial_status": "Generally Available",
-            "pricing_model": "Fixed Fee",
-            "target_market": "Asset Managers"
-        })
-    ];
-
-    let response = serde_json::json!({
-        "products": products,
-        "total_count": products.len()
-    });
-
-    Ok(ResponseJson(response))
-}
+// Removed duplicate HTTP functions - using gRPC delegation pattern instead
 
 async fn execute_cbu_dsl_http(
-    State(pool): State<PgPool>,
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
     Json(request): Json<serde_json::Value>,
 ) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
     info!("HTTP ExecuteCbuDsl called");
@@ -423,7 +263,7 @@ async fn execute_cbu_dsl_http(
                     "message": format!("LISP DSL executed successfully: {}", result.message),
                     "cbu_id": result.cbu_id,
                     "validation_errors": [],
-                    "data": result.data
+                    "data": result.data.map(|d| serde_json::to_string(&d).unwrap_or_else(|_| "null".to_string()))
                 });
                 Ok(ResponseJson(response))
             }
@@ -482,46 +322,7 @@ async fn execute_cbu_dsl_http(
     }
 }
 
-async fn list_cbus_http(
-    Json(_request): Json<serde_json::Value>,
-) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
-    info!("HTTP ListCbus called");
-
-    // For now, return a mock response that simulates the gRPC call
-    let cbus = vec![
-        serde_json::json!({
-            "id": 1,
-            "cbu_id": "CBU_001",
-            "cbu_name": "Alpha Growth Fund",
-            "description": "Diversified growth-focused investment fund",
-            "legal_entity_name": "Alpha Growth Fund LLC",
-            "jurisdiction": "Delaware",
-            "business_model": "Investment Fund",
-            "status": "active",
-            "created_at": "2024-01-15T10:30:00Z",
-            "updated_at": "2024-10-22T12:00:00Z"
-        }),
-        serde_json::json!({
-            "id": 2,
-            "cbu_id": "CBU_002",
-            "cbu_name": "Beta Conservative Fund",
-            "description": "Conservative fixed-income investment strategy",
-            "legal_entity_name": "Beta Conservative Fund LP",
-            "jurisdiction": "New York",
-            "business_model": "Investment Fund",
-            "status": "active",
-            "created_at": "2024-03-20T14:15:00Z",
-            "updated_at": "2024-10-22T12:00:00Z"
-        })
-    ];
-
-    let response = serde_json::json!({
-        "cbus": cbus,
-        "total_count": cbus.len()
-    });
-
-    Ok(ResponseJson(response))
-}
+// Removed legacy list_cbus_http - using gRPC delegation pattern instead
 
 // Helper modules for HTTP endpoints
 mod uuid {
@@ -581,46 +382,236 @@ mod chrono {
     }
 }
 
-async fn get_entities_http(
-    Json(_request): Json<serde_json::Value>,
+async fn get_entities(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
 ) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
-    info!("HTTP GetEntities called");
+    info!("HTTP GetEntities called - delegating to gRPC implementation");
 
-    // For now, return a mock response that simulates the gRPC call
-    let entities = vec![
-        serde_json::json!({
-            "entity_id": "ENT_001",
-            "entity_name": "Alpha Capital Management",
-            "jurisdiction": "Delaware",
-            "entity_type": "Investment Manager",
-            "country_code": "US",
-            "lei_code": "ALPHA123456789012345",
-            "status": "Active"
-        }),
-        serde_json::json!({
-            "entity_id": "ENT_002",
-            "entity_name": "Beta Asset Owners LLC",
-            "jurisdiction": "New York",
-            "entity_type": "Asset Owner",
-            "country_code": "US",
-            "lei_code": "BETA9876543210987654",
-            "status": "Active"
-        }),
-        serde_json::json!({
-            "entity_id": "ENT_003",
-            "entity_name": "Gamma Services Group",
-            "jurisdiction": "Nevada",
-            "entity_type": "Managing Company",
-            "country_code": "US",
-            "lei_code": "GAMMA55555555555555",
-            "status": "Active"
+    // Convert JSON request to gRPC type
+    let grpc_request_data = crate::financial_taxonomy::GetEntitiesRequest {
+        jurisdiction: request.get("jurisdiction").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        entity_type: request.get("entity_type").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        status: request.get("status").and_then(|v| v.as_str()).map(|s| s.to_string()),
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.get_entities(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC GetEntities succeeded, returning {} entities", response.entities.len());
+            // Convert gRPC response to JSON manually
+            let entities_json: Vec<serde_json::Value> = response.entities.iter().map(|entity| {
+                serde_json::json!({
+                    "entity_id": entity.entity_id,
+                    "entity_name": entity.entity_name,
+                    "jurisdiction": entity.jurisdiction,
+                    "entity_type": entity.entity_type,
+                    "country_code": entity.country_code,
+                    "lei_code": entity.lei_code
+                })
+            }).collect();
+            let json_response = serde_json::json!({
+                "entities": entities_json
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC GetEntities failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn list_cbus(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ListCbus called - delegating to gRPC implementation");
+
+    // Convert JSON request to gRPC type
+    let grpc_request_data = crate::financial_taxonomy::ListCbusRequest {
+        status_filter: request.get("status_filter").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        limit: request.get("limit").and_then(|v| v.as_i64()).map(|i| i as i32),
+        offset: request.get("offset").and_then(|v| v.as_i64()).map(|i| i as i32),
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.list_cbus(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC ListCbus succeeded, returning {} CBUs", response.cbus.len());
+            // Convert gRPC response to JSON manually
+            let cbus_json: Vec<serde_json::Value> = response.cbus.iter().map(|cbu| {
+                serde_json::json!({
+                    "id": cbu.id,
+                    "cbu_id": cbu.cbu_id,
+                    "cbu_name": cbu.cbu_name,
+                    "description": cbu.description,
+                    "status": cbu.status
+                })
+            }).collect();
+            let json_response = serde_json::json!({
+                "cbus": cbus_json,
+                "total_count": response.total_count
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC ListCbus failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn get_ai_suggestions(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP GetAiSuggestions called - delegating to gRPC implementation");
+
+    // Convert JSON request to gRPC type
+    let ai_provider = request.get("ai_provider").and_then(|v| {
+        Some(crate::financial_taxonomy::AiProviderConfig {
+            provider_type: v.get("provider_type").and_then(|pt| pt.as_i64()).unwrap_or(0) as i32,
+            api_key: v.get("api_key").and_then(|k| k.as_str()).map(|s| s.to_string()),
         })
-    ];
-
-    let response = serde_json::json!({
-        "entities": entities,
-        "total_count": entities.len()
     });
 
-    Ok(ResponseJson(response))
+    let grpc_request_data = crate::financial_taxonomy::GetAiSuggestionsRequest {
+        query: request.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        context: request.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        ai_provider,
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.get_ai_suggestions(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC GetAiSuggestions succeeded, returning {} suggestions", response.suggestions.len());
+            // Convert gRPC response to JSON manually
+            let suggestions_json: Vec<serde_json::Value> = response.suggestions.iter().map(|suggestion| {
+                serde_json::json!({
+                    "title": suggestion.title,
+                    "description": suggestion.description,
+                    "category": suggestion.category,
+                    "confidence": suggestion.confidence
+                })
+            }).collect();
+            let json_response = serde_json::json!({
+                "suggestions": suggestions_json,
+                "status_message": response.status_message
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC GetAiSuggestions failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn list_products(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ListProducts called - delegating to gRPC implementation");
+
+    // Convert JSON request to gRPC type
+    let grpc_request_data = crate::financial_taxonomy::ListProductsRequest {
+        status_filter: request.get("status_filter").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        line_of_business_filter: request.get("line_of_business_filter").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        limit: request.get("limit").and_then(|v| v.as_i64()).map(|i| i as i32),
+        offset: request.get("offset").and_then(|v| v.as_i64()).map(|i| i as i32),
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.list_products(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC ListProducts succeeded, returning {} products", response.products.len());
+            let json_response = serde_json::json!({
+                "products": [],
+                "total_count": response.total_count,
+                "success": true,
+                "message": "Products listed successfully"
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC ListProducts failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn instantiate_resource(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP InstantiateResource called - delegating to gRPC implementation");
+
+    // Convert JSON request to gRPC type
+    let grpc_request_data = crate::financial_taxonomy::InstantiateResourceRequest {
+        template_id: request.get("template_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        onboarding_request_id: request.get("onboarding_request_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        context: request.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        initial_data: request.get("initial_data").and_then(|v| v.as_str()).map(|s| s.to_string()),
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.instantiate_resource(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC InstantiateResource succeeded");
+            let json_response = serde_json::json!({
+                "success": response.success,
+                "message": response.message,
+                "instance": null
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC InstantiateResource failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn execute_dsl(
+    State((_, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ExecuteDsl called - delegating to gRPC implementation");
+
+    // Convert JSON request to gRPC type
+    let grpc_request_data = crate::financial_taxonomy::ExecuteDslRequest {
+        instance_id: request.get("instance_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        execution_context: request.get("execution_context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        input_data: request.get("input_data").and_then(|v| v.as_str()).map(|s| s.to_string()),
+    };
+
+    let grpc_request = tonic::Request::new(grpc_request_data);
+
+    match taxonomy_server.execute_dsl(grpc_request).await {
+        Ok(grpc_response) => {
+            let response = grpc_response.into_inner();
+            info!("gRPC ExecuteDsl succeeded");
+            let json_response = serde_json::json!({
+                "success": response.success,
+                "message": response.message,
+                "result": null
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(status) => {
+            error!("gRPC ExecuteDsl failed: {}", status);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }

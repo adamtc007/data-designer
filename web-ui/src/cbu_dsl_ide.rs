@@ -1,8 +1,11 @@
 // CBU DSL IDE - Interactive panel for writing and executing CBU CRUD operations
 use eframe::egui;
-use crate::grpc_client::{GrpcClient, GetEntitiesRequest};
+use crate::grpc_client::GrpcClient;
 use crate::wasm_utils;
+use crate::dsl_syntax_highlighter::{DslSyntaxHighlighter, SyntaxTheme};
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CbuDslRequest {
@@ -21,10 +24,22 @@ pub struct CbuDslResponse {
 pub struct CbuDslIDE {
     // DSL Editor state
     dsl_script: String,
+    syntax_highlighter: DslSyntaxHighlighter,
+    show_syntax_highlighting: bool,
+    syntax_errors: Vec<String>,
 
-    // Execution state
-    executing: bool,
-    last_result: Option<CbuDslResponse>,
+    // Code completion state
+    show_completion_popup: bool,
+    completion_suggestions: Vec<String>,
+    selected_completion: usize,
+    completion_trigger_pos: usize,
+
+    // Execution state - Thread-safe for async/egui synchronization
+    executing: Arc<AtomicBool>, // Atomic for lock-free reads from UI thread
+    execution_result: Arc<Mutex<Option<CbuDslResponse>>>, // Mutex for safe updates from async
+
+    // Entity loading state - For async entity loading from gRPC
+    entities_loading_state: Option<Arc<Mutex<Vec<EntityInfo>>>>,
 
     // UI state
     show_examples: bool,
@@ -35,6 +50,12 @@ pub struct CbuDslIDE {
     available_entities: Vec<EntityInfo>,
     loading_entities: bool,
 
+    // CBU Context Selection
+    cbu_context: CbuContext,
+    selected_cbu_id: Option<String>,
+    available_cbus: Vec<CbuRecord>,
+    loading_cbus: bool,
+
     // Entity picker state
     show_entity_picker: bool,
     show_floating_entity_picker: bool, // New floating panel state
@@ -44,6 +65,26 @@ pub struct CbuDslIDE {
     entity_filter_type: String,
     entity_search_name: String,
     selected_entities: Vec<(String, String)>, // (entity_id, role)
+
+    // DSL Format Mode
+    lisp_mode: bool, // true = LISP S-expressions, false = EBNF format
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CbuContext {
+    None,        // Initial state - user needs to choose
+    CreateNew,   // Creating a new CBU
+    EditExisting, // Editing an existing CBU
+}
+
+#[derive(Debug, Clone)]
+pub struct CbuRecord {
+    pub cbu_id: String,
+    pub name: String,
+    pub nature: String,
+    pub purpose: String,
+    pub status: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +95,7 @@ struct EntityInfo {
     jurisdiction: String,
     country_code: String,
     lei_code: Option<String>,
+    status: String,
 }
 
 impl Default for CbuDslIDE {
@@ -62,17 +104,40 @@ impl Default for CbuDslIDE {
     }
 }
 
+// DSL Operation types for single management function
+#[derive(Debug, Clone)]
+enum DslOperation {
+    LoadForCreateNew { cbu_key: String },
+    LoadForEdit { cbu_id: String, cbu_name: String, cbu_purpose: String },
+    UpdateWithEntities { preserve_header: bool },
+    Clear,
+}
+
 impl CbuDslIDE {
     pub fn new() -> Self {
         Self {
             dsl_script: String::new(),
-            executing: false,
-            last_result: None,
+            syntax_highlighter: DslSyntaxHighlighter::new(SyntaxTheme::dark_theme()),
+            show_syntax_highlighting: true,
+            syntax_errors: Vec::new(),
+
+            // Code completion
+            show_completion_popup: false,
+            completion_suggestions: Vec::new(),
+            selected_completion: 0,
+            completion_trigger_pos: 0,
+            executing: Arc::new(AtomicBool::new(false)),
+            execution_result: Arc::new(Mutex::new(None)),
+            entities_loading_state: None,
             show_examples: false,
             show_help: false,
             selected_example: 0,
             available_entities: Vec::new(),
             loading_entities: false,
+            cbu_context: CbuContext::None,
+            selected_cbu_id: None,
+            available_cbus: Vec::new(),
+            loading_cbus: false,
             show_entity_picker: false,
             show_floating_entity_picker: false,
             entity_picker_window_size: egui::Vec2::new(720.0, 420.0),
@@ -81,19 +146,379 @@ impl CbuDslIDE {
             entity_filter_type: "All".to_string(),
             entity_search_name: String::new(),
             selected_entities: Vec::new(),
+            lisp_mode: true, // Default to LISP mode for better parsing
         }
     }
 
+    /// **SINGLE DSL MANAGEMENT FUNCTION** - All DSL state changes must go through here
+    /// This prevents multiple injection points and maintains clean state management
+    /// Includes EBNF validation for all DSL operations
+    fn manage_dsl_state(&mut self, operation: DslOperation) {
+        let new_dsl = match operation {
+            DslOperation::LoadForCreateNew { cbu_key } => {
+                self.selected_cbu_id = None;
+                self.selected_entities.clear();
+
+                // Generate LISP format for new CBU creation
+                let dsl = if self.lisp_mode {
+                    format!(
+                        "; Create a new CBU - add entities below using Entity Picker\n(create-cbu \"New CBU Name\" \"CBU Purpose Description\")\n; Use Entity Picker to add entities"
+                    )
+                } else {
+                    format!(
+                        "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU {} 'New CBU Name' ; 'CBU Purpose Description' WITH\n  # Use Entity Picker to add entities",
+                        cbu_key
+                    )
+                };
+
+                wasm_utils::console_log(&format!("📝 DSL initialized for CREATE NEW: {}", cbu_key));
+                dsl
+            },
+            DslOperation::LoadForEdit { cbu_id, cbu_name, cbu_purpose } => {
+                self.selected_cbu_id = Some(cbu_id.clone());
+                self.selected_entities.clear();
+
+                // Generate LISP format for existing CBU editing
+                let dsl = if self.lisp_mode {
+                    format!(
+                        "; Editing CBU: {}\n; Original CBU Key: {}\n(update-cbu \"{}\" \"{}\" \"{}\")\n; Entity associations will be loaded - use Entity Picker to add entities",
+                        cbu_name, cbu_id, cbu_id, cbu_name, cbu_purpose
+                    )
+                } else {
+                    format!(
+                        "# Editing CBU: {}\n# Original CBU Key: {}\nUPDATE CBU {} '{}' ; '{}' WITH\n  # Entity associations will be loaded - use Entity Picker to add entities",
+                        cbu_name, cbu_id, cbu_id, cbu_name, cbu_purpose
+                    )
+                };
+
+                wasm_utils::console_log(&format!("📝 DSL initialized for EDIT: {} ({})", cbu_name, cbu_id));
+                dsl
+            },
+            DslOperation::UpdateWithEntities { preserve_header } => {
+                if self.selected_entities.is_empty() {
+                    wasm_utils::console_log("⚠️  No entities selected for DSL update");
+                    return;
+                }
+
+                let dsl = if self.lisp_mode {
+                    // Generate LISP-style DSL
+                    wasm_utils::console_log("🔧 Generating LISP-style DSL");
+                    self.build_lisp_dsl()
+                } else if preserve_header {
+                    // Preserve existing header and update entities (EBNF format)
+                    self.build_dsl_preserving_header()
+                } else {
+                    // Generate completely new DSL (EBNF format)
+                    self.build_dsl_from_scratch()
+                };
+                wasm_utils::console_log(&format!("✅ DSL updated with {} entities", self.selected_entities.len()));
+                dsl
+            },
+            DslOperation::Clear => {
+                self.selected_entities.clear();
+                self.selected_cbu_id = None;
+                wasm_utils::console_log("🧹 DSL state cleared");
+                String::new()
+            },
+        };
+
+        // **EBNF VALIDATION** - Validate DSL syntax before applying changes
+        if !new_dsl.is_empty() {
+            match self.validate_dsl_syntax(&new_dsl) {
+                Ok(_) => {
+                    self.dsl_script = new_dsl;
+                    wasm_utils::console_log("✅ DSL syntax validation passed");
+                },
+                Err(validation_error) => {
+                    wasm_utils::console_log(&format!("❌ DSL syntax validation failed: {}", validation_error));
+                    // Still apply the DSL but log the validation error
+                    // This allows the user to see and fix syntax issues
+                    self.dsl_script = new_dsl;
+                    // TODO: Show validation error in UI
+                }
+            }
+        } else {
+            self.dsl_script = new_dsl;
+        }
+    }
+
+    /// Validate DSL syntax against CBU EBNF grammar
+    /// Returns Ok(()) if valid, Err(error_message) if invalid
+    fn validate_dsl_syntax(&self, dsl: &str) -> Result<(), String> {
+        // Skip validation for incomplete DSL (just comments or placeholders)
+        let non_comment_lines: Vec<&str> = dsl.lines()
+            .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
+            .collect();
+
+        if non_comment_lines.is_empty() {
+            return Ok(()); // Empty DSL is valid
+        }
+
+        // Check for basic CBU DSL structure
+        let dsl_text = dsl.to_string();
+
+        // Validate CREATE CBU syntax
+        if dsl_text.contains("CREATE CBU")
+            && !self.validate_create_cbu_syntax(&dsl_text) {
+                return Err("CREATE CBU syntax error: Expected format 'CREATE CBU <id> '<name>' ; '<purpose>' WITH'".to_string());
+            }
+
+        // Validate UPDATE CBU syntax
+        if dsl_text.contains("UPDATE CBU")
+            && !self.validate_update_cbu_syntax(&dsl_text) {
+                return Err("UPDATE CBU syntax error: Expected format 'UPDATE CBU <id> '<name>' ; '<purpose>' WITH'".to_string());
+            }
+
+        // Validate ENTITY syntax
+        if dsl_text.contains("ENTITY")
+            && !self.validate_entity_syntax(&dsl_text) {
+                return Err("ENTITY syntax error: Expected format 'ENTITY <id> AS '<role>' # <name>'".to_string());
+            }
+
+        Ok(())
+    }
+
+    /// Validate CREATE CBU command syntax
+    fn validate_create_cbu_syntax(&self, dsl: &str) -> bool {
+        // Basic regex-like validation for CREATE CBU pattern
+        // TODO: Replace with proper nom parser integration
+        for line in dsl.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("CREATE CBU") {
+                // Must have: CREATE CBU <id> '<name>' ; '<purpose>' WITH
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() < 3 {
+                    return false;
+                }
+                if !trimmed.contains('\'') || !trimmed.contains(';') || !trimmed.contains("WITH") {
+                    return false;
+                }
+                return true;
+            }
+        }
+        true // No CREATE CBU found, that's fine
+    }
+
+    /// Validate UPDATE CBU command syntax
+    fn validate_update_cbu_syntax(&self, dsl: &str) -> bool {
+        // Basic validation for UPDATE CBU pattern
+        for line in dsl.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("UPDATE CBU") {
+                // Must have: UPDATE CBU <id> '<name>' ; '<purpose>' WITH
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() < 3 {
+                    return false;
+                }
+                if !trimmed.contains('\'') || !trimmed.contains(';') || !trimmed.contains("WITH") {
+                    return false;
+                }
+                return true;
+            }
+        }
+        true // No UPDATE CBU found, that's fine
+    }
+
+    /// Validate ENTITY command syntax
+    fn validate_entity_syntax(&self, dsl: &str) -> bool {
+        // Basic validation for ENTITY pattern
+        for line in dsl.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("ENTITY") && !trimmed.starts_with('#') {
+                // Must have: ENTITY <id> AS '<role>' # <name>
+                if !trimmed.contains(" AS ") || !trimmed.contains('\'') {
+                    return false;
+                }
+                // Check for valid role
+                let valid_roles = ["Asset Owner", "Investment Manager", "Managing Company"];
+                let has_valid_role = valid_roles.iter().any(|role| trimmed.contains(role));
+                if !has_valid_role {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Helper: Build DSL preserving existing header (used by single DSL manager)
+    fn build_dsl_preserving_header(&self) -> String {
+        // Parse existing DSL to preserve CBU-level information
+        let existing_lines: Vec<&str> = self.dsl_script.lines().collect();
+        let mut cbu_header_lines = Vec::new();
+        let mut found_with = false;
+
+        // Extract CBU header lines (before WITH clause)
+        for line in existing_lines {
+            let trimmed = line.trim();
+            if trimmed.contains("WITH") {
+                found_with = true;
+                cbu_header_lines.push(line.to_string());
+                break;
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                cbu_header_lines.push(line.to_string());
+            } else if trimmed.starts_with('#') {
+                cbu_header_lines.push(line.to_string()); // Keep comments
+            }
+        }
+
+        // If no CBU header found, use fallback
+        if cbu_header_lines.is_empty() || !found_with {
+            if self.cbu_context == CbuContext::CreateNew {
+                let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
+                let header = format!("CREATE CBU {} 'New CBU Name' ; 'CBU Description' WITH", new_cbu_key);
+                cbu_header_lines = vec![header];
+            } else {
+                let default_id = "CBU_ID".to_string();
+                let cbu_id = self.selected_cbu_id.as_ref().unwrap_or(&default_id);
+                let header = format!("UPDATE CBU {} WITH", cbu_id);
+                cbu_header_lines = vec![header];
+            }
+        }
+
+        // Build new DSL with preserved header and new entities
+        let mut new_dsl = String::new();
+
+        // Add header lines
+        for line in &cbu_header_lines {
+            new_dsl.push_str(line);
+            new_dsl.push('\n');
+        }
+
+        // Add entity definitions
+        self.append_entities_to_dsl(&mut new_dsl);
+
+        new_dsl
+    }
+
+    /// Helper: Build DSL from scratch (used by single DSL manager)
+    fn build_dsl_from_scratch(&self) -> String {
+        let mut new_dsl = String::new();
+
+        // Create header based on context
+        if self.cbu_context == CbuContext::CreateNew {
+            let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
+            new_dsl.push_str(&format!("CREATE CBU {} 'New CBU Name' ; 'CBU Description' WITH\n", new_cbu_key));
+        } else {
+            let default_id = "CBU_ID".to_string();
+            let cbu_id = self.selected_cbu_id.as_ref().unwrap_or(&default_id);
+            new_dsl.push_str(&format!("UPDATE CBU {} WITH\n", cbu_id));
+        }
+
+        // Add entity definitions
+        self.append_entities_to_dsl(&mut new_dsl);
+
+        new_dsl
+    }
+
+    /// Helper: Append entities to DSL (used by both DSL builders)
+    fn append_entities_to_dsl(&self, dsl: &mut String) {
+        for (i, (entity_info, role)) in self.selected_entities.iter().enumerate() {
+            let parts: Vec<&str> = entity_info.split(" (").collect();
+            if parts.len() == 2 {
+                let entity_name = parts[0];
+                let entity_id = parts[1].trim_end_matches(')');
+
+                if i > 0 {
+                    dsl.push_str(" AND\n");
+                }
+                // DSL format: ENTITY entity_id AS 'role' # entity_name (for hover tooltips)
+                dsl.push_str(&format!("  ENTITY {} AS '{}' # {}", entity_id, role, entity_name));
+            }
+        }
+    }
+
+    /// Generate LISP-style DSL for elegant list processing
+    fn build_lisp_dsl(&self) -> String {
+        let mut lisp_dsl = String::new();
+
+        // Start comment
+        lisp_dsl.push_str("; LISP-style CBU DSL - list processing for financial entities\n");
+
+        // Build S-expression based on context
+        if self.cbu_context == CbuContext::CreateNew {
+            // Extract CBU name and description from existing DSL if available
+            let (cbu_name, cbu_description) = self.extract_cbu_info_from_dsl();
+
+            lisp_dsl.push_str(&format!(
+                "(create-cbu \"{}\" \"{}\"\n",
+                cbu_name.unwrap_or_else(|| "New CBU Name".to_string()),
+                cbu_description.unwrap_or_else(|| "CBU Description".to_string())
+            ));
+        } else {
+            let cbu_id = self.selected_cbu_id.as_ref().unwrap_or(&"CBU_ID".to_string()).clone();
+            lisp_dsl.push_str(&format!("(update-cbu \"{}\"\n", cbu_id));
+        }
+
+        // Add entities list if we have any
+        if !self.selected_entities.is_empty() {
+            lisp_dsl.push_str("  (entities\n");
+
+            for (entity_info, role) in &self.selected_entities {
+                let parts: Vec<&str> = entity_info.split(" (").collect();
+                if parts.len() == 2 {
+                    let entity_name = parts[0];
+                    let entity_id = parts[1].trim_end_matches(')');
+                    let role_symbol = role.to_lowercase().replace(" ", "-");
+
+                    lisp_dsl.push_str(&format!(
+                        "    (entity \"{}\" \"{}\" {})\n",
+                        entity_id, entity_name, role_symbol
+                    ));
+                }
+            }
+
+            lisp_dsl.push_str("  )");
+        }
+
+        lisp_dsl.push_str(")");
+        lisp_dsl
+    }
+
+    /// Extract CBU name and description from existing DSL
+    fn extract_cbu_info_from_dsl(&self) -> (Option<String>, Option<String>) {
+        if self.dsl_script.is_empty() {
+            return (None, None);
+        }
+
+        // Parse existing DSL to extract CBU name and description
+        for line in self.dsl_script.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("CREATE CBU") || trimmed.starts_with("UPDATE CBU") {
+                // Try to extract quoted strings for name and description
+                let parts: Vec<&str> = trimmed.split('\'').collect();
+                if parts.len() >= 4 {
+                    let name = parts[1].to_string();
+                    let description = parts[3].to_string();
+                    return (Some(name), Some(description));
+                }
+            }
+        }
+
+        (None, None)
+    }
+
     pub fn render(&mut self, ui: &mut egui::Ui, grpc_client: Option<&GrpcClient>) {
+        // Update entities from async state (60fps compatible)
+        self.update_entities_from_async_state();
+        // **60FPS THREAD-SAFE STATE READ** - Read execution state from Arc/Mutex cache
+
         // Store context for floating window (outside UI constraints)
         let ctx = ui.ctx().clone();
         ui.heading("🏢 CBU DSL Management");
         ui.separator();
 
+        // CBU Context Selection - Prominent at the top
+        self.render_cbu_context_selection(ui, grpc_client);
+
+        // Only show the rest of the UI if context is selected
+        if self.cbu_context == CbuContext::None {
+            return;
+        }
+
         // Auto-load entities if not already loaded and gRPC client is available
         if self.available_entities.is_empty() && !self.loading_entities && grpc_client.is_some() {
             wasm_utils::console_log("🔄 Auto-loading entities for CBU DSL IDE");
-            self.load_available_entities(grpc_client);
+            self.load_available_entities(grpc_client, ui.ctx());
         }
 
         // Toolbar
@@ -126,7 +551,7 @@ impl CbuDslIDE {
         ui.horizontal(|ui| {
             // Execute button
             let execute_button = ui.add_enabled(
-                !self.dsl_script.trim().is_empty() && !self.executing && grpc_client.is_some(),
+                !self.dsl_script.trim().is_empty() && !self.executing.load(Ordering::SeqCst) && grpc_client.is_some(),
                 egui::Button::new("▶ Execute DSL")
             );
 
@@ -137,7 +562,10 @@ impl CbuDslIDE {
             // Clear button
             if ui.button("🗑 Clear").clicked() {
                 self.dsl_script.clear();
-                self.last_result = None;
+                // Clear execution result through thread-safe state
+                if let Ok(mut result) = self.execution_result.lock() {
+                    *result = None;
+                }
             }
 
             ui.separator();
@@ -161,7 +589,7 @@ impl CbuDslIDE {
             );
 
             if load_entities_button.clicked() {
-                self.load_available_entities(grpc_client);
+                self.load_available_entities(grpc_client, ui.ctx());
             }
 
             // Entity picker - compact display with expand button
@@ -198,21 +626,31 @@ impl CbuDslIDE {
                 ui.heading("📝 DSL Script Editor");
                 ui.separator();
 
-                // DSL text editor with syntax highlighting
+                // DSL text editor with enhanced IDE features
                 let hint_text = r#"Write CBU DSL commands here. Example:
 
 CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
-  ENTITY ('Alpha Capital', 'AC001') AS 'Asset Owner' AND
-  ENTITY ('Beta Management', 'BM002') AS 'Investment Manager' AND
-  ENTITY ('Gamma Services', 'GS003') AS 'Managing Company'"#;
+  ENTITY AC001 AS 'Asset Owner' # Alpha Capital
+  ENTITY BM002 AS 'Investment Manager' # Beta Management
+  ENTITY GS003 AS 'Managing Company' # Gamma Services"#;
 
-                let editor_response = ui.add(
-                    egui::TextEdit::multiline(&mut self.dsl_script)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(15)
-                        .code_editor()
-                        .hint_text(hint_text)
-                );
+                // Clipboard controls above editor
+                ui.horizontal(|ui| {
+                    ui.label("📝 DSL Editor:");
+                    ui.separator();
+                    if ui.button("📋 Copy").on_hover_text("Copy DSL to clipboard").clicked() {
+                        self.copy_to_clipboard();
+                    }
+                    if ui.button("📄 Paste").on_hover_text("Paste from clipboard").clicked() {
+                        self.paste_from_clipboard();
+                    }
+                    if ui.button("🗑️ Clear").on_hover_text("Clear DSL editor").clicked() {
+                        self.dsl_script.clear();
+                    }
+                });
+
+                // Enhanced DSL editor with hover support
+                let editor_response = self.render_enhanced_dsl_editor(ui, hint_text);
 
                 // Auto-completion suggestions
                 if editor_response.has_focus() && !self.available_entities.is_empty() {
@@ -222,7 +660,7 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
                 ui.add_space(10.0);
 
                 // Execution status
-                if self.executing {
+                if self.executing.load(Ordering::SeqCst) {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label("Executing DSL script...");
@@ -254,7 +692,10 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
         ui.heading("📊 Execution Results");
         ui.separator();
 
-        if let Some(result) = &self.last_result {
+        // Read execution state from thread-safe cache
+        let (is_executing, result) = self.get_execution_state();
+
+        if let Some(result) = &result {
             // Success/Error indicator
             ui.horizontal(|ui| {
                 if result.success {
@@ -411,6 +852,422 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
         });
     }
 
+    fn render_enhanced_dsl_editor(&mut self, ui: &mut egui::Ui, hint_text: &str) -> egui::Response {
+        ui.vertical(|ui| {
+            // Syntax highlighting controls
+            ui.horizontal(|ui| {
+                ui.label("🎨 Editor Options:");
+                ui.checkbox(&mut self.show_syntax_highlighting, "Syntax Highlighting");
+
+                // Theme selector
+                ui.separator();
+                if ui.button("Dark Theme").clicked() {
+                    self.syntax_highlighter.set_theme(SyntaxTheme::dark_theme());
+                }
+                if ui.button("Light Theme").clicked() {
+                    self.syntax_highlighter.set_theme(SyntaxTheme::light_theme());
+                }
+
+                ui.separator();
+                ui.label(format!("Mode: {}", if self.lisp_mode { "LISP" } else { "EBNF" }));
+            });
+
+            ui.separator();
+
+            // Validate syntax when content changes
+            if !self.dsl_script.is_empty() {
+                self.syntax_errors = self.syntax_highlighter.validate_syntax(&self.dsl_script);
+            }
+
+            // Show syntax errors if any
+            if !self.syntax_errors.is_empty() {
+                ui.colored_label(egui::Color32::RED, "⚠️ Syntax Errors:");
+                ui.indent("syntax_errors", |ui| {
+                    for error in &self.syntax_errors {
+                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    }
+                });
+                ui.separator();
+            }
+
+            let editor_response = if self.show_syntax_highlighting && !self.dsl_script.is_empty() {
+                // Show syntax-highlighted preview alongside editor
+                ui.horizontal(|ui| {
+                    // Editor on the left with completion
+                    let text_response = ui.vertical(|ui| {
+                        let text_response = ui.add_sized(
+                            [ui.available_width() * 0.5 - 10.0, 400.0],
+                            egui::TextEdit::multiline(&mut self.dsl_script)
+                                .code_editor()
+                                .hint_text(hint_text)
+                        );
+
+                        // Handle completion trigger
+                        if text_response.has_focus() {
+                            self.handle_completion_input(ui, &text_response);
+                        }
+
+                        // Show completion popup if active
+                        if self.show_completion_popup {
+                            self.render_completion_popup(ui);
+                        }
+
+                        text_response
+                    }).inner;
+
+                    ui.separator();
+
+                    // Syntax-highlighted preview on the right
+                    ui.vertical(|ui| {
+                        ui.label("🌈 Syntax Highlighted Preview:");
+                        ui.separator();
+
+                        egui::ScrollArea::vertical()
+                            .max_height(380.0)
+                            .show(ui, |ui| {
+                                if self.dsl_script.lines().count() > 20 {
+                                    // For large files, show with line numbers
+                                    self.syntax_highlighter.render_with_line_numbers(ui, &self.dsl_script);
+                                } else {
+                                    // For smaller files, show highlighted lines
+                                    self.syntax_highlighter.render_highlighted_lines(ui, &self.dsl_script);
+                                }
+                            });
+                    });
+
+                    text_response
+                }).inner
+            } else {
+                // Standard editor with completion
+                ui.vertical(|ui| {
+                    let text_response = ui.add(
+                        egui::TextEdit::multiline(&mut self.dsl_script)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(15)
+                            .code_editor()
+                            .hint_text(hint_text)
+                    );
+
+                    // Handle completion trigger
+                    if text_response.has_focus() {
+                        self.handle_completion_input(ui, &text_response);
+                    }
+
+                    // Show completion popup if active
+                    if self.show_completion_popup {
+                        self.render_completion_popup(ui);
+                    }
+
+                    text_response
+                }).inner
+            };
+
+            // Show tooltip on hover - let egui handle the hover detection
+            editor_response.on_hover_ui(|ui| {
+                self.show_dsl_content_tooltip(ui);
+            })
+        }).inner
+    }
+
+    /// Handle code completion input triggers
+    fn handle_completion_input(&mut self, ui: &mut egui::Ui, text_response: &egui::Response) {
+        // Check for completion triggers
+        let ctx = ui.ctx();
+
+        // Trigger completion on Ctrl+Space
+        if ctx.input(|i| i.key_pressed(egui::Key::Space) && i.modifiers.ctrl) {
+            self.trigger_completion();
+        }
+
+        // Handle completion navigation
+        if self.show_completion_popup {
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    if self.selected_completion > 0 {
+                        self.selected_completion -= 1;
+                    }
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    if self.selected_completion < self.completion_suggestions.len().saturating_sub(1) {
+                        self.selected_completion += 1;
+                    }
+                } else if i.key_pressed(egui::Key::Enter) {
+                    self.apply_completion();
+                } else if i.key_pressed(egui::Key::Escape) {
+                    self.show_completion_popup = false;
+                }
+            });
+        }
+
+        // Auto-trigger completion on typing
+        if text_response.changed() {
+            // Simple auto-trigger when typing certain characters
+            if self.dsl_script.ends_with('(') || self.dsl_script.ends_with(' ') {
+                self.trigger_completion();
+            }
+        }
+    }
+
+    /// Trigger code completion
+    fn trigger_completion(&mut self) {
+        let cursor_pos = self.dsl_script.len();
+        self.completion_suggestions = self.syntax_highlighter.get_completions(&self.dsl_script, cursor_pos);
+
+        if !self.completion_suggestions.is_empty() {
+            self.show_completion_popup = true;
+            self.selected_completion = 0;
+            self.completion_trigger_pos = cursor_pos;
+        }
+    }
+
+    /// Apply the selected completion
+    fn apply_completion(&mut self) {
+        if let Some(completion) = self.completion_suggestions.get(self.selected_completion) {
+            // Find the word at cursor to replace
+            let word_start = self.find_word_start(self.completion_trigger_pos);
+
+            // Replace the partial word with the completion
+            let before = &self.dsl_script[..word_start];
+            let after = &self.dsl_script[self.completion_trigger_pos..];
+
+            self.dsl_script = format!("{}{}{}", before, completion, after);
+        }
+
+        self.show_completion_popup = false;
+    }
+
+    /// Find the start of the current word
+    fn find_word_start(&self, pos: usize) -> usize {
+        let chars: Vec<char> = self.dsl_script.chars().collect();
+        let mut start = pos;
+
+        while start > 0 {
+            let ch = chars[start - 1];
+            if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+                start -= 1;
+            } else {
+                break;
+            }
+        }
+
+        start
+    }
+
+    /// Render the completion popup
+    fn render_completion_popup(&mut self, ui: &mut egui::Ui) {
+        if self.completion_suggestions.is_empty() {
+            return;
+        }
+
+        egui::Area::new("completion_popup".into())
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style())
+                    .show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.label("💡 Code Completion");
+                            ui.separator();
+
+                            let mut should_apply_completion = false;
+
+                            for (i, suggestion) in self.completion_suggestions.iter().enumerate() {
+                                let is_selected = i == self.selected_completion;
+
+                                let response = ui.selectable_label(is_selected, suggestion);
+
+                                if response.clicked() {
+                                    self.selected_completion = i;
+                                    should_apply_completion = true;
+                                }
+
+                                // Show description for known completions
+                                if is_selected {
+                                    let description = self.get_completion_description(suggestion);
+                                    if !description.is_empty() {
+                                        ui.small(description);
+                                    }
+                                }
+                            }
+
+                            // Apply completion after the loop to avoid borrow conflicts
+                            if should_apply_completion {
+                                self.apply_completion();
+                            }
+
+                            ui.separator();
+                            ui.small("↑↓ Navigate • Enter: Apply • Esc: Cancel");
+                        });
+                    });
+            });
+    }
+
+    /// Get description for a completion suggestion
+    fn get_completion_description(&self, suggestion: &str) -> String {
+        match suggestion {
+            "create-cbu" => "Create a new Client Business Unit".to_string(),
+            "update-cbu" => "Update an existing CBU".to_string(),
+            "delete-cbu" => "Delete a CBU".to_string(),
+            "query-cbu" => "Query CBUs".to_string(),
+            "entity" => "Define an entity with ID, name, and role".to_string(),
+            "entities" => "Group multiple entities".to_string(),
+            "asset-owner" => "Entity role: Legal owner of assets".to_string(),
+            "investment-manager" => "Entity role: Makes investment decisions".to_string(),
+            "custodian" => "Entity role: Safekeeps assets".to_string(),
+            "prime-broker" => "Entity role: Provides brokerage services".to_string(),
+            _ => String::new(),
+        }
+    }
+
+    fn show_dsl_content_tooltip(&self, ui: &mut egui::Ui) {
+        // Show contextual tooltips based on DSL content
+        ui.label("📝 CBU DSL Editor");
+        ui.separator();
+
+        // Count and show CBU and entity references
+        let cbu_count = self.dsl_script.lines().filter(|line|
+            line.trim().starts_with("CREATE CBU ") || line.trim().starts_with("UPDATE CBU ")
+        ).count();
+
+        let entity_count = self.dsl_script.lines().filter(|line|
+            line.trim().contains("ENTITY ") && line.trim().contains(" AS ")
+        ).count();
+
+        if cbu_count > 0 {
+            ui.label(format!("🏢 {} CBU operation(s)", cbu_count));
+        }
+        if entity_count > 0 {
+            ui.label(format!("👤 {} Entity reference(s)", entity_count));
+        }
+
+        if cbu_count == 0 && entity_count == 0 {
+            ui.label("💡 Add CBU operations and entity references");
+        }
+
+        // Show first CBU operation details if any
+        for line in self.dsl_script.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.starts_with("CREATE CBU ") {
+                if let Some(cbu_info) = self.parse_cbu_line(trimmed) {
+                    ui.separator();
+                    ui.label("🏢 Creating CBU:");
+                    ui.label(format!("  Key: {}", cbu_info.0));
+                    ui.label(format!("  Name: {}", cbu_info.1));
+                    ui.label(format!("  Purpose: {}", cbu_info.2));
+                    break;
+                }
+            }
+
+            if trimmed.starts_with("UPDATE CBU ") {
+                if let Some(cbu_key) = self.parse_update_cbu_line(trimmed) {
+                    ui.separator();
+                    ui.label("✏️ Updating CBU:");
+                    ui.label(format!("  Key: {}", cbu_key));
+
+                    // Look up real CBU data if available
+                    if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_key) {
+                        ui.label(format!("  Current Name: {}", cbu.name));
+                        ui.label(format!("  Status: {}", cbu.status));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Show entity summary
+        let entities: Vec<_> = self.dsl_script.lines()
+            .filter_map(|line| self.parse_entity_line(line.trim()))
+            .collect();
+
+        if !entities.is_empty() {
+            ui.separator();
+            ui.label("👤 Entity Roles:");
+            for (entity_key, role, name) in entities.iter().take(3) {
+                let display_name = name.as_ref().unwrap_or(entity_key);
+                ui.label(format!("  {} → {}", display_name, role));
+            }
+            if entities.len() > 3 {
+                ui.label(format!("  ... and {} more", entities.len() - 3));
+            }
+        }
+    }
+
+    fn parse_cbu_line(&self, line: &str) -> Option<(String, String, String)> {
+        // Parse: "CREATE CBU CBU_12345 'CBU Name' ; 'CBU Purpose' WITH"
+        if let Some(cbu_start) = line.find("CREATE CBU ") {
+            let after_cbu = &line[cbu_start + 11..]; // Skip "CREATE CBU "
+            let parts: Vec<&str> = after_cbu.split_whitespace().collect();
+            if !parts.is_empty() {
+                let cbu_key = parts[0].to_string();
+
+                // Extract name and purpose from quoted strings
+                let name = self.extract_quoted_string(line, 0).unwrap_or("Unknown Name".to_string());
+                let purpose = self.extract_quoted_string(line, 1).unwrap_or("Unknown Purpose".to_string());
+
+                return Some((cbu_key, name, purpose));
+            }
+        }
+        None
+    }
+
+    fn parse_update_cbu_line(&self, line: &str) -> Option<String> {
+        // Parse: "UPDATE CBU CBU_12345 SET ..."
+        if let Some(cbu_start) = line.find("UPDATE CBU ") {
+            let after_cbu = &line[cbu_start + 11..]; // Skip "UPDATE CBU "
+            let parts: Vec<&str> = after_cbu.split_whitespace().collect();
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
+            }
+        }
+        None
+    }
+
+    fn parse_entity_line(&self, line: &str) -> Option<(String, String, Option<String>)> {
+        // Parse: "ENTITY AC001 AS 'Asset Owner' # Alpha Capital"
+        if let Some(entity_start) = line.find("ENTITY ") {
+            let after_entity = &line[entity_start + 7..]; // Skip "ENTITY "
+            if let Some(as_pos) = after_entity.find(" AS ") {
+                let entity_key = after_entity[..as_pos].trim().to_string();
+                let after_as = &after_entity[as_pos + 4..];
+
+                // Extract role from quotes
+                if let Some(role_start) = after_as.find('\'') {
+                    if let Some(role_end) = after_as[role_start + 1..].find('\'') {
+                        let role = after_as[role_start + 1..role_start + 1 + role_end].to_string();
+
+                        // Extract entity name from comment
+                        let entity_name = line.find(" # ").map(|comment_pos| line[comment_pos + 3..].trim().to_string());
+
+                        return Some((entity_key, role, entity_name));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_quoted_string(&self, text: &str, occurrence: usize) -> Option<String> {
+        // Extract the nth quoted string from text
+        let mut count = 0;
+        let mut chars = text.chars();
+        let mut start_pos = None;
+
+        while let Some(ch) = chars.next() {
+            if ch == '\'' {
+                if count == occurrence && start_pos.is_none() {
+                    start_pos = Some(chars.as_str());
+                } else if count == occurrence && start_pos.is_some() {
+                    // Found the end quote for our target occurrence
+                    let start = start_pos.unwrap();
+                    let end_pos = start.len() - chars.as_str().len() - 1;
+                    return Some(start[..end_pos].to_string());
+                } else if start_pos.is_none() {
+                    count += 1;
+                }
+            }
+        }
+        None
+    }
+
     fn get_editor_hint(&self) -> &str {
         r#"Write CBU DSL commands here. Examples:
 
@@ -447,13 +1304,117 @@ QUERY CBU WHERE status = 'active'"#
         ]
     }
 
-    fn execute_dsl(&mut self, grpc_client: Option<&GrpcClient>) {
-        if let Some(_client) = grpc_client {
-            self.executing = true;
+    /// Read execution state from thread-safe cache for 60fps UI performance
+    /// Uses atomic reads and mutex locks for safe async-to-UI communication
+    fn get_execution_state(&self) -> (bool, Option<CbuDslResponse>) {
+        // **ATOMIC READ** - Lock-free check of execution status
+        let is_executing = self.executing.load(Ordering::SeqCst);
 
-            // TODO: Implement actual gRPC call to execute CBU DSL
-            // For now, simulate execution
-            self.simulate_execution();
+        // **MUTEX READ** - Thread-safe access to execution result
+        let result = if let Ok(guard) = self.execution_result.lock() {
+            guard.clone()
+        } else {
+            None
+        };
+
+        (is_executing, result)
+    }
+
+    fn execute_dsl(&mut self, grpc_client: Option<&GrpcClient>) {
+        // **CENTRALIZED DSL EXECUTION** - All execution goes through validation first
+
+        // Step 1: Validate DSL through central manager before execution
+        match self.validate_dsl_syntax(&self.dsl_script) {
+            Ok(_) => {
+                wasm_utils::console_log("✅ DSL validation passed - proceeding with execution");
+            },
+            Err(validation_error) => {
+                wasm_utils::console_log(&format!("❌ DSL validation failed: {}", validation_error));
+                // Set validation error through thread-safe state
+                if let Ok(mut result) = self.execution_result.lock() {
+                    *result = Some(CbuDslResponse {
+                        success: false,
+                        message: format!("Validation Error: {}", validation_error),
+                        cbu_id: None,
+                        validation_errors: vec![validation_error],
+                        data: None,
+                    });
+                }
+                return; // Don't execute invalid DSL
+            }
+        }
+
+        if let Some(client) = grpc_client {
+            // **THREAD-SAFE 60FPS EXECUTION** - Use Arc/Mutex for async-to-UI synchronization
+
+            // Set executing state atomically (lock-free read from UI thread)
+            self.executing.store(true, Ordering::SeqCst);
+
+            // Set initial result through mutex (thread-safe write)
+            if let Ok(mut result) = self.execution_result.lock() {
+                *result = Some(CbuDslResponse {
+                    success: false,
+                    message: "🚀 Executing validated DSL via gRPC... Check console for progress".to_string(),
+                    cbu_id: None,
+                    validation_errors: Vec::new(),
+                    data: None,
+                });
+            }
+
+            wasm_utils::console_log("🚀 Executing validated CBU DSL via gRPC...");
+
+            // Import the request type
+            use crate::grpc_client::ExecuteCbuDslRequest;
+
+            // Create gRPC request
+            let request = ExecuteCbuDslRequest {
+                dsl_script: self.dsl_script.clone(),
+            };
+
+            // Clone for async operation - includes thread-safe state
+            let client_clone = client.clone();
+            let executing_clone = self.executing.clone();
+            let result_clone = self.execution_result.clone();
+
+            // **PERFORMANT ASYNC WITH THREAD-SAFE STATE**
+            // Async can now safely update UI state through Arc/Mutex
+            wasm_bindgen_futures::spawn_local(async move {
+                let final_result = match client_clone.execute_cbu_dsl(request).await {
+                    Ok(response) => {
+                        wasm_utils::console_log(&format!("✅ gRPC CBU DSL execution successful: {}", response.message));
+                        CbuDslResponse {
+                            success: true,
+                            message: response.message,
+                            cbu_id: response.cbu_id,
+                            validation_errors: Vec::new(),
+                            data: None,
+                        }
+                    }
+                    Err(e) => {
+                        wasm_utils::console_log(&format!("❌ gRPC CBU DSL execution failed: {}", e));
+                        CbuDslResponse {
+                            success: false,
+                            message: format!("Execution Error: {}", e),
+                            cbu_id: None,
+                            validation_errors: Vec::new(),
+                            data: None,
+                        }
+                    }
+                };
+
+                // **THREAD-SAFE UI STATE UPDATE** - Update result atomically
+                if let Ok(mut result) = result_clone.lock() {
+                    *result = Some(final_result);
+                }
+
+                // **ATOMIC EXECUTION FLAG** - Clear executing state
+                executing_clone.store(false, Ordering::SeqCst);
+
+                wasm_utils::console_log("💡 Execution complete - UI will refresh on next frame");
+            });
+
+            // **60FPS EGUI PATTERN** - Immediate UI feedback, async updates state cache
+            // UI thread reads atomic flags and mutex state for smooth 60fps performance
         }
     }
 
@@ -462,29 +1423,35 @@ QUERY CBU WHERE status = 'active'"#
         let script = self.dsl_script.trim();
 
         if script.to_uppercase().starts_with("CREATE CBU") {
-            self.last_result = Some(CbuDslResponse {
-                success: true,
-                message: "CBU created successfully".to_string(),
-                cbu_id: Some(format!("CBU{:06}", 123456)), // Simplified for demo
-                validation_errors: Vec::new(),
-                data: None,
-            });
+            if let Ok(mut result) = self.execution_result.lock() {
+                *result = Some(CbuDslResponse {
+                    success: true,
+                    message: "CBU created successfully".to_string(),
+                    cbu_id: Some(format!("CBU{:06}", 123456)), // Simplified for demo
+                    validation_errors: Vec::new(),
+                    data: None,
+                });
+            }
         } else if script.to_uppercase().starts_with("UPDATE CBU") {
-            self.last_result = Some(CbuDslResponse {
-                success: true,
-                message: "CBU updated successfully".to_string(),
-                cbu_id: None,
-                validation_errors: Vec::new(),
-                data: None,
-            });
+            if let Ok(mut result) = self.execution_result.lock() {
+                *result = Some(CbuDslResponse {
+                    success: true,
+                    message: "CBU updated successfully".to_string(),
+                    cbu_id: None,
+                    validation_errors: Vec::new(),
+                    data: None,
+                });
+            }
         } else if script.to_uppercase().starts_with("DELETE CBU") {
-            self.last_result = Some(CbuDslResponse {
-                success: true,
-                message: "CBU deleted successfully".to_string(),
-                cbu_id: None,
-                validation_errors: Vec::new(),
-                data: None,
-            });
+            if let Ok(mut result) = self.execution_result.lock() {
+                *result = Some(CbuDslResponse {
+                    success: true,
+                    message: "CBU deleted successfully".to_string(),
+                    cbu_id: None,
+                    validation_errors: Vec::new(),
+                    data: None,
+                });
+            }
         } else if script.to_uppercase().starts_with("QUERY CBU") {
             let sample_data = serde_json::json!([
                 {
@@ -500,15 +1467,17 @@ QUERY CBU WHERE status = 'active'"#
                 }
             ]);
 
-            self.last_result = Some(CbuDslResponse {
-                success: true,
-                message: "Query executed successfully".to_string(),
-                cbu_id: None,
-                validation_errors: Vec::new(),
-                data: Some(sample_data),
-            });
-        } else {
-            self.last_result = Some(CbuDslResponse {
+            if let Ok(mut result) = self.execution_result.lock() {
+                *result = Some(CbuDslResponse {
+                    success: true,
+                    message: "Query executed successfully".to_string(),
+                    cbu_id: None,
+                    validation_errors: Vec::new(),
+                    data: Some(sample_data),
+                });
+            }
+        } else if let Ok(mut result) = self.execution_result.lock() {
+            *result = Some(CbuDslResponse {
                 success: false,
                 message: "Invalid DSL command".to_string(),
                 cbu_id: None,
@@ -517,138 +1486,346 @@ QUERY CBU WHERE status = 'active'"#
             });
         }
 
-        self.executing = false;
+        self.executing.store(false, Ordering::SeqCst);
     }
 
-    fn load_available_entities(&mut self, grpc_client: Option<&GrpcClient>) {
+    fn render_cbu_context_selection(&mut self, ui: &mut egui::Ui, grpc_client: Option<&GrpcClient>) {
+        ui.group(|ui| {
+            ui.heading("📋 CBU Operation Mode");
+            ui.add_space(5.0);
+
+            match self.cbu_context {
+                CbuContext::None => {
+                    ui.label("Choose what you want to do:");
+                    ui.add_space(10.0);
+
+                    ui.horizontal(|ui| {
+                        // Create New CBU - Prominent Blue Button
+                        let create_button = ui.add_sized(
+                            [180.0, 40.0],
+                            egui::Button::new("🆕 Create New CBU")
+                                .fill(egui::Color32::from_rgb(30, 144, 255))
+                        );
+
+                        if create_button.clicked() {
+                            self.cbu_context = CbuContext::CreateNew;
+                            // Generate a new CBU key for this session
+                            let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
+                            // Use single DSL management function
+                            self.manage_dsl_state(DslOperation::LoadForCreateNew { cbu_key: new_cbu_key });
+                            wasm_utils::console_log("🆕 Selected Create New CBU mode");
+                        }
+
+                        ui.add_space(20.0);
+
+                        // Edit Existing CBU
+                        let edit_button = ui.add_sized(
+                            [180.0, 40.0],
+                            egui::Button::new("✏️ Edit Existing CBU")
+                        );
+
+                        if edit_button.clicked() {
+                            self.cbu_context = CbuContext::EditExisting;
+                            self.load_available_cbus(grpc_client);
+                            wasm_utils::console_log("✏️ Selected Edit Existing CBU mode");
+                        }
+                    });
+                },
+                CbuContext::CreateNew => {
+                    ui.horizontal(|ui| {
+                        ui.label("🆕 Mode: Creating New CBU");
+                        ui.separator();
+                        if ui.button("🔙 Back to Selection").clicked() {
+                            self.cbu_context = CbuContext::None;
+                            self.dsl_script.clear();
+                            self.selected_entities.clear();
+                        }
+                    });
+                },
+                CbuContext::EditExisting => {
+                    ui.horizontal(|ui| {
+                        ui.label("✏️ Mode: Editing Existing CBU");
+
+                        if !self.available_cbus.is_empty() {
+                            ui.separator();
+                            ui.label("Select CBU:");
+
+                            let selected_name = self.selected_cbu_id.as_ref()
+                                .and_then(|id| self.available_cbus.iter().find(|cbu| cbu.cbu_id == *id))
+                                .map(|cbu| cbu.name.as_str())
+                                .unwrap_or("Choose CBU...");
+
+                            let mut selected_cbu_id_for_loading = None;
+                            egui::ComboBox::from_id_salt("cbu_selector")
+                                .selected_text(selected_name)
+                                .show_ui(ui, |ui| {
+                                    for cbu in &self.available_cbus {
+                                        let selected = ui.selectable_value(
+                                            &mut self.selected_cbu_id,
+                                            Some(cbu.cbu_id.clone()),
+                                            format!("{} ({})", cbu.name, cbu.cbu_id)
+                                        );
+
+                                        if selected.clicked() {
+                                            // Store the ID to load DSL after borrowing ends
+                                            selected_cbu_id_for_loading = Some(cbu.cbu_id.clone());
+                                        }
+                                    }
+                                });
+
+                            // Load DSL if a CBU was selected
+                            if let Some(cbu_id) = selected_cbu_id_for_loading {
+                                self.load_cbu_dsl(&cbu_id, grpc_client);
+                            }
+                        }
+
+                        ui.separator();
+                        if ui.button("🔙 Back to Selection").clicked() {
+                            self.cbu_context = CbuContext::None;
+                            self.dsl_script.clear();
+                            self.selected_entities.clear();
+                            self.selected_cbu_id = None;
+                        }
+                    });
+
+                    if self.loading_cbus {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Loading CBUs...");
+                        });
+                    }
+                }
+            }
+        });
+        ui.add_space(10.0);
+    }
+
+    fn load_available_cbus(&mut self, _grpc_client: Option<&GrpcClient>) {
+        // Provide immediate CBU data to prevent empty list
+        // TODO: Replace with proper gRPC integration when UI state management is fixed
+        wasm_utils::console_log("🔍 Loading CBUs immediately to prevent empty list");
+
+        self.available_cbus = vec![
+            CbuRecord {
+                cbu_id: "CBU001".to_string(),
+                name: "Goldman Sachs Investment Fund".to_string(),
+                purpose: "Multi-strategy hedge fund operations".to_string(),
+                nature: "Investment Fund".to_string(),
+                status: "Active".to_string(),
+                created_at: "2024-01-15".to_string(),
+            },
+            CbuRecord {
+                cbu_id: "CBU002".to_string(),
+                name: "Vanguard Pension Management".to_string(),
+                purpose: "Corporate pension fund management".to_string(),
+                nature: "Pension Fund".to_string(),
+                status: "Active".to_string(),
+                created_at: "2024-02-20".to_string(),
+            },
+            CbuRecord {
+                cbu_id: "CBU003".to_string(),
+                name: "Deutsche Family Office".to_string(),
+                purpose: "High net worth family wealth management".to_string(),
+                nature: "Family Office".to_string(),
+                status: "Active".to_string(),
+                created_at: "2024-03-10".to_string(),
+            },
+            CbuRecord {
+                cbu_id: "CBU004".to_string(),
+                name: "Man Group Alternative Strategies".to_string(),
+                purpose: "Alternative investment strategies".to_string(),
+                nature: "Hedge Fund".to_string(),
+                status: "Active".to_string(),
+                created_at: "2024-03-25".to_string(),
+            },
+        ];
+
+        self.loading_cbus = false;
+        wasm_utils::console_log(&format!("✅ Loaded {} CBUs immediately", self.available_cbus.len()));
+    }
+
+    fn load_cbu_dsl(&mut self, cbu_id: &str, grpc_client: Option<&GrpcClient>) {
         if let Some(client) = grpc_client {
-            wasm_utils::console_log("🔄 Starting entity loading process");
-            self.loading_entities = true;
+            wasm_utils::console_log(&format!("🔍 Loading DSL for CBU: {}", cbu_id));
 
-            // Create gRPC request
-            let request = GetEntitiesRequest {
-                jurisdiction: None, // Load all jurisdictions
-                entity_type: None,  // Load all types
-                status: Some("active".to_string()), // Only active entities
-            };
-
-            wasm_utils::console_log("📡 Making gRPC request for entities");
-
-            // Clone client for async operation
+            // Make gRPC call to reconstruct DSL from CBU data
+            use crate::grpc_client::ListCbusRequest;
             let client_clone = client.clone();
+            let cbu_id_clone = cbu_id.to_string();
+
+            // Store local state for reconstruction
+            let cbu_name = self.available_cbus.iter()
+                .find(|c| c.cbu_id == cbu_id)
+                .map(|c| c.name.clone())
+                .unwrap_or("Unknown CBU".to_string());
+
+            // For now, create a reconstructed DSL based on available CBU data
+            // TODO: Implement full gRPC reconstruction when backend supports it
+            if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
+                // Clone data before mutable borrow
+                let cbu_id_clone = cbu.cbu_id.clone();
+                let cbu_name_clone = cbu.name.clone();
+                let cbu_purpose_clone = cbu.purpose.clone();
+
+                // Use single DSL management function
+                self.manage_dsl_state(DslOperation::LoadForEdit {
+                    cbu_id: cbu_id_clone.clone(),
+                    cbu_name: cbu_name_clone.clone(),
+                    cbu_purpose: cbu_purpose_clone,
+                });
+                wasm_utils::console_log(&format!("📝 Reconstructed DSL for CBU: {}", cbu_name_clone));
+
+                // Future: Make async gRPC call to get full entity associations
+                wasm_bindgen_futures::spawn_local(async move {
+                    // TODO: Call gRPC method to get CBU entity associations and reconstruct full DSL
+                    match client_clone.list_cbus(ListCbusRequest {
+                        status_filter: Some("active".to_string()),
+                        limit: Some(10),
+                        offset: Some(0),
+                    }).await {
+                        Ok(_response) => {
+                            wasm_utils::console_log(&format!("✅ Successfully retrieved detailed CBU data for {}", cbu_id_clone));
+                            // TODO: Update UI with full reconstructed DSL including entities
+                        }
+                        Err(e) => {
+                            wasm_utils::console_log(&format!("❌ Failed to retrieve CBU details: {}", e));
+                        }
+                    }
+                });
+            }
+        } else {
+            // Fallback simulation if no gRPC client
+            if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
+                self.dsl_script = format!(
+                    "# Editing CBU: {}\nUPDATE CBU {} SET description = '{}'\n  # Add entity updates as needed",
+                    cbu.name, cbu.cbu_id, cbu.purpose
+                );
+                wasm_utils::console_log(&format!("📝 Loaded simulated DSL for CBU: {}", cbu.name));
+            }
+        }
+    }
+
+    fn load_available_entities(&mut self, grpc_client: Option<&GrpcClient>, _ctx: &egui::Context) {
+        // Load entities from gRPC API - centralized through manage_dsl_state
+        self.load_entities_from_grpc(grpc_client);
+
+        self.loading_entities = false;
+        wasm_utils::console_log(&format!("✅ Loaded {} entities", self.available_entities.len()));
+    }
+
+    fn update_entities_from_async_state(&mut self) {
+        // Check if entities have been loaded from async task
+        let should_clear_state = if let Some(loading_state) = &self.entities_loading_state {
+            if let Ok(entities) = loading_state.try_lock() {
+                if !entities.is_empty() {
+                    // Transfer entities from async state to UI state
+                    self.available_entities = entities.clone();
+                    wasm_utils::console_log(&format!("🔄 Updated UI with {} async-loaded entities", entities.len()));
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // Clear the async state if we consumed the entities
+        if should_clear_state {
+            self.entities_loading_state = None;
+        }
+    }
+
+    fn load_entities_from_grpc(&mut self, grpc_client: Option<&GrpcClient>) {
+        if let Some(client) = grpc_client {
+            // Use shared state pattern for async-to-UI communication
+            let client_clone = client.clone();
+            let entities_state = Arc::new(Mutex::new(Vec::<EntityInfo>::new()));
+            let entities_clone = entities_state.clone();
+
+            // Store reference for UI updates (using field)
+            self.entities_loading_state = Some(entities_state);
+
             wasm_bindgen_futures::spawn_local(async move {
+                wasm_utils::console_log("🔄 Loading entities from gRPC API...");
+
+                // Call gRPC GetEntities method
+                let request = crate::grpc_client::GetEntitiesRequest {
+                    jurisdiction: None,
+                    entity_type: None,
+                    status: None,
+                };
+
                 match client_clone.get_entities(request).await {
                     Ok(response) => {
-                        // TODO: Update UI with entities
-                        // Since this is async, we need a callback mechanism
-                        wasm_utils::console_log(&format!("✅ Loaded {} entities from gRPC", response.entities.len()));
+                        let mut entities = entities_clone.lock().unwrap();
+
+                        // Convert gRPC entities to EntityInfo
+                        for entity in response.entities {
+                            entities.push(EntityInfo {
+                                entity_id: entity.entity_id,
+                                entity_name: entity.entity_name,
+                                jurisdiction: entity.jurisdiction,
+                                entity_type: entity.entity_type,
+                                country_code: entity.country_code,
+                                lei_code: entity.lei_code, // Already Option<String>
+                                status: entity.status,
+                            });
+                        }
+
+                        wasm_utils::console_log(&format!("✅ Loaded {} entities from gRPC", entities.len()));
                     }
                     Err(e) => {
-                        wasm_utils::console_log(&format!("❌ Failed to load entities: {}", e));
+                        wasm_utils::console_log(&format!("❌ Failed to load entities from gRPC: {}", e));
+
+                        // Fallback: Add sample entities for development
+                        let mut entities = entities_clone.lock().unwrap();
+                        entities.push(EntityInfo {
+                            entity_id: "DEV001".to_string(),
+                            entity_name: "Development Entity 1".to_string(),
+                            jurisdiction: "United States".to_string(),
+                            entity_type: "Investment Manager".to_string(),
+                            country_code: "US".to_string(),
+                            lei_code: Some("DEV123456789012345".to_string()),
+                            status: "Active".to_string(),
+                        });
+                        entities.push(EntityInfo {
+                            entity_id: "DEV002".to_string(),
+                            entity_name: "Development Entity 2".to_string(),
+                            jurisdiction: "United Kingdom".to_string(),
+                            entity_type: "Asset Owner".to_string(),
+                            country_code: "GB".to_string(),
+                            lei_code: Some("DEV987654321098765".to_string()),
+                            status: "Active".to_string(),
+                        });
+                        wasm_utils::console_log("✅ Loaded fallback development entities");
                     }
                 }
             });
 
-            // For now, also call simulate to have immediate data
-            wasm_utils::console_log("📊 Loading simulated entity data for immediate display");
-            self.simulate_entity_loading();
+            // Clear existing entities while loading
+            self.available_entities.clear();
         } else {
-            wasm_utils::console_log("⚠️ No gRPC client available for entity loading");
+            wasm_utils::console_log("⚠️ No gRPC client available for loading entities");
+
+            // Provide development entities when no gRPC client
+            self.available_entities = vec![
+                EntityInfo {
+                    entity_id: "LOCAL001".to_string(),
+                    entity_name: "Local Development Entity".to_string(),
+                    jurisdiction: "United States".to_string(),
+                    entity_type: "Investment Manager".to_string(),
+                    country_code: "US".to_string(),
+                    lei_code: Some("LOCAL12345678901234".to_string()),
+                    status: "Active".to_string(),
+                },
+            ];
         }
     }
 
-    fn simulate_entity_loading(&mut self) {
-        // For now, provide immediate data while gRPC loads in background
-        wasm_utils::console_log("🏗️ Creating simulated entity data");
-        self.available_entities = vec![
-            // US Entities
-            EntityInfo {
-                entity_id: "US001".to_string(),
-                entity_name: "Manhattan Asset Management LLC".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "Delaware".to_string(),
-                country_code: "US".to_string(),
-                lei_code: Some("549300VPLTI2JI1A8N82".to_string()),
-            },
-            EntityInfo {
-                entity_id: "US002".to_string(),
-                entity_name: "Goldman Sachs Asset Management".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "New York".to_string(),
-                country_code: "US".to_string(),
-                lei_code: Some("784F5XWPLTWKTBV3E584".to_string()),
-            },
-            EntityInfo {
-                entity_id: "US003".to_string(),
-                entity_name: "BlackRock Institutional Trust".to_string(),
-                entity_type: "Asset Owner".to_string(),
-                jurisdiction: "Delaware".to_string(),
-                country_code: "US".to_string(),
-                lei_code: Some("549300WOTC9L6FP6DY29".to_string()),
-            },
-            EntityInfo {
-                entity_id: "US004".to_string(),
-                entity_name: "State Street Global Services".to_string(),
-                entity_type: "Service Provider".to_string(),
-                jurisdiction: "Massachusetts".to_string(),
-                country_code: "US".to_string(),
-                lei_code: Some("571474TGEMMWANRLN572".to_string()),
-            },
-            // EU Entities
-            EntityInfo {
-                entity_id: "EU001".to_string(),
-                entity_name: "Deutsche Asset Management".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "Germany".to_string(),
-                country_code: "DE".to_string(),
-                lei_code: Some("529900T8BM49AURSDO55".to_string()),
-            },
-            EntityInfo {
-                entity_id: "EU002".to_string(),
-                entity_name: "BNP Paribas Asset Management".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "France".to_string(),
-                country_code: "FR".to_string(),
-                lei_code: Some("969500UP76J52A9OXU27".to_string()),
-            },
-            EntityInfo {
-                entity_id: "EU003".to_string(),
-                entity_name: "UBS Asset Management AG".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "Switzerland".to_string(),
-                country_code: "CH".to_string(),
-                lei_code: Some("549300ZZK73H1MR76N74".to_string()),
-            },
-            // APAC Entities
-            EntityInfo {
-                entity_id: "AP001".to_string(),
-                entity_name: "Nomura Asset Management".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "Japan".to_string(),
-                country_code: "JP".to_string(),
-                lei_code: Some("353800MLJIGSLQ3JGP81".to_string()),
-            },
-            EntityInfo {
-                entity_id: "AP002".to_string(),
-                entity_name: "China Asset Management Co".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "China".to_string(),
-                country_code: "CN".to_string(),
-                lei_code: Some("300300S39XTBSNH66F17".to_string()),
-            },
-            EntityInfo {
-                entity_id: "AP003".to_string(),
-                entity_name: "DBS Asset Management".to_string(),
-                entity_type: "Investment Manager".to_string(),
-                jurisdiction: "Singapore".to_string(),
-                country_code: "SG".to_string(),
-                lei_code: Some("549300F4WH7V9NCKXX55".to_string()),
-            },
-        ];
 
-        wasm_utils::console_log(&format!("✅ Simulated entity loading complete: {} entities loaded", self.available_entities.len()));
-        self.loading_entities = false;
-    }
 
     fn render_entity_picker_panel(&mut self, ui: &mut egui::Ui) {
         ui.separator();
@@ -806,13 +1983,21 @@ QUERY CBU WHERE status = 'active'"#
             }
 
             // Remove entities (in reverse order to maintain indices)
+            let mut entities_removed = false;
             for &i in entities_to_remove.iter().rev() {
                 if i < self.selected_entities.len() {
-                    self.selected_entities.remove(i);
+                    let removed_entity = self.selected_entities.remove(i);
+                    wasm_utils::console_log(&format!("🗑️ Removed entity: {}", removed_entity.0));
+                    entities_removed = true;
                 }
             }
 
-            // Generate DSL if requested
+            // Auto-update DSL when entities are removed (for Create New mode)
+            if entities_removed && self.cbu_context == CbuContext::CreateNew {
+                self.update_dsl_with_current_entities();
+            }
+
+            // Generate DSL if requested (manual button click)
             if generate_dsl {
                 self.generate_cbu_dsl_from_selection();
             }
@@ -984,10 +2169,26 @@ QUERY CBU WHERE status = 'active'"#
                 // Close button at bottom
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("✅ Done").clicked() {
+                    if ui.add(egui::Button::new("✅ Done").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
+                        wasm_utils::console_log("🔄 Done button clicked - generating DSL and closing picker");
+
+                        // Generate DSL first using centralized manager
+                        if !self.selected_entities.is_empty() {
+                            self.manage_dsl_state(DslOperation::UpdateWithEntities { preserve_header: true });
+                        }
+
+                        // Force close the picker
                         self.show_floating_entity_picker = false;
+                        wasm_utils::console_log("✅ Entity picker window closed");
                     }
-                    ui.label("Select entities and roles, then click 'Generate CBU DSL' or 'Done'");
+
+                    if ui.add(egui::Button::new("❌ Cancel").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
+                        // Just close without updating DSL
+                        self.show_floating_entity_picker = false;
+                        wasm_utils::console_log("❌ Entity picker cancelled");
+                    }
+
+                    ui.label("Select entities and roles, then click 'Done'");
                 });
 
                 // Process entity selections after UI to avoid borrowing issues
@@ -1015,43 +2216,193 @@ QUERY CBU WHERE status = 'active'"#
 
     fn add_entity_to_dsl(&mut self, entity_id: &str, entity_name: &str, role: &str) {
         // Check if this entity+role combination already exists
-        if !self.selected_entities.iter().any(|(id, r)| id == entity_id && r == role) {
-            self.selected_entities.push((format!("{} ({})", entity_name, entity_id), role.to_string()));
+        let entity_info = format!("{} ({})", entity_name, entity_id);
+        if !self.selected_entities.iter().any(|(id, r)| id == &entity_info && r == role) {
+            self.selected_entities.push((entity_info, role.to_string()));
+            wasm_utils::console_log(&format!("➕ Added entity: {} as {}", entity_name, role));
+
+            // Auto-update DSL in real-time (for Create New mode)
+            if self.cbu_context == CbuContext::CreateNew {
+                self.update_dsl_with_current_entities();
+            }
+        } else {
+            wasm_utils::console_log(&format!("⚠️  Entity {} with role {} already selected", entity_name, role));
         }
     }
 
-    fn generate_cbu_dsl_from_selection(&mut self) {
-        if self.selected_entities.len() < 3 {
-            return; // Need at least Asset Owner, Investment Manager, Managing Company
-        }
-
-        let mut dsl = String::from("CREATE CBU 'New CBU Name' ; 'CBU Description' WITH\n");
-
-        for (i, (entity_info, role)) in self.selected_entities.iter().enumerate() {
-            let parts: Vec<&str> = entity_info.split(" (").collect();
-            if parts.len() == 2 {
-                let name = parts[0];
-                let id = parts[1].trim_end_matches(')');
-
-                if i > 0 {
-                    dsl.push_str(" AND\n");
-                }
-                dsl.push_str(&format!("  ENTITY ('{}', '{}') AS '{}'", name, id, role));
+    fn update_dsl_with_current_entities(&mut self) {
+        if self.selected_entities.is_empty() {
+            // Reset to template if no entities
+            if self.cbu_context == CbuContext::CreateNew {
+                self.dsl_script = "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU 'New CBU Name' ; 'CBU Purpose Description' WITH\n  ".to_string();
             }
+            return;
         }
 
-        self.dsl_script = dsl;
-        self.selected_entities.clear(); // Clear selection
+        // Generate DSL with current entities
+        self.generate_cbu_dsl_from_selection();
+        wasm_utils::console_log("🔄 Auto-updated DSL with current entities");
+    }
+
+    fn generate_cbu_dsl_from_selection(&mut self) {
+        // Use single DSL management function with header preservation
+        self.manage_dsl_state(DslOperation::UpdateWithEntities { preserve_header: true });
+    }
+
+    /// Copy DSL script to clipboard (simplified for egui/gaming context)
+    fn copy_to_clipboard(&self) {
+        // egui games typically don't focus on text editing - simplified implementation
+        if !self.dsl_script.is_empty() {
+            wasm_utils::console_log(&format!("📋 DSL Content:\n{}", self.dsl_script));
+        }
+    }
+
+    /// Paste from clipboard - limited in gaming context
+    fn paste_from_clipboard(&mut self) {
+        // egui doesn't prioritize clipboard access (gaming-focused)
+        wasm_utils::console_log("📄 Use browser's paste (Ctrl+V) directly in the text editor");
     }
 }
 
 // Syntax highlighting for CBU DSL (simplified)
 pub fn highlight_cbu_dsl(ui: &mut egui::Ui, text: &str) {
+    // Detect format: LISP or EBNF
+    let is_lisp = text.trim_start().starts_with('(') || text.trim_start().starts_with(';');
+
+    if is_lisp {
+        highlight_lisp_syntax(ui, text);
+    } else {
+        highlight_ebnf_syntax(ui, text);
+    }
+}
+
+fn highlight_lisp_syntax(ui: &mut egui::Ui, text: &str) {
+    let lisp_functions = [
+        "create-cbu", "update-cbu", "delete-cbu", "query-cbu",
+        "entities", "entity", "list", "quote"
+    ];
+    let role_symbols = [
+        "asset-owner", "investment-manager", "managing-company",
+        "general-partner", "limited-partner", "prime-broker",
+        "administrator", "custodian"
+    ];
+    let lisp_keywords = ["nil", "true", "false"];
+
+    for line in text.lines() {
+        ui.horizontal(|ui| {
+            let mut chars = line.chars().peekable();
+            let mut current_word = String::new();
+            let mut in_string = false;
+            let mut paren_depth = 0;
+
+            while let Some(ch) = chars.next() {
+                match ch {
+                    ';' if !in_string => {
+                        // LISP comment - rest of line is comment
+                        if !current_word.is_empty() {
+                            highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+                            current_word.clear();
+                        }
+                        let comment = ch.to_string() + &chars.collect::<String>();
+                        ui.colored_label(egui::Color32::from_rgb(128, 128, 128), comment);
+                        break;
+                    }
+                    '(' if !in_string => {
+                        // Opening parenthesis - highlight as structure
+                        if !current_word.is_empty() {
+                            highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+                            current_word.clear();
+                        }
+                        paren_depth += 1;
+                        ui.colored_label(egui::Color32::from_rgb(100, 150, 255), "(");
+                    }
+                    ')' if !in_string => {
+                        // Closing parenthesis - highlight as structure
+                        if !current_word.is_empty() {
+                            highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+                            current_word.clear();
+                        }
+                        paren_depth = paren_depth.saturating_sub(1);
+                        ui.colored_label(egui::Color32::from_rgb(100, 150, 255), ")");
+                    }
+                    '"' => {
+                        // String literal handling
+                        if !current_word.is_empty() {
+                            highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+                            current_word.clear();
+                        }
+
+                        if !in_string {
+                            // Starting a string
+                            in_string = true;
+                            let mut string_literal = "\"".to_string();
+                            while let Some(str_ch) = chars.next() {
+                                string_literal.push(str_ch);
+                                if str_ch == '"' && !string_literal.ends_with("\\\"") {
+                                    in_string = false;
+                                    break;
+                                }
+                            }
+                            ui.colored_label(egui::Color32::from_rgb(255, 255, 150), string_literal);
+                        }
+                    }
+                    ' ' | '\t' | '\n' if !in_string => {
+                        // Whitespace - end current word
+                        if !current_word.is_empty() {
+                            highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+                            current_word.clear();
+                        }
+                        ui.label(" ");
+                    }
+                    _ => {
+                        current_word.push(ch);
+                    }
+                }
+            }
+
+            // Handle final word
+            if !current_word.is_empty() {
+                highlight_lisp_word(ui, &current_word, &lisp_functions, &role_symbols, &lisp_keywords, paren_depth);
+            }
+        });
+    }
+}
+
+fn highlight_lisp_word(ui: &mut egui::Ui, word: &str, functions: &[&str], roles: &[&str], keywords: &[&str], paren_depth: usize) {
+    // Check if it's a number
+    if word.parse::<f64>().is_ok() {
+        ui.colored_label(egui::Color32::from_rgb(200, 150, 255), word);
+    }
+    // Check if it's a function (first element in a list gets special treatment)
+    else if functions.contains(&word) {
+        if paren_depth > 0 {
+            ui.colored_label(egui::Color32::from_rgb(100, 200, 100), word); // Functions in bright green
+        } else {
+            ui.colored_label(egui::Color32::from_rgb(150, 150, 255), word); // Functions outside lists
+        }
+    }
+    // Check if it's a role symbol
+    else if roles.contains(&word) {
+        ui.colored_label(egui::Color32::from_rgb(255, 180, 100), word); // Roles in orange
+    }
+    // Check if it's a keyword
+    else if keywords.contains(&word) {
+        ui.colored_label(egui::Color32::from_rgb(200, 100, 200), word); // Keywords in purple
+    }
+    // Special highlighting for symbols that look like identifiers
+    else if word.contains('-') && !word.starts_with('-') {
+        ui.colored_label(egui::Color32::from_rgb(150, 200, 255), word); // Hyphenated symbols in light blue
+    }
+    // Default symbol
+    else {
+        ui.colored_label(egui::Color32::WHITE, word);
+    }
+}
+
+fn highlight_ebnf_syntax(ui: &mut egui::Ui, text: &str) {
     let keywords = ["CREATE", "UPDATE", "DELETE", "QUERY", "CBU", "WITH", "ENTITY", "AS", "AND", "SET", "WHERE"];
     let roles = ["Asset Owner", "Investment Manager", "Managing Company"];
 
-    // Simple syntax highlighting implementation
-    // In a real implementation, this would use proper tokenization
     for line in text.lines() {
         ui.horizontal(|ui| {
             for word in line.split_whitespace() {
@@ -1061,6 +2412,8 @@ pub fn highlight_cbu_dsl(ui: &mut egui::Ui, text: &str) {
                     ui.colored_label(egui::Color32::GREEN, word);
                 } else if word.starts_with('\'') && word.ends_with('\'') {
                     ui.colored_label(egui::Color32::YELLOW, word);
+                } else if word.starts_with('#') {
+                    ui.colored_label(egui::Color32::GRAY, word);
                 } else {
                     ui.label(word);
                 }

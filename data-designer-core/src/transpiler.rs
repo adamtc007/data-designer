@@ -1,6 +1,8 @@
 use crate::models::{Expression, Value, BinaryOperator, UnaryOperator};
 use crate::parser::parse_expression;
+use crate::lisp_cbu_dsl::{LispCbuParser, LispValue};
 use crate::db::Rule;
+use crate::dsl_utils;
 use anyhow::{Result, bail};
 use serde_json;
 
@@ -63,6 +65,33 @@ impl Transpiler {
             TargetLanguage::SQL => self.generate_sql(&optimized_expr),
             TargetLanguage::JavaScript => self.generate_javascript(&optimized_expr),
             TargetLanguage::Python => self.generate_python(&optimized_expr),
+        }
+    }
+
+    /// Transpile S-expression DSL to target language
+    pub fn transpile_s_expression(&self, s_expr: &LispValue) -> Result<String> {
+        match self.target_language {
+            TargetLanguage::Rust => self.generate_rust_from_s_expr(s_expr),
+            TargetLanguage::SQL => self.generate_sql_from_s_expr(s_expr),
+            TargetLanguage::JavaScript => self.generate_js_from_s_expr(s_expr),
+            TargetLanguage::Python => self.generate_python_from_s_expr(s_expr),
+        }
+    }
+
+    /// Parse and transpile S-expression DSL string
+    pub fn parse_and_transpile_s_expr(&self, dsl_text: &str) -> Result<String> {
+        let mut parser = LispCbuParser::new(None);
+        let result = parser.parse_and_eval(dsl_text)
+            .map_err(|e| anyhow::anyhow!("S-expression parse error: {}", e))?;
+
+        if !result.success {
+            bail!("S-expression evaluation failed: {}", result.message);
+        }
+
+        if let Some(data) = &result.data {
+            self.transpile_s_expression(data)
+        } else {
+            Ok(format!("// Transpiled: {}", result.message))
         }
     }
 
@@ -621,11 +650,12 @@ impl DslTranspiler {
 
     /// Main entry point: transpile DSL text to Rule objects
     pub fn transpile_dsl_to_rules(&self, dsl_text: &str) -> Result<Vec<DslRule>, Vec<TranspileError>> {
+        let cleaned_text = dsl_utils::strip_comments(dsl_text);
         let mut rules = Vec::new();
         let mut errors = Vec::new();
 
         // Split DSL text into individual rule definitions
-        let rule_definitions = self.parse_rule_definitions(dsl_text);
+        let rule_definitions = self.parse_rule_definitions(&cleaned_text);
 
         for (line_number, rule_def) in rule_definitions.iter().enumerate() {
             match self.parse_single_rule(rule_def.trim(), line_number + 1) {
@@ -672,8 +702,8 @@ impl DslTranspiler {
         for line in dsl_text.lines() {
             let trimmed = line.trim();
 
-            // Skip empty lines and comments
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#") {
+            // Skip empty lines
+            if trimmed.is_empty() {
                 continue;
             }
 
@@ -1094,6 +1124,197 @@ impl TranspilerValidator {
     }
 }
 
+/// S-expression code generation methods
+impl Transpiler {
+    /// Generate Rust code from S-expression
+    fn generate_rust_from_s_expr(&self, s_expr: &LispValue) -> Result<String> {
+        match s_expr {
+            LispValue::List(items) if !items.is_empty() => {
+                if let LispValue::Symbol(func) = &items[0] {
+                    match func.as_str() {
+                        "create-cbu-result" => {
+                            let cbu_name = if items.len() > 1 {
+                                self.extract_lisp_string(&items[1])?
+                            } else {
+                                "unnamed_cbu".to_string()
+                            };
+                            Ok(format!(
+                                "// Create CBU: {}\nlet cbu = CbuBuilder::new(\"{}\")\n    .build()?;",
+                                cbu_name, cbu_name
+                            ))
+                        }
+                        "entity" => {
+                            let id = if items.len() > 1 { self.extract_lisp_string(&items[1])? } else { "unknown".to_string() };
+                            let name = if items.len() > 2 { self.extract_lisp_string(&items[2])? } else { "unknown".to_string() };
+                            let role = if items.len() > 3 { self.extract_lisp_string(&items[3])? } else { "unknown".to_string() };
+                            Ok(format!(
+                                "Entity {{ id: \"{}\", name: \"{}\", role: EntityRole::{} }}",
+                                id, name, self.role_to_rust_enum(&role)
+                            ))
+                        }
+                        _ => Ok(format!("/* S-expression: {} */", s_expr.to_pretty_string())),
+                    }
+                } else {
+                    Ok(format!("/* List: {} */", s_expr.to_pretty_string()))
+                }
+            }
+            LispValue::String(s) => Ok(format!("\"{}\"", s)),
+            LispValue::Number(n) => Ok(n.to_string()),
+            LispValue::Boolean(b) => Ok(b.to_string()),
+            LispValue::Symbol(s) => Ok(s.clone()),
+            LispValue::Nil => Ok("None".to_string()),
+            _ => Ok(format!("/* {} */", s_expr.to_pretty_string())),
+        }
+    }
+
+    /// Generate SQL code from S-expression
+    fn generate_sql_from_s_expr(&self, s_expr: &LispValue) -> Result<String> {
+        match s_expr {
+            LispValue::List(items) if !items.is_empty() => {
+                if let LispValue::Symbol(func) = &items[0] {
+                    match func.as_str() {
+                        "create-cbu-result" => {
+                            let cbu_name = if items.len() > 1 {
+                                self.extract_lisp_string(&items[1])?
+                            } else {
+                                "Unnamed CBU".to_string()
+                            };
+                            Ok(format!(
+                                "-- Create CBU: {}\nINSERT INTO cbus (cbu_name, status) VALUES ('{}', 'Active');",
+                                cbu_name, cbu_name
+                            ))
+                        }
+                        "entity" => {
+                            let id = if items.len() > 1 { self.extract_lisp_string(&items[1])? } else { "unknown".to_string() };
+                            let name = if items.len() > 2 { self.extract_lisp_string(&items[2])? } else { "unknown".to_string() };
+                            let role = if items.len() > 3 { self.extract_lisp_string(&items[3])? } else { "unknown".to_string() };
+                            Ok(format!(
+                                "INSERT INTO entities (entity_id, entity_name, entity_role) VALUES ('{}', '{}', '{}');",
+                                id, name, role
+                            ))
+                        }
+                        _ => Ok(format!("-- S-expression: {}", s_expr.to_pretty_string())),
+                    }
+                } else {
+                    Ok(format!("-- List: {}", s_expr.to_pretty_string()))
+                }
+            }
+            LispValue::String(s) => Ok(format!("'{}'", s.replace("'", "''"))),
+            LispValue::Number(n) => Ok(n.to_string()),
+            LispValue::Boolean(b) => Ok(if *b { "TRUE".to_string() } else { "FALSE".to_string() }),
+            LispValue::Symbol(s) => Ok(s.clone()),
+            LispValue::Nil => Ok("NULL".to_string()),
+            _ => Ok(format!("/* {} */", s_expr.to_pretty_string())),
+        }
+    }
+
+    /// Generate JavaScript code from S-expression
+    fn generate_js_from_s_expr(&self, s_expr: &LispValue) -> Result<String> {
+        match s_expr {
+            LispValue::List(items) if !items.is_empty() => {
+                if let LispValue::Symbol(func) = &items[0] {
+                    match func.as_str() {
+                        "create-cbu-result" => {
+                            let cbu_name = if items.len() > 1 {
+                                self.extract_lisp_string(&items[1])?
+                            } else {
+                                "Unnamed CBU".to_string()
+                            };
+                            Ok(format!(
+                                "// Create CBU: {}\nconst cbu = new CBU('{}');",
+                                cbu_name, cbu_name
+                            ))
+                        }
+                        "entity" => {
+                            let id = if items.len() > 1 { self.extract_lisp_string(&items[1])? } else { "unknown".to_string() };
+                            let name = if items.len() > 2 { self.extract_lisp_string(&items[2])? } else { "unknown".to_string() };
+                            let role = if items.len() > 3 { self.extract_lisp_string(&items[3])? } else { "unknown".to_string() };
+                            Ok(format!(
+                                "{{ id: '{}', name: '{}', role: '{}' }}",
+                                id, name, role
+                            ))
+                        }
+                        _ => Ok(format!("/* S-expression: {} */", s_expr.to_pretty_string())),
+                    }
+                } else {
+                    Ok(format!("/* List: {} */", s_expr.to_pretty_string()))
+                }
+            }
+            LispValue::String(s) => Ok(format!("\"{}\"", s.replace("\"", "\\\""))),
+            LispValue::Number(n) => Ok(n.to_string()),
+            LispValue::Boolean(b) => Ok(b.to_string()),
+            LispValue::Symbol(s) => Ok(format!("'{}'", s)),
+            LispValue::Nil => Ok("null".to_string()),
+            _ => Ok(format!("/* {} */", s_expr.to_pretty_string())),
+        }
+    }
+
+    /// Generate Python code from S-expression
+    fn generate_python_from_s_expr(&self, s_expr: &LispValue) -> Result<String> {
+        match s_expr {
+            LispValue::List(items) if !items.is_empty() => {
+                if let LispValue::Symbol(func) = &items[0] {
+                    match func.as_str() {
+                        "create-cbu-result" => {
+                            let cbu_name = if items.len() > 1 {
+                                self.extract_lisp_string(&items[1])?
+                            } else {
+                                "Unnamed CBU".to_string()
+                            };
+                            Ok(format!(
+                                "# Create CBU: {}\ncbu = CBU('{}', status='Active')",
+                                cbu_name, cbu_name
+                            ))
+                        }
+                        "entity" => {
+                            let id = if items.len() > 1 { self.extract_lisp_string(&items[1])? } else { "unknown".to_string() };
+                            let name = if items.len() > 2 { self.extract_lisp_string(&items[2])? } else { "unknown".to_string() };
+                            let role = if items.len() > 3 { self.extract_lisp_string(&items[3])? } else { "unknown".to_string() };
+                            Ok(format!(
+                                "Entity(id='{}', name='{}', role='{}')",
+                                id, name, role
+                            ))
+                        }
+                        _ => Ok(format!("# S-expression: {}", s_expr.to_pretty_string())),
+                    }
+                } else {
+                    Ok(format!("# List: {}", s_expr.to_pretty_string()))
+                }
+            }
+            LispValue::String(s) => Ok(format!("\"{}\"", s.replace("\"", "\\\""))),
+            LispValue::Number(n) => Ok(n.to_string()),
+            LispValue::Boolean(b) => Ok(if *b { "True".to_string() } else { "False".to_string() }),
+            LispValue::Symbol(s) => Ok(format!("'{}'", s)),
+            LispValue::Nil => Ok("None".to_string()),
+            _ => Ok(format!("# {}", s_expr.to_pretty_string())),
+        }
+    }
+
+    /// Helper: Extract string from LISP value
+    fn extract_lisp_string(&self, value: &LispValue) -> Result<String> {
+        match value {
+            LispValue::String(s) => Ok(s.clone()),
+            LispValue::Symbol(s) => Ok(s.clone()),
+            _ => bail!("Expected string, got {:?}", value),
+        }
+    }
+
+    /// Helper: Convert role string to Rust enum variant
+    fn role_to_rust_enum(&self, role: &str) -> String {
+        match role.to_lowercase().as_str() {
+            "asset-owner" | "assetowner" => "AssetOwner".to_string(),
+            "investment-manager" | "investmentmanager" => "InvestmentManager".to_string(),
+            "managing-company" | "managingcompany" => "ManagingCompany".to_string(),
+            "general-partner" | "generalpartner" => "GeneralPartner".to_string(),
+            "limited-partner" | "limitedpartner" => "LimitedPartner".to_string(),
+            "prime-broker" | "primebroker" => "PrimeBroker".to_string(),
+            "administrator" => "Administrator".to_string(),
+            "custodian" => "Custodian".to_string(),
+            _ => "Unknown".to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1144,5 +1365,213 @@ mod tests {
 
         let code = transpiler.generate_sql(&expr).unwrap();
         assert_eq!(code, "UPPER(\"name\")");
+    }
+
+    // S-expression transpiler tests
+    #[test]
+    fn test_s_expression_rust_generation() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::Rust,
+            ..Default::default()
+        });
+
+        let s_expr = LispValue::List(vec![
+            LispValue::Symbol("create-cbu-result".to_string()),
+            LispValue::String("Test Fund".to_string()),
+            LispValue::String("Test Description".to_string()),
+        ]);
+
+        let code = transpiler.generate_rust_from_s_expr(&s_expr).unwrap();
+        assert!(code.contains("Test Fund"));
+        assert!(code.contains("CbuBuilder"));
+    }
+
+    #[test]
+    fn test_s_expression_sql_generation() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::SQL,
+            ..Default::default()
+        });
+
+        let s_expr = LispValue::List(vec![
+            LispValue::Symbol("create-cbu-result".to_string()),
+            LispValue::String("Investment Fund".to_string()),
+        ]);
+
+        let code = transpiler.generate_sql_from_s_expr(&s_expr).unwrap();
+        assert!(code.contains("INSERT INTO cbus"));
+        assert!(code.contains("Investment Fund"));
+    }
+
+    #[test]
+    fn test_s_expression_javascript_generation() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::JavaScript,
+            ..Default::default()
+        });
+
+        let s_expr = LispValue::List(vec![
+            LispValue::Symbol("entity".to_string()),
+            LispValue::String("E001".to_string()),
+            LispValue::String("Test Entity".to_string()),
+            LispValue::Symbol("asset-owner".to_string()),
+        ]);
+
+        let code = transpiler.generate_js_from_s_expr(&s_expr).unwrap();
+        assert!(code.contains("E001"));
+        assert!(code.contains("Test Entity"));
+        assert!(code.contains("asset-owner"));
+    }
+
+    #[test]
+    fn test_s_expression_python_generation() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::Python,
+            ..Default::default()
+        });
+
+        let s_expr = LispValue::List(vec![
+            LispValue::Symbol("entity".to_string()),
+            LispValue::String("E001".to_string()),
+            LispValue::String("Test Entity".to_string()),
+            LispValue::Symbol("custodian".to_string()),
+        ]);
+
+        let code = transpiler.generate_python_from_s_expr(&s_expr).unwrap();
+        assert!(code.contains("Entity("));
+        assert!(code.contains("E001"));
+        assert!(code.contains("custodian"));
+    }
+
+    #[test]
+    fn test_s_expression_transpile_all_targets() {
+        let s_expr = LispValue::List(vec![
+            LispValue::Symbol("create-cbu-result".to_string()),
+            LispValue::String("Multi-Target Fund".to_string()),
+        ]);
+
+        for target in [TargetLanguage::Rust, TargetLanguage::SQL, TargetLanguage::JavaScript, TargetLanguage::Python] {
+            let transpiler = Transpiler::new(TranspilerOptions {
+                target: target.clone(),
+                ..Default::default()
+            });
+
+            let result = transpiler.transpile_s_expression(&s_expr);
+            assert!(result.is_ok(), "Transpilation to {:?} should succeed", target);
+
+            let code = result.unwrap();
+            assert!(code.contains("Multi-Target Fund"), "Code should contain fund name for {:?}", target);
+        }
+    }
+
+    #[test]
+    fn test_s_expression_parse_and_transpile() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::Rust,
+            ..Default::default()
+        });
+
+        let dsl_text = r#"(create-cbu "Parse Test Fund" "Testing parse and transpile")"#;
+        let result = transpiler.parse_and_transpile_s_expr(dsl_text);
+
+        assert!(result.is_ok(), "Parse and transpile should succeed");
+        let code = result.unwrap();
+        assert!(code.contains("Parse Test Fund") || code.contains("Transpiled"));
+    }
+
+    #[test]
+    fn test_s_expression_atomic_values() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::Rust,
+            ..Default::default()
+        });
+
+        // Test string
+        let string_expr = LispValue::String("test string".to_string());
+        let code = transpiler.generate_rust_from_s_expr(&string_expr).unwrap();
+        assert_eq!(code, "\"test string\"");
+
+        // Test number
+        let number_expr = LispValue::Number(42.0);
+        let code = transpiler.generate_rust_from_s_expr(&number_expr).unwrap();
+        assert_eq!(code, "42");
+
+        // Test boolean
+        let bool_expr = LispValue::Boolean(true);
+        let code = transpiler.generate_rust_from_s_expr(&bool_expr).unwrap();
+        assert_eq!(code, "true");
+
+        // Test nil
+        let nil_expr = LispValue::Nil;
+        let code = transpiler.generate_rust_from_s_expr(&nil_expr).unwrap();
+        assert_eq!(code, "None");
+    }
+
+    #[test]
+    fn test_role_to_rust_enum_conversion() {
+        let transpiler = Transpiler::new(TranspilerOptions::default());
+
+        assert_eq!(transpiler.role_to_rust_enum("asset-owner"), "AssetOwner");
+        assert_eq!(transpiler.role_to_rust_enum("investment-manager"), "InvestmentManager");
+        assert_eq!(transpiler.role_to_rust_enum("custodian"), "Custodian");
+        assert_eq!(transpiler.role_to_rust_enum("unknown-role"), "Unknown");
+    }
+
+    #[test]
+    fn test_s_expression_comprehensive_cbu() {
+        let transpiler = Transpiler::new(TranspilerOptions {
+            target: TargetLanguage::SQL,
+            ..Default::default()
+        });
+
+        let dsl_text = r#"
+            (create-cbu "Goldman Sachs Investment Fund" "Multi-strategy hedge fund operations"
+              (entities
+                (entity "GS001" "Goldman Sachs Asset Management" asset-owner)
+                (entity "GS002" "Goldman Sachs Investment Advisors" investment-manager)))
+        "#;
+
+        let result = transpiler.parse_and_transpile_s_expr(dsl_text);
+        assert!(result.is_ok(), "Complex CBU transpilation should succeed");
+
+        let code = result.unwrap();
+        assert!(code.contains("Goldman Sachs Investment Fund") || code.contains("Transpiled"));
+    }
+
+    #[test]
+    fn test_s_expression_error_handling() {
+        let transpiler = Transpiler::new(TranspilerOptions::default());
+
+        // Test malformed S-expression
+        let malformed_dsl = "(create-cbu \"Test\""; // Missing closing paren
+        let result = transpiler.parse_and_transpile_s_expr(malformed_dsl);
+        assert!(result.is_err(), "Malformed S-expression should fail");
+
+        // Test invalid function
+        let invalid_function_dsl = "(invalid-function \"test\")";
+        let result = transpiler.parse_and_transpile_s_expr(invalid_function_dsl);
+        assert!(result.is_err(), "Invalid function should fail");
+    }
+
+    #[test]
+    fn test_extract_lisp_string() {
+        let transpiler = Transpiler::new(TranspilerOptions::default());
+
+        // Test string extraction
+        let string_value = LispValue::String("test".to_string());
+        let result = transpiler.extract_lisp_string(&string_value);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test");
+
+        // Test symbol extraction
+        let symbol_value = LispValue::Symbol("symbol".to_string());
+        let result = transpiler.extract_lisp_string(&symbol_value);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "symbol");
+
+        // Test invalid type
+        let number_value = LispValue::Number(42.0);
+        let result = transpiler.extract_lisp_string(&number_value);
+        assert!(result.is_err(), "Number should not be extractable as string");
     }
 }

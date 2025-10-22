@@ -1,6 +1,6 @@
 use crate::models::{Expression, Value};
 use crate::db::{
-    DbPool, DbOperations,
+    DbOperations,
     ResourceCapability, CapabilityExecution,
     CapabilityExecutionResult, ExecutionContext
 };
@@ -10,7 +10,6 @@ use chrono::Utc;
 
 /// Capability Execution Engine - Orchestrates resource capability execution
 pub struct CapabilityEngine {
-    db_pool: DbPool,
     capability_registry: HashMap<String, CapabilityImplementation>,
 }
 
@@ -62,10 +61,9 @@ impl std::fmt::Display for CapabilityError {
 impl std::error::Error for CapabilityError {}
 
 impl CapabilityEngine {
-    /// Create new capability engine with database connection
-    pub async fn new(db_pool: DbPool) -> Result<Self, String> {
+    /// Create new capability engine
+    pub async fn new() -> Result<Self, String> {
         let mut engine = Self {
-            db_pool,
             capability_registry: HashMap::new(),
         };
 
@@ -643,7 +641,6 @@ fn fund_accounting_health_check(execution: &CapabilityExecution) -> Result<Capab
 impl std::fmt::Debug for CapabilityEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CapabilityEngine")
-            .field("db_pool", &"DbPool")
             .field("capability_registry", &self.capability_registry.keys().collect::<Vec<_>>())
             .finish()
     }

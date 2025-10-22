@@ -1,0 +1,25 @@
+[package]
+name = "cbu-dsl-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tower-lsp = "0.20"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+async-trait = "0.1"
+
+# Local dependencies
+data-designer-core = { path = "../data-designer-core" }
+
+[lib]
+name = "cbu_dsl_lsp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cbu-dsl-lsp-server"
+path = "src/main.rs"

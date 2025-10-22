@@ -30,6 +30,9 @@ pub mod onboarding_orchestrator;
 // CBU DSL for CRUD operations
 pub mod cbu_dsl;
 
+// LISP-based CBU DSL for list processing
+pub mod lisp_cbu_dsl;
+
 // Onboarding Request DSL for CRUD operations with Deal Record integration
 pub mod onboarding_request_dsl;
 
@@ -38,6 +41,17 @@ pub mod deal_record_dsl;
 
 // Opportunity DSL for investment opportunity management
 pub mod opportunity_dsl;
+
+// Shared DSL utilities
+pub mod dsl_utils;
+
+// CBU DSL integration tests for API validation
+#[cfg(test)]
+pub mod cbu_dsl_integration_tests;
+
+// S-expression DSL round trip tests
+#[cfg(test)]
+pub mod s_expression_round_trip_tests;
 
 #[cfg(test)]
 mod test_integration;

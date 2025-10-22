@@ -202,7 +202,7 @@ impl CapabilityExecutionEngine {
         &mut self,
         capability_name: &str,
         inputs: &HashMap<String, Value>,
-        context: &ExecutionContext,
+        _context: &ExecutionContext,
     ) -> Result<CapabilityExecutionResult> {
         let execution_id = uuid::Uuid::new_v4().as_string();
         let started_at = chrono::Utc::now();

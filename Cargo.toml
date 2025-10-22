@@ -4,6 +4,7 @@ members = [
     "grpc-server",
     "web-ui",
     "template-server",
+    "cbu-dsl-lsp",
 ]
 resolver = "2"
 
