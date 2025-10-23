@@ -1,6 +1,6 @@
 // CBU DSL IDE - Interactive panel for writing and executing CBU CRUD operations
 use eframe::egui;
-use crate::grpc_client::GrpcClient;
+use crate::grpc_client::{GrpcClient, CbuRecord};
 use crate::wasm_utils;
 use crate::dsl_syntax_highlighter::{DslSyntaxHighlighter, SyntaxTheme};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,14 @@ pub struct CbuDslIDE {
     available_cbus: Vec<CbuRecord>,
     loading_cbus: bool,
 
+    // Create New CBU state
+    new_cbu_name: String,
+    creating_cbu: bool,
+
+    // Active CBU DSL context
+    active_cbu_id: Option<String>,
+    active_cbu_name: String,
+
     // Entity picker state
     show_entity_picker: bool,
     show_floating_entity_picker: bool, // New floating panel state
@@ -80,15 +88,7 @@ pub enum CbuContext {
     EditExisting, // Editing an existing CBU
 }
 
-#[derive(Debug, Clone)]
-pub struct CbuRecord {
-    pub cbu_id: String,
-    pub name: String,
-    pub nature: String,
-    pub purpose: String,
-    pub status: String,
-    pub created_at: String,
-}
+// CbuRecord is now imported from grpc_client module
 
 #[derive(Debug, Clone)]
 struct EntityInfo {
@@ -142,6 +142,10 @@ impl CbuDslIDE {
             selected_cbu_id: None,
             available_cbus: Vec::new(),
             loading_cbus: false,
+            new_cbu_name: String::new(),
+            creating_cbu: false,
+            active_cbu_id: None,
+            active_cbu_name: String::new(),
             show_entity_picker: false,
             show_floating_entity_picker: false,
             entity_picker_window_size: egui::Vec2::new(720.0, 420.0),
@@ -152,6 +156,146 @@ impl CbuDslIDE {
             selected_entities: Vec::new(),
             lisp_mode: true, // Default to LISP mode for better parsing
         }
+    }
+
+    /// **CBU DSL CONTEXT MANAGER** - Handles switching between create new and edit existing states
+    fn start_create_new_cbu(&mut self) {
+        wasm_utils::console_log("🆕 Starting Create New CBU flow");
+        self.cbu_context = CbuContext::CreateNew;
+        self.new_cbu_name.clear();
+        self.dsl_script.clear();
+        self.active_cbu_id = None;
+        self.active_cbu_name.clear();
+
+        // Load empty DSL template for new CBU
+        self.dsl_script = "; New CBU DSL Template\n; Enter CBU name below, then add entities using Entity Picker\n\n; CBU Definition:\n; (define-cbu \"[CBU_NAME]\" \"[PURPOSE]\")\n\n; Entities will be added here after using Entity Picker".to_string();
+    }
+
+    fn start_edit_existing_cbu(&mut self, grpc_client: Option<&GrpcClient>) {
+        wasm_utils::console_log("📝 Starting Edit Existing CBU flow");
+        self.cbu_context = CbuContext::EditExisting;
+        self.new_cbu_name.clear();
+        self.dsl_script.clear();
+        self.active_cbu_id = None;
+        self.active_cbu_name.clear();
+
+        // Always refresh CBU list when entering edit mode
+        self.refresh_cbu_list(grpc_client);
+    }
+
+    fn set_active_cbu(&mut self, cbu_id: String, cbu_name: String, grpc_client: Option<&GrpcClient>) {
+        wasm_utils::console_log(&format!("🎯 Setting active CBU: {} ({})", cbu_name, cbu_id));
+        self.active_cbu_id = Some(cbu_id.clone());
+        self.active_cbu_name = cbu_name;
+
+        // Load DSL for this CBU
+        self.load_cbu_dsl(&cbu_id, grpc_client);
+    }
+
+    fn reset_context(&mut self) {
+        wasm_utils::console_log("🔄 Resetting CBU DSL context");
+        self.cbu_context = CbuContext::None;
+        self.new_cbu_name.clear();
+        self.creating_cbu = false;
+        self.dsl_script.clear();
+        self.active_cbu_id = None;
+        self.active_cbu_name.clear();
+        self.selected_cbu_id = None;
+    }
+
+    /// Refresh CBU list from gRPC (force reload)
+    fn refresh_cbu_list(&mut self, grpc_client: Option<&GrpcClient>) {
+        wasm_utils::console_log("🔄 Refreshing CBU list from gRPC");
+        // Clear existing state to force fresh load
+        self.available_cbus.clear();
+        self.cbus_loading_state = None;
+        // Force load
+        self.load_available_cbus(grpc_client);
+    }
+
+    /// Create new CBU via gRPC and set up DSL context
+    fn create_new_cbu(&mut self, grpc_client: Option<&GrpcClient>) {
+        let Some(client) = grpc_client else {
+            wasm_utils::console_log("❌ No gRPC client available for CBU creation");
+            return;
+        };
+
+        if self.new_cbu_name.trim().is_empty() {
+            wasm_utils::console_log("❌ CBU name cannot be empty");
+            return;
+        }
+
+        self.creating_cbu = true;
+        let client_clone = client.clone();
+        let cbu_name = self.new_cbu_name.trim().to_string();
+        let cbu_id = format!("cbu_{}", js_sys::Date::now() as u64); // Generate unique ID
+
+        wasm_utils::console_log(&format!("🔨 Creating new CBU: {}", cbu_name));
+
+        // Build simple DSL for CBU creation (no legal entities)
+        let dsl_content = format!(
+            "# CBU Creation DSL - Generated {}\n# CBU: {} ({})\n\nCREATE CBU {} '{}' ; 'CBU created via DSL IDE: {}' WITH\n    status = 'active'\n    business_model = 'Standard'\n;\n\n# Ready for additional entities via Entity Picker",
+            js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default(),
+            cbu_name,
+            cbu_id,
+            cbu_id,
+            cbu_name,
+            cbu_name
+        );
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let request = crate::grpc_client::CreateCbuRequest {
+                cbu_id: cbu_id.clone(),
+                cbu_name: cbu_name.clone(),
+                description: Some(format!("CBU created via DSL IDE: {}", cbu_name)),
+                legal_entity_name: None,
+                business_model: Some("Standard".to_string()),
+                status: "active".to_string(),
+            };
+
+            match client_clone.create_cbu(request).await {
+                Ok(response) => {
+                    if response.success {
+                        if let Some(cbu) = response.cbu {
+                            wasm_utils::console_log(&format!("✅ Created CBU: {} with ID: {}", cbu.cbu_name, cbu.cbu_id));
+
+                            // Now send the DSL content to create DSL metadata
+                            let dsl_request = crate::grpc_client::ExecuteCbuDslRequest {
+                                dsl_script: dsl_content.clone(),
+                            };
+
+                            match client_clone.execute_cbu_dsl(dsl_request).await {
+                                Ok(dsl_response) => {
+                                    if dsl_response.success {
+                                        wasm_utils::console_log(&format!("✅ Created DSL metadata for CBU: {}", cbu.cbu_name));
+
+                                        // Store the completed CBU and DSL for UI to pick up
+                                        let window = web_sys::window().unwrap();
+                                        let storage = window.local_storage().unwrap().unwrap();
+                                        let _ = storage.set_item("data_designer_new_cbu_created", &serde_json::to_string(&cbu).unwrap_or_default());
+                                        let _ = storage.set_item("data_designer_new_cbu_dsl", &dsl_content);
+                                        let _ = storage.set_item("data_designer_new_cbu_name", &cbu.cbu_name);
+                                        let _ = storage.set_item("data_designer_cbu_creation_complete", "true");
+                                    } else {
+                                        wasm_utils::console_log(&format!("❌ DSL execution failed: {}", dsl_response.message));
+                                    }
+                                }
+                                Err(e) => {
+                                    wasm_utils::console_log(&format!("❌ Error executing DSL: {}", e));
+                                }
+                            }
+                        } else {
+                            wasm_utils::console_log("❌ CreateCbu response success but no CBU data");
+                        }
+                    } else {
+                        wasm_utils::console_log(&format!("❌ CreateCbu failed: {}", response.message));
+                    }
+                }
+                Err(e) => {
+                    wasm_utils::console_log(&format!("❌ Error creating CBU: {}", e));
+                }
+            }
+        });
     }
 
     /// **SINGLE DSL MANAGEMENT FUNCTION** - All DSL state changes must go through here
@@ -165,9 +309,7 @@ impl CbuDslIDE {
 
                 // Generate LISP format for new CBU creation
                 let dsl = if self.lisp_mode {
-                    format!(
-                        "; Create a new CBU - add entities below using Entity Picker\n(create-cbu \"New CBU Name\" \"CBU Purpose Description\")\n; Use Entity Picker to add entities"
-                    )
+                    "; Create a new CBU - add entities below using Entity Picker\n(create-cbu \"New CBU Name\" \"CBU Purpose Description\")\n; Use Entity Picker to add entities".to_string()
                 } else {
                     format!(
                         "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU {} 'New CBU Name' ; 'CBU Purpose Description' WITH\n  # Use Entity Picker to add entities",
@@ -474,7 +616,7 @@ impl CbuDslIDE {
             lisp_dsl.push_str("  )");
         }
 
-        lisp_dsl.push_str(")");
+        lisp_dsl.push(')');
         lisp_dsl
     }
 
@@ -698,7 +840,7 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
         ui.separator();
 
         // Read execution state from thread-safe cache
-        let (is_executing, result) = self.get_execution_state();
+        let (_is_executing, result) = self.get_execution_state();
 
         if let Some(result) = &result {
             // Success/Error indicator
@@ -1170,7 +1312,7 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
 
                     // Look up real CBU data if available
                     if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_key) {
-                        ui.label(format!("  Current Name: {}", cbu.name));
+                        ui.label(format!("  Current Name: {}", cbu.cbu_name));
                         ui.label(format!("  Status: {}", cbu.status));
                     }
                     break;
@@ -1516,12 +1658,7 @@ QUERY CBU WHERE status = 'active'"#
                         );
 
                         if create_button.clicked() {
-                            self.cbu_context = CbuContext::CreateNew;
-                            // Generate a new CBU key for this session
-                            let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
-                            // Use single DSL management function
-                            self.manage_dsl_state(DslOperation::LoadForCreateNew { cbu_key: new_cbu_key });
-                            wasm_utils::console_log("🆕 Selected Create New CBU mode");
+                            self.start_create_new_cbu();
                         }
 
                         ui.add_space(20.0);
@@ -1533,9 +1670,7 @@ QUERY CBU WHERE status = 'active'"#
                         );
 
                         if edit_button.clicked() {
-                            self.cbu_context = CbuContext::EditExisting;
-                            self.load_available_cbus(grpc_client);
-                            wasm_utils::console_log("✏️ Selected Edit Existing CBU mode");
+                            self.start_edit_existing_cbu(grpc_client);
                         }
                     });
                 },
@@ -1544,65 +1679,138 @@ QUERY CBU WHERE status = 'active'"#
                         ui.label("🆕 Mode: Creating New CBU");
                         ui.separator();
                         if ui.button("🔙 Back to Selection").clicked() {
-                            self.cbu_context = CbuContext::None;
-                            // self.dsl_script.clear(); // REMOVED: default action
-                            // self.selected_entities.clear(); // REMOVED: default action
-                            // Note: State should persist across context changes unless explicitly saved via gRPC
+                            self.reset_context();
                         }
                     });
+
+                    ui.add_space(10.0);
+
+                    // CBU Name Input
+                    ui.horizontal(|ui| {
+                        ui.label("CBU Name:");
+                        ui.add_space(10.0);
+                        let name_input = ui.add_sized(
+                            [300.0, 25.0],
+                            egui::TextEdit::singleline(&mut self.new_cbu_name)
+                                .hint_text("Enter CBU name (e.g., 'Investment Management Fund')")
+                        );
+
+                        ui.add_space(20.0);
+
+                        // Create CBU Button
+                        let create_enabled = !self.new_cbu_name.trim().is_empty() && !self.creating_cbu;
+                        let create_button = ui.add_enabled(
+                            create_enabled,
+                            egui::Button::new(if self.creating_cbu { "🔄 Creating..." } else { "🔨 Create CBU" })
+                                .fill(if create_enabled { egui::Color32::from_rgb(34, 139, 34) } else { egui::Color32::GRAY })
+                        );
+
+                        if create_button.clicked() && create_enabled {
+                            self.create_new_cbu(grpc_client);
+                        }
+
+                        // Auto-focus the text input
+                        if name_input.gained_focus() || name_input.has_focus() {
+                            // Keep focus active
+                        }
+                    });
+
+                    // Show creation status
+                    if self.creating_cbu {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Creating new CBU and generating DSL...");
+                        });
+                    }
+
+                    // Instructions
+                    ui.add_space(10.0);
+                    ui.label("💡 Instructions:");
+                    ui.label("1. Enter a descriptive name for your CBU");
+                    ui.label("2. Click 'Create CBU' to generate the record and DSL");
+                    ui.label("3. The system will create the CBU in the database and return editable DSL");
                 },
                 CbuContext::EditExisting => {
                     ui.horizontal(|ui| {
                         ui.label("✏️ Mode: Editing Existing CBU");
 
-                        if !self.available_cbus.is_empty() {
-                            ui.separator();
-                            ui.label("Select CBU:");
+                        ui.separator();
 
-                            let selected_name = self.selected_cbu_id.as_ref()
-                                .and_then(|id| self.available_cbus.iter().find(|cbu| cbu.cbu_id == *id))
-                                .map(|cbu| cbu.name.as_str())
-                                .unwrap_or("Choose CBU...");
-
-                            let mut selected_cbu_id_for_loading = None;
-                            egui::ComboBox::from_id_salt("cbu_selector")
-                                .selected_text(selected_name)
-                                .show_ui(ui, |ui| {
-                                    for cbu in &self.available_cbus {
-                                        let selected = ui.selectable_value(
-                                            &mut self.selected_cbu_id,
-                                            Some(cbu.cbu_id.clone()),
-                                            format!("{} ({})", cbu.name, cbu.cbu_id)
-                                        );
-
-                                        if selected.clicked() {
-                                            // Store the ID to load DSL after borrowing ends
-                                            selected_cbu_id_for_loading = Some(cbu.cbu_id.clone());
-                                        }
-                                    }
-                                });
-
-                            // Load DSL if a CBU was selected
-                            if let Some(cbu_id) = selected_cbu_id_for_loading {
-                                self.load_cbu_dsl(&cbu_id, grpc_client);
-                            }
+                        // Refresh button
+                        if ui.button("🔄 Refresh List").clicked() {
+                            self.refresh_cbu_list(grpc_client);
                         }
 
                         ui.separator();
                         if ui.button("🔙 Back to Selection").clicked() {
                             self.cbu_context = CbuContext::None;
-                            // self.dsl_script.clear(); // REMOVED: default action
-                            // self.selected_entities.clear(); // REMOVED: default action
-                            // self.selected_cbu_id = None; // REMOVED: default action
-                            // Note: State should persist across context changes unless explicitly saved via gRPC
                         }
                     });
 
+                    ui.add_space(10.0);
+
+                    // CBU Selection Section
                     if self.loading_cbus {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label("Loading CBUs...");
                         });
+                    } else if self.available_cbus.is_empty() {
+                        ui.horizontal(|ui| {
+                            ui.label("⚠️ No CBUs found. Click 'Refresh List' to try again.");
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("📋 Found {} CBUs. Select one:", self.available_cbus.len()));
+                        });
+
+                        ui.add_space(5.0);
+
+                        let selected_name = self.selected_cbu_id.as_ref()
+                            .and_then(|id| self.available_cbus.iter().find(|cbu| cbu.cbu_id == *id))
+                            .map(|cbu| cbu.cbu_name.as_str())
+                            .unwrap_or("Choose CBU...");
+
+                        let mut selected_cbu_id_for_loading = None;
+                        egui::ComboBox::from_id_salt("cbu_selector")
+                            .selected_text(selected_name)
+                            .width(400.0)
+                            .show_ui(ui, |ui| {
+                                for cbu in &self.available_cbus {
+                                    let selected = ui.selectable_value(
+                                        &mut self.selected_cbu_id,
+                                        Some(cbu.cbu_id.clone()),
+                                        format!("{} ({})", cbu.cbu_name, cbu.cbu_id)
+                                    );
+
+                                    if selected.clicked() {
+                                        // Store the ID to load DSL after borrowing ends
+                                        selected_cbu_id_for_loading = Some(cbu.cbu_id.clone());
+                                        wasm_utils::console_log(&format!("🎯 CBU selected: {} ({})", cbu.cbu_name, cbu.cbu_id));
+
+                                        // Immediately set active CBU context (don't wait for async DSL load)
+                                        self.active_cbu_id = Some(cbu.cbu_id.clone());
+                                        self.active_cbu_name = cbu.cbu_name.clone();
+                                        wasm_utils::console_log(&format!("✅ Active CBU context set: {} ({})", cbu.cbu_name, cbu.cbu_id));
+                                    }
+                                }
+                            });
+
+                        // Load DSL if a CBU was selected
+                        if let Some(cbu_id) = selected_cbu_id_for_loading {
+                            self.load_cbu_dsl(&cbu_id, grpc_client);
+                        }
+
+                        // Show selected CBU info
+                        if let Some(selected_id) = &self.selected_cbu_id {
+                            if let Some(cbu) = self.available_cbus.iter().find(|c| &c.cbu_id == selected_id) {
+                                ui.add_space(10.0);
+                                ui.label(format!("✅ Selected: {} ({})", cbu.cbu_name, cbu.cbu_id));
+                                if let Some(description) = &cbu.description {
+                                    ui.label(format!("📝 Description: {}", description));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1638,16 +1846,9 @@ QUERY CBU WHERE status = 'active'"#
                         let mut cbus = cbus_clone.lock().unwrap();
                         let old_count = cbus.len();
 
-                        // Convert gRPC CBUs to CbuRecord
+                        // Add gRPC CBUs directly (they are already CbuRecord)
                         for cbu in response.cbus {
-                            cbus.push(CbuRecord {
-                                cbu_id: cbu.cbu_id,
-                                name: cbu.cbu_name,
-                                purpose: cbu.description.unwrap_or_default(),
-                                nature: cbu.business_model.unwrap_or_default(),
-                                status: cbu.status,
-                                created_at: "".to_string(), // Not provided by gRPC
-                            });
+                            cbus.push(cbu);
                         }
 
                         let new_count = cbus.len();
@@ -1672,22 +1873,56 @@ QUERY CBU WHERE status = 'active'"#
     }
 
     fn load_cbu_dsl(&mut self, cbu_id: &str, grpc_client: Option<&GrpcClient>) {
-        let Some(_client) = grpc_client else {
+        let Some(client) = grpc_client else {
             wasm_utils::console_log("❌ No gRPC client available for CBU DSL loading");
             return;
         };
 
-        // Since database was cleaned and no DSL exists, generate appropriate DSL based on selected CBU
-        // This handles the requirement: "no DSL coming back from DB via gRPC → add new CBU → go straight into edit mode"
-        if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
-            self.dsl_script = format!(
-                "# Editing CBU: {}\nUPDATE CBU {} SET description = '{}'\n  # Add entity updates as needed",
-                cbu.name, cbu.cbu_id, cbu.purpose
-            );
-            wasm_utils::console_log(&format!("📝 Generated DSL for CBU: {} ({})", cbu.name, cbu.cbu_id));
-        } else {
-            wasm_utils::console_log(&format!("❌ CBU {} not found in available CBUs list", cbu_id));
-        }
+        // Load actual DSL from database via gRPC GetCbu call
+        let client_clone = client.clone();
+        let cbu_id_clone = cbu_id.to_string();
+
+        wasm_utils::console_log(&format!("🔍 Loading DSL for CBU: {}", cbu_id));
+
+        // Use async task to load CBU and DSL content from database
+        wasm_bindgen_futures::spawn_local(async move {
+            let request = crate::grpc_client::GetCbuRequest {
+                cbu_id: cbu_id_clone.clone(),
+            };
+
+            match client_clone.get_cbu(request).await {
+                Ok(response) => {
+                    if response.success {
+                        if let Some(cbu) = response.cbu {
+                            let dsl_content = cbu.dsl_content.unwrap_or_default();
+
+                            if dsl_content.is_empty() {
+                                wasm_utils::console_log(&format!("📭 No DSL found for CBU: {}", cbu.cbu_name));
+                                // Store empty DSL to indicate we need to create one
+                                let window = web_sys::window().unwrap();
+                                let storage = window.local_storage().unwrap().unwrap();
+                                let _ = storage.set_item("data_designer_cbu_dsl_loaded", "");
+                                let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                            } else {
+                                wasm_utils::console_log(&format!("✅ Loaded DSL for CBU: {} ({} chars)", cbu.cbu_name, dsl_content.len()));
+                                // Store actual DSL content for UI to pick up
+                                let window = web_sys::window().unwrap();
+                                let storage = window.local_storage().unwrap().unwrap();
+                                let _ = storage.set_item("data_designer_cbu_dsl_loaded", &dsl_content);
+                                let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                            }
+                        } else {
+                            wasm_utils::console_log("❌ GetCbu response success but no CBU data");
+                        }
+                    } else {
+                        wasm_utils::console_log(&format!("❌ GetCbu failed: {}", response.message));
+                    }
+                }
+                Err(e) => {
+                    wasm_utils::console_log(&format!("❌ Error loading CBU DSL: {}", e));
+                }
+            }
+        });
     }
 
     fn load_available_entities(&mut self, grpc_client: Option<&GrpcClient>, _ctx: &egui::Context) {
@@ -1768,6 +2003,97 @@ QUERY CBU WHERE status = 'active'"#
             crate::trace_exit!(frame_id, "state_cleared");
         } else {
             crate::trace_exit!(frame_id, "no_state_change");
+        }
+
+        // Check for new CBU creation completion from localStorage
+        self.check_for_new_cbu_creation();
+
+        // Check for CBU DSL loading completion from localStorage
+        self.check_for_cbu_dsl_loaded();
+    }
+
+    /// Check for completed CBU creation from async task and switch to active CBU context
+    fn check_for_new_cbu_creation(&mut self) {
+        if let Ok(window) = web_sys::window().ok_or("no window") {
+            if let Ok(storage) = window.local_storage().ok().flatten().ok_or("no storage") {
+                // Check if CBU creation is complete
+                if let Ok(Some(complete_flag)) = storage.get_item("data_designer_cbu_creation_complete") {
+                    if complete_flag == "true" {
+                        // Get the created CBU data
+                        if let Ok(Some(cbu_json)) = storage.get_item("data_designer_new_cbu_created") {
+                            if let Ok(cbu) = serde_json::from_str::<CbuRecord>(&cbu_json) {
+                                // Get the DSL content
+                                if let Ok(Some(dsl_content)) = storage.get_item("data_designer_new_cbu_dsl") {
+                                    wasm_utils::console_log(&format!("🎉 CBU creation completed: {} - switching to active context", cbu.cbu_name));
+
+                                    // Switch to active CBU DSL context
+                                    self.cbu_context = CbuContext::EditExisting;
+                                    self.active_cbu_id = Some(cbu.cbu_id.clone());
+                                    self.active_cbu_name = cbu.cbu_name.clone();
+                                    self.dsl_script = dsl_content;
+                                    self.creating_cbu = false;
+                                    self.new_cbu_name.clear();
+
+                                    // Refresh CBU list to include the new CBU
+                                    if !self.available_cbus.iter().any(|c| c.cbu_id == cbu.cbu_id) {
+                                        self.available_cbus.push(cbu);
+                                        wasm_utils::console_log("📋 Added new CBU to available CBUs list");
+                                    }
+
+                                    // Clear localStorage flags
+                                    let _ = storage.remove_item("data_designer_cbu_creation_complete");
+                                    let _ = storage.remove_item("data_designer_new_cbu_created");
+                                    let _ = storage.remove_item("data_designer_new_cbu_dsl");
+                                    let _ = storage.remove_item("data_designer_new_cbu_name");
+
+                                    wasm_utils::console_log("✅ Switched to active CBU DSL context - user can now edit the DSL");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check for completed CBU DSL loading from async task and update DSL content
+    fn check_for_cbu_dsl_loaded(&mut self) {
+        if let Ok(window) = web_sys::window().ok_or("no window") {
+            if let Ok(storage) = window.local_storage().ok().flatten().ok_or("no storage") {
+                // Check if DSL has been loaded from the database
+                if let Ok(Some(dsl_content)) = storage.get_item("data_designer_cbu_dsl_loaded") {
+                    if let Ok(Some(cbu_id)) = storage.get_item("data_designer_cbu_dsl_cbu_id") {
+                        // Find the CBU name from available CBUs
+                        let cbu_name = self.available_cbus.iter()
+                            .find(|cbu| cbu.cbu_id == cbu_id)
+                            .map(|cbu| cbu.cbu_name.clone())
+                            .unwrap_or_else(|| format!("CBU {}", cbu_id));
+
+                        if dsl_content.is_empty() {
+                            wasm_utils::console_log(&format!("📭 No DSL found for CBU: {} - showing empty template", cbu_name));
+                            // Show empty template for CBU without DSL
+                            self.dsl_script = format!(
+                                "# No DSL found for CBU: {}\n# Creating new DSL template\n\nUPDATE CBU {} '{}' ; 'Updated via DSL IDE' WITH\n    status = 'active'\n;\n\n# Add entities using Entity Picker",
+                                cbu_name, cbu_id, cbu_name
+                            );
+                        } else {
+                            wasm_utils::console_log(&format!("✅ Loaded DSL for CBU: {} ({} chars)", cbu_name, dsl_content.len()));
+                            self.dsl_script = dsl_content;
+                        }
+
+                        // Set active CBU context
+                        self.active_cbu_id = Some(cbu_id.clone());
+                        self.active_cbu_name = cbu_name;
+                        self.selected_cbu_id = Some(cbu_id);
+
+                        // Clear localStorage flags
+                        let _ = storage.remove_item("data_designer_cbu_dsl_loaded");
+                        let _ = storage.remove_item("data_designer_cbu_dsl_cbu_id");
+
+                        wasm_utils::console_log("✅ DSL loaded and UI updated - user can now edit the DSL");
+                    }
+                }
+            }
         }
     }
 
@@ -2016,12 +2342,12 @@ QUERY CBU WHERE status = 'active'"#
             }
 
             // Remove entities (in reverse order to maintain indices)
-            let mut entities_removed = false;
+            let mut _entities_removed = false;
             for &i in entities_to_remove.iter().rev() {
                 if i < self.selected_entities.len() {
                     let removed_entity = self.selected_entities.remove(i);
                     wasm_utils::console_log(&format!("🗑️ Removed entity: {}", removed_entity.0));
-                    entities_removed = true;
+                    _entities_removed = true;
                 }
             }
 
@@ -2211,14 +2537,16 @@ QUERY CBU WHERE status = 'active'"#
                             self.manage_dsl_state(DslOperation::UpdateWithEntities { preserve_header: true });
                         }
 
-                        // Force close the picker
+                        // Force close the picker - reset both flags
                         self.show_floating_entity_picker = false;
+                        self.show_entity_picker = false;
                         wasm_utils::console_log("✅ Entity picker window closed");
                     }
 
                     if ui.add(egui::Button::new("❌ Cancel").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
-                        // Just close without updating DSL
+                        // Just close without updating DSL - reset both flags
                         self.show_floating_entity_picker = false;
+                        self.show_entity_picker = false;
                         wasm_utils::console_log("❌ Entity picker cancelled");
                     }
 

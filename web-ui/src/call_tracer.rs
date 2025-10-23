@@ -3,7 +3,6 @@
 /// This module provides debugging utilities to trace function calls,
 /// async operations, and state changes for debugging in ZED.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::wasm_utils;
 

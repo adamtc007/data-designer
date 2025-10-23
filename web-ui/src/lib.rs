@@ -2,18 +2,15 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 mod app;
-mod resource_sheet_ui;
-mod minimal_types;
-mod http_api_client;
-mod dsl_syntax_test;
+#[allow(dead_code)]
 mod grpc_client;
-mod debug_ui;
-mod template_designer;
-mod data_designer;
-mod entity_management;
+#[allow(dead_code)]
 mod cbu_dsl_ide;
+#[allow(dead_code)]
 mod dsl_syntax_highlighter;
+#[allow(dead_code)]
 mod dsl_state_manager;
+#[allow(dead_code)]
 mod call_tracer;
 
 
@@ -32,7 +29,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
 
     let canvas_id = canvas_id.to_string();
     wasm_bindgen_futures::spawn_local(async move {
-        let canvas = web_sys::window()
+        let _canvas = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id(&canvas_id))
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
@@ -41,7 +38,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
         #[cfg(target_arch = "wasm32")]
         let start_result = eframe::WebRunner::new()
             .start(
-                canvas,
+                _canvas,
                 web_options,
                 Box::new(|cc| {
                     // Set up dark theme
@@ -78,23 +75,7 @@ pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
 /// Simple web routing without external dependencies
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppRoute {
-    Dashboard,
-    // Main functional areas
-    ResourceTemplates,     // Manage Resource Templates
-    PrivateData,          // Manage Private Data
-    OnboardingRequests,   // Create Onboarding Request
-    // Design tools (accessed from main areas)
-    TemplateDesigner,     // Template creation tool
-    DataDesigner,         // Data design tool
-    // Capability Management
-    // Entity Management (CRUD)
-    CbuDslIde,           // CBU DSL management IDE
-    ProductManagement,    // Product entity CRUD
-    ServiceManagement,    // Service entity CRUD
-    ResourceManagement,   // Resource entity CRUD
-    WorkflowManagement,   // Onboarding workflow CRUD
-    // Supporting areas
-    Transpiler,
+    CbuDslIde,           // CBU DSL management IDE - main and only route
 }
 
 pub struct WebRouter {
@@ -110,7 +91,7 @@ impl Default for WebRouter {
 impl WebRouter {
     pub fn new() -> Self {
         Self {
-            current_route: AppRoute::Dashboard,
+            current_route: AppRoute::CbuDslIde,
         }
     }
 
