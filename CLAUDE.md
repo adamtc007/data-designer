@@ -42,10 +42,17 @@ cargo test --all             # Run comprehensive test suite
 PostgreSQL database: `data_designer` with CBU records, DSL metadata, and comprehensive entity tables.
 
 ### Recent Updates
+- **egui Window Fixes** - Fixed entity picker window resizing issues with proper ScrollArea patterns
 - **UI Pruning** - Simplified to CBU-only functionality for focused development
 - **CBU Picker Fixes** - Fixed refresh and context selection issues
 - **Code Quality** - Cargo clippy integration with reduced warnings
 - **Build Optimization** - Streamlined web-first architecture
+
+### egui Best Practices Learned
+- **Window Resizing**: Avoid `.default_size()` in render loops (resets user sizing every frame)
+- **ScrollArea Pattern**: Use `auto_shrink([false, false])` + `max_height()` for proper content control
+- **Layout Structure**: Fixed header/footer outside ScrollArea, variable content inside
+- **Content Control**: Control content size inside window, not window size itself
 
 ### Testing & Quality
 - **Test Coverage**: 20+ comprehensive tests including gRPC integration
