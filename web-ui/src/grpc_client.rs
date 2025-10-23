@@ -1,6 +1,23 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::wasm_utils;
+
+// Cross-platform error handling
+#[cfg(target_arch = "wasm32")]
+pub type Result<T> = std::result::Result<T, String>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type Result<T> = anyhow::Result<T>;
+
+// Helper function for error creation that works in both contexts
+#[cfg(target_arch = "wasm32")]
+fn make_error(msg: &str) -> String {
+    msg.to_string()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn make_error(msg: &str) -> anyhow::Error {
+    anyhow::anyhow!("{}", msg)
+}
 
 // Message types matching the gRPC proto definitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,11 +88,29 @@ pub struct CbuRecord {
     pub cbu_name: String,
     pub description: Option<String>,
     pub legal_entity_name: Option<String>,
-    pub jurisdiction: Option<String>,
     pub business_model: Option<String>,
     pub status: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    pub dsl_content: Option<String>,      // DSL content from dsl_metadata table
+    pub dsl_metadata: Option<String>,     // Metadata JSON from dsl_metadata table
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCbuRequest {
+    pub cbu_id: String,
+    pub cbu_name: String,
+    pub description: Option<String>,
+    pub legal_entity_name: Option<String>,
+    pub business_model: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCbuResponse {
+    pub success: bool,
+    pub message: String,
+    pub cbu: Option<CbuRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,7 +281,6 @@ pub struct UpdateCbuRequest {
     pub cbu_name: Option<String>,
     pub description: Option<String>,
     pub legal_entity_name: Option<String>,
-    pub jurisdiction: Option<String>,
     pub business_model: Option<String>,
     pub status: Option<String>,
     pub entities: Vec<CbuEntityAssociation>,
@@ -283,6 +317,7 @@ pub struct CbuEntityAssociation {
 }
 
 #[derive(Clone)]
+// Unified HTTP client for both platforms
 pub struct GrpcClient {
     base_url: String,
     client: reqwest::Client,
@@ -296,22 +331,17 @@ impl GrpcClient {
         }
     }
 
-    /// Make a real gRPC call using tonic client
+    /// Make unified HTTP call to gRPC server (both platforms)
     async fn grpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(
         &self,
         service_method: &str,
         request: &T,
     ) -> Result<R> {
-        // For WASM, we'll use direct HTTP to gRPC-Gateway endpoint
-        // In a real implementation, this would use tonic gRPC client
-        wasm_utils::console_log(&format!("🔍 Making gRPC call for service method: '{}'", service_method));
-
-        // For now, use the HTTP endpoint that delegates to gRPC internally
-        // This maintains the gRPC semantics while working in WASM
+        wasm_utils::console_log(&format!("🔍 Making unified HTTP call for service method: '{}'", service_method));
         self.try_http_call(service_method, request).await
     }
 
-    /// Try to make an HTTP call to gRPC server
+    /// Make an HTTP call to gRPC server (both platforms)
     async fn try_http_call<T: Serialize, R: for<'de> Deserialize<'de>>(
         &self,
         service_method: &str,
@@ -349,7 +379,7 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/ListResources" => "/api/list-resources",
             _ => {
                 wasm_utils::console_log(&format!("❌ Unknown service method: '{}'", service_method));
-                return Err(anyhow::anyhow!("Unknown service method: {}", service_method));
+                return Err(make_error(&format!("Unknown service method: {}", service_method)));
             }
         };
 
@@ -362,16 +392,16 @@ impl GrpcClient {
             .json(request)
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+            .map_err(|e| make_error(&format!("HTTP request failed: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("HTTP request failed with status: {}", response.status()));
+            return Err(make_error(&format!("HTTP request failed with status: {}", response.status())));
         }
 
         let response_body = response
             .json::<R>()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+            .map_err(|e| make_error(&format!("Failed to parse response: {}", e)))?;
 
         Ok(response_body)
     }
@@ -474,6 +504,14 @@ impl GrpcClient {
             .await
     }
 
+    pub async fn create_cbu(
+        &self,
+        request: CreateCbuRequest,
+    ) -> Result<CreateCbuResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/CreateCbu", &request)
+            .await
+    }
+
     pub async fn get_cbu(
         &self,
         request: GetCbuRequest,
@@ -483,7 +521,7 @@ impl GrpcClient {
     }
 }
 
-// Helper function to create a UUID (WASM-compatible)
+// Helper function to create a UUID (cross-platform)
 mod uuid {
     pub struct Uuid;
 
@@ -495,19 +533,28 @@ mod uuid {
 
     impl std::fmt::Display for Uuid {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            // Simple UUID generation for WASM
-            let timestamp = js_sys::Date::now() as u64;
-            write!(f, "{:x}-{:x}-{:x}-{:x}",
-                   timestamp & 0xFFFFFFFF,
-                   (timestamp >> 32) & 0xFFFF,
-                   0x4000 | ((timestamp >> 48) & 0x0FFF), // Version 4
-                   0x8000 | ((timestamp >> 60) & 0x3FFF)  // Variant bits
-            )
+            #[cfg(target_arch = "wasm32")]
+            {
+                // Simple UUID generation for WASM
+                let timestamp = crate::wasm_utils::now_timestamp();
+                write!(f, "{:x}-{:x}-{:x}-{:x}",
+                       timestamp & 0xFFFFFFFF,
+                       (timestamp >> 32) & 0xFFFF,
+                       0x4000 | ((timestamp >> 48) & 0x0FFF), // Version 4
+                       0x8000 | ((timestamp >> 60) & 0x3FFF)  // Variant bits
+                )
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                // Use proper UUID for native
+                let uuid_val = uuid::Uuid::new_v4();
+                write!(f, "{}", uuid_val)
+            }
         }
     }
 }
 
-// Helper for getting current time in WASM
+// Helper for getting current time (cross-platform)
 mod chrono {
     pub struct Utc;
 
@@ -521,8 +568,14 @@ mod chrono {
 
     impl DateTime {
         pub fn to_rfc3339(&self) -> String {
-            let date = js_sys::Date::new_0();
-            date.to_iso_string().into()
+            #[cfg(target_arch = "wasm32")]
+            {
+                crate::wasm_utils::now_iso_string()
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                chrono::Utc::now().to_rfc3339()
+            }
         }
     }
 }

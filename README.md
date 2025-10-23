@@ -1,14 +1,16 @@
-# Data Designer - Web-First Financial Data DSL Platform
+# Data Designer - Cross-Platform Financial Data DSL Platform
 
-🦀 **Web-First Data Designer** - Pure Rust WASM web application with gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
+🦀 **Cross-Platform Data Designer** - Native Desktop + WASM web application with unified HTTP client and gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
 
 ## 🚀 Key Features
 
-### Web-First Architecture
-- **Browser-Native GUI** - egui + WASM, 60fps, dark theme with enhanced font rendering
-- **gRPC Microservices** - Type-safe Protocol Buffers with automatic fallback
-- **Zero Installation** - Works on any device with modern browser
-- **One-Command Deployment** - `./runwasm.sh` builds and serves instantly
+### Cross-Platform Architecture
+- **Native Desktop** - Full debugging capabilities with IDE integration (`./rundesk.sh`)
+- **Browser-Native GUI** - egui + WASM, 60fps, dark theme with enhanced font rendering (`./runwasm.sh`)
+- **Unified HTTP Client** - Identical reqwest-based client for both platforms
+- **Staged Loading** - Smart progressive data loading (8 CBUs on startup, 100 entities on-demand)
+- **gRPC Microservices** - Type-safe Protocol Buffers with HTTP bridge (ports 50051/8080)
+- **99.5% Code Sharing** - Minimal conditional compilation between platforms
 
 ### Financial Services Focus
 - **Investment Mandate Management** - Complete drill-down system with interactive cards
@@ -17,6 +19,7 @@
 - **White Truffle Architecture** - Advanced execution engine with orchestration
 
 ### Advanced DSL System
+- **Multiple DSL Domains** - CBU, Deal Record, KYC, Onboarding, Opportunity, and Orchestration DSLs
 - **Dynamic Grammar System** - EBNF-based soft DSL editable through UI
 - **Advanced Parser** - nom-based parser with 6 extensions (arithmetic, strings, functions, lookups, runtime resolution, regex)
 - **Template Designer IDE** - Professional two-pane layout with syntax highlighting

@@ -1,34 +1,35 @@
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
 mod app;
-#[allow(dead_code)]
 mod grpc_client;
-#[allow(dead_code)]
 mod cbu_dsl_ide;
-#[allow(dead_code)]
 mod dsl_syntax_highlighter;
-#[allow(dead_code)]
 mod dsl_state_manager;
-#[allow(dead_code)]
 mod call_tracer;
+pub mod wasm_utils;
 
 
 /// This is the entry-point for all the web-assembly.
 /// This is called once from the HTML.
 /// It loads the app, installs some callbacks, then returns.
 /// You can add more callbacks like this if you want to call in to your code.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn start(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
     // Redirect `log` message to `console.log` and friends:
     #[cfg(target_arch = "wasm32")]
+    // Initialize logging for WASM
+    #[cfg(feature = "log")]
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     #[cfg(target_arch = "wasm32")]
     let web_options = eframe::WebOptions::default();
 
     let canvas_id = canvas_id.to_string();
-    wasm_bindgen_futures::spawn_local(async move {
+    wasm_utils::spawn_async(async move {
         let _canvas = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id(&canvas_id))
@@ -104,62 +105,3 @@ impl WebRouter {
     }
 }
 
-// WASM-specific utilities
-pub mod wasm_utils {
-    use wasm_bindgen::prelude::*;
-
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_namespace = console)]
-        fn log(s: &str);
-    }
-
-    pub fn console_log(s: &str) {
-        log(s);
-    }
-
-    pub fn set_panic_hook() {
-        // When the `console_error_panic_hook` feature is enabled, we can call the
-        // `set_panic_hook` function at least once during initialization, and then
-        // we will get better error messages if our code ever panics.
-        //
-        // For more details see
-        // https://github.com/rustwasm/console_error_panic_hook#readme
-        #[cfg(feature = "console_error_panic_hook")]
-        console_error_panic_hook::set_once();
-    }
-
-    pub fn get_browser_storage() -> Option<web_sys::Storage> {
-        web_sys::window()?
-            .local_storage()
-            .ok()?
-    }
-
-    pub fn save_to_storage(key: &str, value: &str) -> Result<(), JsValue> {
-        if let Some(storage) = get_browser_storage() {
-            storage.set_item(key, value)?;
-        }
-        Ok(())
-    }
-
-    pub fn load_from_storage(key: &str) -> Option<String> {
-        get_browser_storage()?
-            .get_item(key)
-            .ok()?
-    }
-
-    // Convenience aliases for the async pattern used in entity_management.rs
-    pub fn set_local_storage(key: &str, value: &str) {
-        let _ = save_to_storage(key, value);
-    }
-
-    pub fn get_local_storage(key: &str) -> Option<String> {
-        load_from_storage(key)
-    }
-
-    pub fn remove_local_storage(key: &str) {
-        if let Some(storage) = get_browser_storage() {
-            let _ = storage.remove_item(key);
-        }
-    }
-}

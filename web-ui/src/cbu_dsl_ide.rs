@@ -111,7 +111,6 @@ impl Default for CbuDslIDE {
 #[derive(Debug, Clone)]
 enum DslOperation {
     LoadForCreateNew { cbu_key: String },
-    LoadForEdit { cbu_id: String, cbu_name: String, cbu_purpose: String },
     UpdateWithEntities { preserve_header: bool },
     Clear,
 }
@@ -167,8 +166,7 @@ impl CbuDslIDE {
         self.active_cbu_id = None;
         self.active_cbu_name.clear();
 
-        // Load empty DSL template for new CBU
-        self.dsl_script = "; New CBU DSL Template\n; Enter CBU name below, then add entities using Entity Picker\n\n; CBU Definition:\n; (define-cbu \"[CBU_NAME]\" \"[PURPOSE]\")\n\n; Entities will be added here after using Entity Picker".to_string();
+        // Leave DSL editor empty - user should start fresh
     }
 
     fn start_edit_existing_cbu(&mut self, grpc_client: Option<&GrpcClient>) {
@@ -228,22 +226,21 @@ impl CbuDslIDE {
         self.creating_cbu = true;
         let client_clone = client.clone();
         let cbu_name = self.new_cbu_name.trim().to_string();
-        let cbu_id = format!("cbu_{}", js_sys::Date::now() as u64); // Generate unique ID
+        let cbu_id = format!("cbu_{}", wasm_utils::now_timestamp()); // Generate unique ID
 
         wasm_utils::console_log(&format!("🔨 Creating new CBU: {}", cbu_name));
 
-        // Build simple DSL for CBU creation (no legal entities)
+        // Build simple LISP DSL for CBU creation (no legal entities)
         let dsl_content = format!(
-            "# CBU Creation DSL - Generated {}\n# CBU: {} ({})\n\nCREATE CBU {} '{}' ; 'CBU created via DSL IDE: {}' WITH\n    status = 'active'\n    business_model = 'Standard'\n;\n\n# Ready for additional entities via Entity Picker",
-            js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default(),
+            "; CBU Creation LISP DSL - Generated {}\n; CBU: {} ({})\n\n(define-cbu \"{}\" \"{}\")\n\n; Ready for additional entities via Entity Picker",
+            wasm_utils::now_iso_string(),
             cbu_name,
             cbu_id,
             cbu_id,
-            cbu_name,
             cbu_name
         );
 
-        wasm_bindgen_futures::spawn_local(async move {
+        wasm_utils::spawn_async(async move {
             let request = crate::grpc_client::CreateCbuRequest {
                 cbu_id: cbu_id.clone(),
                 cbu_name: cbu_name.clone(),
@@ -269,13 +266,16 @@ impl CbuDslIDE {
                                     if dsl_response.success {
                                         wasm_utils::console_log(&format!("✅ Created DSL metadata for CBU: {}", cbu.cbu_name));
 
-                                        // Store the completed CBU and DSL for UI to pick up
-                                        let window = web_sys::window().unwrap();
-                                        let storage = window.local_storage().unwrap().unwrap();
-                                        let _ = storage.set_item("data_designer_new_cbu_created", &serde_json::to_string(&cbu).unwrap_or_default());
-                                        let _ = storage.set_item("data_designer_new_cbu_dsl", &dsl_content);
-                                        let _ = storage.set_item("data_designer_new_cbu_name", &cbu.cbu_name);
-                                        let _ = storage.set_item("data_designer_cbu_creation_complete", "true");
+                                        // Store the completed CBU and DSL for UI to pick up (WASM only)
+                                        #[cfg(target_arch = "wasm32")]
+                                        {
+                                            let window = web_sys::window().unwrap();
+                                            let storage = window.local_storage().unwrap().unwrap();
+                                            let _ = storage.set_item("data_designer_new_cbu_created", &serde_json::to_string(&cbu).unwrap_or_default());
+                                            let _ = storage.set_item("data_designer_new_cbu_dsl", &dsl_content);
+                                            let _ = storage.set_item("data_designer_new_cbu_name", &cbu.cbu_name);
+                                            let _ = storage.set_item("data_designer_cbu_creation_complete", "true");
+                                        }
                                     } else {
                                         wasm_utils::console_log(&format!("❌ DSL execution failed: {}", dsl_response.message));
                                     }
@@ -307,37 +307,10 @@ impl CbuDslIDE {
                 self.selected_cbu_id = None;
                 self.selected_entities.clear();
 
-                // Generate LISP format for new CBU creation
-                let dsl = if self.lisp_mode {
-                    "; Create a new CBU - add entities below using Entity Picker\n(create-cbu \"New CBU Name\" \"CBU Purpose Description\")\n; Use Entity Picker to add entities".to_string()
-                } else {
-                    format!(
-                        "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU {} 'New CBU Name' ; 'CBU Purpose Description' WITH\n  # Use Entity Picker to add entities",
-                        cbu_key
-                    )
-                };
+                // Generate LISP format for new CBU creation - ALWAYS LISP
+                let dsl = "; Create a new CBU - add entities below using Entity Picker\n(create-cbu \"New CBU Name\" \"CBU Purpose Description\")\n; Use Entity Picker to add entities".to_string();
 
                 wasm_utils::console_log(&format!("📝 DSL initialized for CREATE NEW: {}", cbu_key));
-                dsl
-            },
-            DslOperation::LoadForEdit { cbu_id, cbu_name, cbu_purpose } => {
-                self.selected_cbu_id = Some(cbu_id.clone());
-                self.selected_entities.clear();
-
-                // Generate LISP format for existing CBU editing
-                let dsl = if self.lisp_mode {
-                    format!(
-                        "; Editing CBU: {}\n; Original CBU Key: {}\n(update-cbu \"{}\" \"{}\" \"{}\")\n; Entity associations will be loaded - use Entity Picker to add entities",
-                        cbu_name, cbu_id, cbu_id, cbu_name, cbu_purpose
-                    )
-                } else {
-                    format!(
-                        "# Editing CBU: {}\n# Original CBU Key: {}\nUPDATE CBU {} '{}' ; '{}' WITH\n  # Entity associations will be loaded - use Entity Picker to add entities",
-                        cbu_name, cbu_id, cbu_id, cbu_name, cbu_purpose
-                    )
-                };
-
-                wasm_utils::console_log(&format!("📝 DSL initialized for EDIT: {} ({})", cbu_name, cbu_id));
                 dsl
             },
             DslOperation::UpdateWithEntities { preserve_header } => {
@@ -400,90 +373,48 @@ impl CbuDslIDE {
             return Ok(()); // Empty DSL is valid
         }
 
-        // Check for basic CBU DSL structure
-        let dsl_text = dsl.to_string();
+        // Check for basic s-expression structure
+        let dsl_text = dsl.trim();
 
-        // Validate CREATE CBU syntax
-        if dsl_text.contains("CREATE CBU")
-            && !self.validate_create_cbu_syntax(&dsl_text) {
-                return Err("CREATE CBU syntax error: Expected format 'CREATE CBU <id> '<name>' ; '<purpose>' WITH'".to_string());
-            }
-
-        // Validate UPDATE CBU syntax
-        if dsl_text.contains("UPDATE CBU")
-            && !self.validate_update_cbu_syntax(&dsl_text) {
-                return Err("UPDATE CBU syntax error: Expected format 'UPDATE CBU <id> '<name>' ; '<purpose>' WITH'".to_string());
-            }
-
-        // Validate ENTITY syntax
-        if dsl_text.contains("ENTITY")
-            && !self.validate_entity_syntax(&dsl_text) {
-                return Err("ENTITY syntax error: Expected format 'ENTITY <id> AS '<role>' # <name>'".to_string());
-            }
+        // Validate s-expression syntax
+        if !dsl_text.is_empty() && !self.validate_s_expression_syntax(dsl_text) {
+            return Err("S-expression syntax error: Expected valid LISP format starting with '(' and ending with ')'".to_string());
+        }
 
         Ok(())
     }
 
-    /// Validate CREATE CBU command syntax
-    fn validate_create_cbu_syntax(&self, dsl: &str) -> bool {
-        // Basic regex-like validation for CREATE CBU pattern
-        // TODO: Replace with proper nom parser integration
-        for line in dsl.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("CREATE CBU") {
-                // Must have: CREATE CBU <id> '<name>' ; '<purpose>' WITH
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.len() < 3 {
-                    return false;
-                }
-                if !trimmed.contains('\'') || !trimmed.contains(';') || !trimmed.contains("WITH") {
-                    return false;
-                }
-                return true;
-            }
-        }
-        true // No CREATE CBU found, that's fine
-    }
+    /// Validate s-expression DSL syntax
+    fn validate_s_expression_syntax(&self, dsl: &str) -> bool {
+        let trimmed = dsl.trim();
 
-    /// Validate UPDATE CBU command syntax
-    fn validate_update_cbu_syntax(&self, dsl: &str) -> bool {
-        // Basic validation for UPDATE CBU pattern
-        for line in dsl.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("UPDATE CBU") {
-                // Must have: UPDATE CBU <id> '<name>' ; '<purpose>' WITH
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.len() < 3 {
-                    return false;
-                }
-                if !trimmed.contains('\'') || !trimmed.contains(';') || !trimmed.contains("WITH") {
-                    return false;
-                }
-                return true;
-            }
+        // Skip comments and empty lines
+        if trimmed.is_empty() || trimmed.starts_with(';') {
+            return true;
         }
-        true // No UPDATE CBU found, that's fine
-    }
 
-    /// Validate ENTITY command syntax
-    fn validate_entity_syntax(&self, dsl: &str) -> bool {
-        // Basic validation for ENTITY pattern
-        for line in dsl.lines() {
-            let trimmed = line.trim();
-            if trimmed.contains("ENTITY") && !trimmed.starts_with('#') {
-                // Must have: ENTITY <id> AS '<role>' # <name>
-                if !trimmed.contains(" AS ") || !trimmed.contains('\'') {
-                    return false;
+        // Basic s-expression validation: must start with '(' and have balanced parentheses
+        if !trimmed.starts_with('(') {
+            return false;
+        }
+
+        // Check for balanced parentheses
+        let mut paren_count = 0;
+        for ch in trimmed.chars() {
+            match ch {
+                '(' => paren_count += 1,
+                ')' => {
+                    paren_count -= 1;
+                    if paren_count < 0 {
+                        return false; // More closing than opening
+                    }
                 }
-                // Check for valid role
-                let valid_roles = ["Asset Owner", "Investment Manager", "Managing Company"];
-                let has_valid_role = valid_roles.iter().any(|role| trimmed.contains(role));
-                if !has_valid_role {
-                    return false;
-                }
+                _ => {}
             }
         }
-        true
+
+        // Must have balanced parentheses
+        paren_count == 0
     }
 
     /// Helper: Build DSL preserving existing header (used by single DSL manager)
@@ -507,16 +438,15 @@ impl CbuDslIDE {
             }
         }
 
-        // If no CBU header found, use fallback
+        // If no CBU header found, use LISP fallback
         if cbu_header_lines.is_empty() || !found_with {
             if self.cbu_context == CbuContext::CreateNew {
-                let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
-                let header = format!("CREATE CBU {} 'New CBU Name' ; 'CBU Description' WITH", new_cbu_key);
+                let header = "; Create new CBU with LISP DSL\n(define-cbu \"New CBU Name\" \"CBU Description\")".to_string();
                 cbu_header_lines = vec![header];
             } else {
                 let default_id = "CBU_ID".to_string();
                 let cbu_id = self.selected_cbu_id.as_ref().unwrap_or(&default_id);
-                let header = format!("UPDATE CBU {} WITH", cbu_id);
+                let header = format!("; Update existing CBU with LISP DSL\n(update-cbu \"{}\" \"Updated CBU\" \"Updated Description\")", cbu_id);
                 cbu_header_lines = vec![header];
             }
         }
@@ -540,14 +470,13 @@ impl CbuDslIDE {
     fn build_dsl_from_scratch(&self) -> String {
         let mut new_dsl = String::new();
 
-        // Create header based on context
+        // Create header based on context - ALWAYS use LISP format
         if self.cbu_context == CbuContext::CreateNew {
-            let new_cbu_key = format!("CBU_{:05}", (js_sys::Date::now() as u64) % 100000);
-            new_dsl.push_str(&format!("CREATE CBU {} 'New CBU Name' ; 'CBU Description' WITH\n", new_cbu_key));
+            new_dsl.push_str("; Create new CBU with LISP DSL\n(define-cbu \"New CBU Name\" \"CBU Description\")\n\n");
         } else {
             let default_id = "CBU_ID".to_string();
             let cbu_id = self.selected_cbu_id.as_ref().unwrap_or(&default_id);
-            new_dsl.push_str(&format!("UPDATE CBU {} WITH\n", cbu_id));
+            new_dsl.push_str(&format!("; Update existing CBU with LISP DSL\n(update-cbu \"{}\" \"Updated CBU\" \"Updated Description\")\n\n", cbu_id));
         }
 
         // Add entity definitions
@@ -647,12 +576,20 @@ impl CbuDslIDE {
         // Update entities from async state (60fps compatible)
         self.update_entities_from_async_state();
         self.update_cbus_from_async_state();
+        // **CRITICAL** - Check for CBU DSL loads every frame to ensure immediate UI updates
+        self.check_for_cbu_dsl_loaded();
         // **60FPS THREAD-SAFE STATE READ** - Read execution state from Arc/Mutex cache
 
         // Store context for floating window (outside UI constraints)
         let ctx = ui.ctx().clone();
         ui.heading("🏢 CBU DSL Management");
         ui.separator();
+
+        // Auto-load CBU list on startup for "Edit Existing" picker
+        if self.available_cbus.is_empty() && !self.loading_cbus && grpc_client.is_some() {
+            wasm_utils::console_log("🔄 Auto-loading CBU list for Edit Existing picker");
+            self.refresh_cbu_list(grpc_client);
+        }
 
         // CBU Context Selection - Prominent at the top
         self.render_cbu_context_selection(ui, grpc_client);
@@ -662,9 +599,9 @@ impl CbuDslIDE {
             return;
         }
 
-        // Auto-load entities if not already loaded and gRPC client is available
+        // Auto-load entities only when a CBU context is selected
         if self.available_entities.is_empty() && !self.loading_entities && grpc_client.is_some() {
-            wasm_utils::console_log("🔄 Auto-loading entities for CBU DSL IDE");
+            wasm_utils::console_log("🔄 Auto-loading entities for selected CBU context");
             self.load_available_entities(grpc_client, ui.ctx());
         }
 
@@ -704,6 +641,32 @@ impl CbuDslIDE {
 
             if execute_button.clicked() {
                 self.execute_dsl(grpc_client);
+            }
+
+            // Emergency cancel execution button
+            let is_executing = self.executing.load(Ordering::SeqCst);
+            if is_executing {
+                let cancel_button = ui.add(
+                    egui::Button::new("🛑 Cancel Execution")
+                        .fill(egui::Color32::from_rgb(200, 100, 100))
+                );
+
+                if cancel_button.clicked() {
+                    wasm_utils::console_log("🛑 Emergency cancel requested by user");
+                    self.executing.store(false, Ordering::SeqCst);
+
+                    // Clear execution result and show cancellation message
+                    if let Ok(mut result) = self.execution_result.lock() {
+                        *result = Some(CbuDslResponse {
+                            success: false,
+                            message: "🛑 Execution cancelled by user".to_string(),
+                            cbu_id: None,
+                            validation_errors: Vec::new(),
+                            data: None,
+                        });
+                    }
+                    wasm_utils::console_log("🔓 Execution flag force-cleared - UI unlocked");
+                }
             }
 
             // Clear button - REMOVED DEFAULT ACTION
@@ -772,13 +735,19 @@ impl CbuDslIDE {
                 ui.heading("📝 DSL Script Editor");
                 ui.separator();
 
-                // DSL text editor with enhanced IDE features
-                let hint_text = r#"Write CBU DSL commands here. Example:
+                // DSL text editor with enhanced IDE features - only show hint if we have an active CBU context
+                let hint_text = if self.active_cbu_id.is_some() {
+                    r#"Write CBU DSL commands here. Example:
 
-CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
-  ENTITY AC001 AS 'Asset Owner' # Alpha Capital
-  ENTITY BM002 AS 'Investment Manager' # Beta Management
-  ENTITY GS003 AS 'Managing Company' # Gamma Services"#;
+; Define a new CBU using s-expression syntax
+(define-cbu "Growth Fund Alpha" "Diversified growth fund"
+  (entities
+    (entity "AC001" "Alpha Capital" asset-owner)
+    (entity "BM002" "Beta Management" investment-manager)
+    (entity "GS003" "Gamma Services" managing-company)))"#
+                } else {
+                    "" // No hint text when no active CBU context
+                };
 
                 // Clipboard controls above editor
                 ui.horizontal(|ui| {
@@ -943,37 +912,37 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
     fn render_help_panel(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.collapsing("❓ CBU DSL Help", |ui| {
-            ui.label("CBU DSL Syntax Reference:");
+            ui.label("CBU DSL S-Expression Syntax Reference:");
 
             ui.group(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("CREATE CBU");
-                    ui.code("CREATE CBU 'name' ; 'description' WITH");
-                    ui.code("  ENTITY ('name', 'id') AS 'Asset Owner' AND");
-                    ui.code("  ENTITY ('name', 'id') AS 'Investment Manager' AND");
-                    ui.code("  ENTITY ('name', 'id') AS 'Managing Company'");
+                    ui.code("(define-cbu \"CBU_ID\" \"CBU Name\"");
+                    ui.code("  (description \"Purpose description\")");
+                    ui.code("  (business-model \"Investment Management\")");
+                    ui.code("  (jurisdiction \"US\")");
+                    ui.code("  (status \"active\")");
+                    ui.code("  (entities");
+                    ui.code("    (entity \"ENTITY_ID\" \"Entity Name\" role)))");
 
                     ui.add_space(10.0);
 
                     ui.heading("UPDATE CBU");
-                    ui.code("UPDATE CBU 'cbu_id' SET field = 'value'");
+                    ui.code("(update-cbu \"CBU_ID\"");
+                    ui.code("  (description \"New description\")");
+                    ui.code("  (business-model \"New model\"))");
 
                     ui.add_space(10.0);
 
-                    ui.heading("DELETE CBU");
-                    ui.code("DELETE CBU 'cbu_id'");
+                    ui.heading("LOAD CBU");
+                    ui.code("(load-cbu \"CBU_ID\")");
 
                     ui.add_space(10.0);
 
-                    ui.heading("QUERY CBU");
-                    ui.code("QUERY CBU [WHERE condition]");
-
-                    ui.add_space(10.0);
-
-                    ui.heading("Required Roles:");
-                    ui.label("• Asset Owner - The entity that owns the assets");
-                    ui.label("• Investment Manager - The entity managing investments");
-                    ui.label("• Managing Company - The entity providing management services");
+                    ui.heading("Entity Roles:");
+                    ui.label("• administrator - Entity providing administrative services");
+                    ui.label("• custodian - Entity providing custodial services");
+                    ui.label("• manager - Entity providing management services");
 
                     ui.add_space(10.0);
 
@@ -1418,36 +1387,52 @@ CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
     fn get_editor_hint(&self) -> &str {
         r#"Write CBU DSL commands here. Examples:
 
-CREATE CBU 'Growth Fund Alpha' ; 'Diversified growth fund' WITH
-  ENTITY ('Alpha Capital', 'AC001') AS 'Asset Owner' AND
-  ENTITY ('Beta Management', 'BM002') AS 'Investment Manager' AND
-  ENTITY ('Gamma Services', 'GS003') AS 'Managing Company'
+; Define a new CBU
+(define-cbu "Growth Fund Alpha" "Diversified growth fund"
+  (entities
+    (entity "AC001" "Alpha Capital" asset-owner)
+    (entity "BM002" "Beta Management" investment-manager)
+    (entity "GS003" "Gamma Services" managing-company)))
 
-UPDATE CBU 'CBU001' SET description = 'Updated description'
+; Update an existing CBU
+(update-cbu "CBU001" "Updated Fund Name" "Updated description")
 
-DELETE CBU 'CBU001'
+; Delete a CBU
+(delete-cbu "CBU001")
 
-QUERY CBU WHERE status = 'active'"#
+; Query CBUs
+(query-cbu (where (status "active")))"#
     }
 
     fn get_dsl_examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Create CBU", r#"CREATE CBU 'Growth Fund Alpha' ; 'A diversified growth-focused investment fund' WITH
-  ENTITY ('Alpha Capital', 'AC001') AS 'Asset Owner' AND
-  ENTITY ('Beta Management', 'BM002') AS 'Investment Manager' AND
-  ENTITY ('Gamma Services', 'GS003') AS 'Managing Company'"#),
+            ("Create CBU", r#"; Create new CBU with entities
+(define-cbu "CBU0000001" "Growth Fund Alpha"
+  (description "A diversified growth-focused investment fund")
+  (business-model "Equity Fund Management")
+  (jurisdiction "United States")
+  (status "active")
+  (entities
+    (entity "AC001" "Alpha Capital" administrator)
+    (entity "BM002" "Beta Management" custodian)
+    (entity "GS003" "Gamma Services" manager)))"#),
 
-            ("Update CBU Description", "UPDATE CBU 'CBU001' SET description = 'Updated fund description'"),
+            ("Update CBU", r#"; Update existing CBU
+(update-cbu "CBU0000001"
+  (description "Updated fund description")
+  (business-model "Hedge Fund")
+  (status "active"))"#),
 
-            ("Update Multiple Fields", "UPDATE CBU 'CBU001' SET description = 'New description' AND business_model = 'Hedge Fund'"),
+            ("Query CBU", r#"; Load CBU for editing
+(load-cbu "CBU0000001")"#),
 
-            ("Delete CBU", "DELETE CBU 'CBU001'"),
-
-            ("Query All CBUs", "QUERY CBU"),
-
-            ("Query Active CBUs", "QUERY CBU WHERE status = 'active'"),
-
-            ("Query by Name", "QUERY CBU WHERE cbu_name LIKE '%Growth%'"),
+            ("Simple CBU", r#"; Minimal CBU definition
+(define-cbu "NEW_CBU_001" "Simple Fund"
+  (description "Basic fund structure")
+  (business-model "Investment Management")
+  (jurisdiction "US")
+  (status "active")
+  (entities ()))"#),
         ]
     }
 
@@ -1526,9 +1511,12 @@ QUERY CBU WHERE status = 'active'"#
             let executing_clone = self.executing.clone();
             let result_clone = self.execution_result.clone();
 
-            // **PERFORMANT ASYNC WITH THREAD-SAFE STATE**
+            // **PERFORMANT ASYNC WITH ROBUST ERROR HANDLING**
             // Async can now safely update UI state through Arc/Mutex
-            wasm_bindgen_futures::spawn_local(async move {
+            wasm_utils::spawn_async(async move {
+                let start_time = std::time::Instant::now();
+                wasm_utils::console_log("🚀 Starting DSL execution with robust error handling");
+
                 let final_result = match client_clone.execute_cbu_dsl(request).await {
                     Ok(response) => {
                         wasm_utils::console_log(&format!("✅ gRPC CBU DSL execution successful: {}", response.message));
@@ -1552,13 +1540,19 @@ QUERY CBU WHERE status = 'active'"#
                     }
                 };
 
+                let elapsed = start_time.elapsed();
+                wasm_utils::console_log(&format!("⏱️ Execution completed in {:.2}s", elapsed.as_secs_f64()));
+
                 // **THREAD-SAFE UI STATE UPDATE** - Update result atomically
                 if let Ok(mut result) = result_clone.lock() {
                     *result = Some(final_result);
+                } else {
+                    wasm_utils::console_log("⚠️ Failed to update execution result - mutex lock failed");
                 }
 
-                // **ATOMIC EXECUTION FLAG** - Clear executing state
+                // **ATOMIC EXECUTION FLAG** - CRITICAL: Always clear executing state
                 executing_clone.store(false, Ordering::SeqCst);
+                wasm_utils::console_log("🔓 Execution flag cleared - UI unlocked");
 
                 wasm_utils::console_log("💡 Execution complete - UI will refresh on next frame");
             });
@@ -1833,7 +1827,7 @@ QUERY CBU WHERE status = 'active'"#
             // Store reference for UI updates
             self.cbus_loading_state = Some(cbus_state);
 
-            wasm_bindgen_futures::spawn_local(async move {
+            wasm_utils::spawn_async(async move {
                 crate::trace_async!("list_cbus_grpc_call", "starting", Some("active filter, limit 100"));
 
                 match client_clone.list_cbus(crate::grpc_client::ListCbusRequest {
@@ -1859,6 +1853,9 @@ QUERY CBU WHERE status = 'active'"#
                     Err(e) => {
                         wasm_utils::console_log(&format!("❌ Failed to load CBUs from gRPC: {} - UI will show empty state", e));
                         crate::trace_async!("list_cbus_grpc_call", "failed", Some(&format!("{:?}", e)));
+                        // Reset loading state so UI doesn't stay stuck
+                        let mut cbus = cbus_clone.lock().unwrap();
+                        cbus.clear(); // Ensure empty state
                         // Don't provide fallback mock data - let UI handle empty state properly
                     }
                 }
@@ -1885,7 +1882,7 @@ QUERY CBU WHERE status = 'active'"#
         wasm_utils::console_log(&format!("🔍 Loading DSL for CBU: {}", cbu_id));
 
         // Use async task to load CBU and DSL content from database
-        wasm_bindgen_futures::spawn_local(async move {
+        wasm_utils::spawn_async(async move {
             let request = crate::grpc_client::GetCbuRequest {
                 cbu_id: cbu_id_clone.clone(),
             };
@@ -1898,18 +1895,24 @@ QUERY CBU WHERE status = 'active'"#
 
                             if dsl_content.is_empty() {
                                 wasm_utils::console_log(&format!("📭 No DSL found for CBU: {}", cbu.cbu_name));
-                                // Store empty DSL to indicate we need to create one
-                                let window = web_sys::window().unwrap();
-                                let storage = window.local_storage().unwrap().unwrap();
-                                let _ = storage.set_item("data_designer_cbu_dsl_loaded", "");
-                                let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                                // Store empty DSL to indicate we need to create one (WASM only)
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    let window = web_sys::window().unwrap();
+                                    let storage = window.local_storage().unwrap().unwrap();
+                                    let _ = storage.set_item("data_designer_cbu_dsl_loaded", "");
+                                    let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                                }
                             } else {
                                 wasm_utils::console_log(&format!("✅ Loaded DSL for CBU: {} ({} chars)", cbu.cbu_name, dsl_content.len()));
-                                // Store actual DSL content for UI to pick up
-                                let window = web_sys::window().unwrap();
-                                let storage = window.local_storage().unwrap().unwrap();
-                                let _ = storage.set_item("data_designer_cbu_dsl_loaded", &dsl_content);
-                                let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                                // Store actual DSL content for UI to pick up (WASM only)
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    let window = web_sys::window().unwrap();
+                                    let storage = window.local_storage().unwrap().unwrap();
+                                    let _ = storage.set_item("data_designer_cbu_dsl_loaded", &dsl_content);
+                                    let _ = storage.set_item("data_designer_cbu_dsl_cbu_id", &cbu_id_clone);
+                                }
                             }
                         } else {
                             wasm_utils::console_log("❌ GetCbu response success but no CBU data");
@@ -1945,7 +1948,10 @@ QUERY CBU WHERE status = 'active'"#
                     wasm_utils::console_log(&format!("✅ Updated UI with {} async-loaded entities", entities.len()));
                     true
                 } else {
-                    false
+                    // Even if empty, we should stop loading and clear state
+                    self.loading_entities = false;
+                    wasm_utils::console_log("⚠️ No entities found or gRPC error - stopping loading animation");
+                    true // Clear the state so we don't keep trying
                 }
             } else {
                 false
@@ -1986,7 +1992,10 @@ QUERY CBU WHERE status = 'active'"#
                     true
                 } else {
                     crate::trace_state!("CbuDslIDE", "async_cbus_empty", 0, 0);
-                    false
+                    // Even if empty, we should stop loading and clear state
+                    self.loading_cbus = false;
+                    wasm_utils::console_log("⚠️ No CBUs found or gRPC error - stopping loading animation");
+                    true // Clear the state so we don't keep trying
                 }
             } else {
                 crate::trace_state!("CbuDslIDE", "async_lock_failed", false, true);
@@ -2012,9 +2021,11 @@ QUERY CBU WHERE status = 'active'"#
         self.check_for_cbu_dsl_loaded();
     }
 
-    /// Check for completed CBU creation from async task and switch to active CBU context
+    /// Check for completed CBU creation from async task and switch to active CBU context (WASM only)
     fn check_for_new_cbu_creation(&mut self) {
-        if let Ok(window) = web_sys::window().ok_or("no window") {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Ok(window) = web_sys::window().ok_or("no window") {
             if let Ok(storage) = window.local_storage().ok().flatten().ok_or("no storage") {
                 // Check if CBU creation is complete
                 if let Ok(Some(complete_flag)) = storage.get_item("data_designer_cbu_creation_complete") {
@@ -2054,11 +2065,14 @@ QUERY CBU WHERE status = 'active'"#
                 }
             }
         }
+        }
     }
 
-    /// Check for completed CBU DSL loading from async task and update DSL content
+    /// Check for completed CBU DSL loading from async task and update DSL content (WASM only)
     fn check_for_cbu_dsl_loaded(&mut self) {
-        if let Ok(window) = web_sys::window().ok_or("no window") {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Ok(window) = web_sys::window().ok_or("no window") {
             if let Ok(storage) = window.local_storage().ok().flatten().ok_or("no storage") {
                 // Check if DSL has been loaded from the database
                 if let Ok(Some(dsl_content)) = storage.get_item("data_designer_cbu_dsl_loaded") {
@@ -2070,21 +2084,20 @@ QUERY CBU WHERE status = 'active'"#
                             .unwrap_or_else(|| format!("CBU {}", cbu_id));
 
                         if dsl_content.is_empty() {
-                            wasm_utils::console_log(&format!("📭 No DSL found for CBU: {} - showing empty template", cbu_name));
-                            // Show empty template for CBU without DSL
-                            self.dsl_script = format!(
-                                "# No DSL found for CBU: {}\n# Creating new DSL template\n\nUPDATE CBU {} '{}' ; 'Updated via DSL IDE' WITH\n    status = 'active'\n;\n\n# Add entities using Entity Picker",
-                                cbu_name, cbu_id, cbu_name
-                            );
+                            wasm_utils::console_log(&format!("📭 No DSL found for CBU: {} - leaving editor empty", cbu_name));
+                            // Leave editor empty - user should create their own DSL
+                            self.dsl_script.clear();
                         } else {
                             wasm_utils::console_log(&format!("✅ Loaded DSL for CBU: {} ({} chars)", cbu_name, dsl_content.len()));
                             self.dsl_script = dsl_content;
                         }
 
-                        // Set active CBU context
+                        // Set active CBU context - this is the key fix
                         self.active_cbu_id = Some(cbu_id.clone());
                         self.active_cbu_name = cbu_name;
-                        self.selected_cbu_id = Some(cbu_id);
+                        self.selected_cbu_id = Some(cbu_id.clone());
+
+                        wasm_utils::console_log(&format!("✅ CBU context switched to: {} ({})", self.active_cbu_name, cbu_id));
 
                         // Clear localStorage flags
                         let _ = storage.remove_item("data_designer_cbu_dsl_loaded");
@@ -2093,6 +2106,7 @@ QUERY CBU WHERE status = 'active'"#
                         wasm_utils::console_log("✅ DSL loaded and UI updated - user can now edit the DSL");
                     }
                 }
+            }
             }
         }
     }
@@ -2107,7 +2121,7 @@ QUERY CBU WHERE status = 'active'"#
             // Store reference for UI updates (using field)
             self.entities_loading_state = Some(entities_state);
 
-            wasm_bindgen_futures::spawn_local(async move {
+            wasm_utils::spawn_async(async move {
                 wasm_utils::console_log("🔄 Loading entities from gRPC API...");
 
                 // Call gRPC GetEntities method
@@ -2585,15 +2599,7 @@ QUERY CBU WHERE status = 'active'"#
 
     fn update_dsl_with_current_entities(&mut self) {
         if self.selected_entities.is_empty() {
-            // Only reset to template if no entities AND DSL is empty or still the default template
-            if self.cbu_context == CbuContext::CreateNew {
-                let default_template = "# Create a new CBU - add entities below using Entity Picker\nCREATE CBU 'New CBU Name' ; 'CBU Purpose Description' WITH\n  ";
-                // Only overwrite if the DSL is empty or still the default template - preserve user edits!
-                if self.dsl_script.is_empty() || self.dsl_script.trim() == default_template.trim() {
-                    self.dsl_script = default_template.to_string();
-                }
-                // If user has made edits, don't overwrite them!
-            }
+            // Don't add any template content - leave editor as user left it
             return;
         }
 
