@@ -2372,204 +2372,199 @@ QUERY CBU WHERE status = 'active'"#
 
         let mut open = self.show_floating_entity_picker;
 
-        // FIXED: Smart Entity Picker with proper resizing
+        // FIXED: Smart Entity Picker with proper ScrollArea content control
         egui::Window::new("👥 Smart Entity Picker - Client Entity Table")
             .open(&mut open)
             .resizable(true)
             .default_size([720.0, 480.0])
             .show(ctx, |ui| {
-                // Track entity selections to avoid borrowing issues
-                let mut entity_selections: Vec<(String, String, String)> = Vec::new(); // (entity_id, entity_name, role)
-
-                // Filter controls in a horizontal layout
-                ui.horizontal(|ui| {
-                    ui.label("🔍 Search:");
-                    ui.text_edit_singleline(&mut self.entity_search_name);
-
-                    ui.separator();
-
-                    ui.label("🌍 Region:");
-                    egui::ComboBox::from_id_salt("floating_region_filter")
-                        .selected_text(&self.entity_filter_jurisdiction)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "All".to_string(), "All Regions");
-                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "US".to_string(), "🇺🇸 United States");
-                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "EU".to_string(), "🇪🇺 Europe");
-                            ui.selectable_value(&mut self.entity_filter_jurisdiction, "APAC".to_string(), "🌏 Asia Pacific");
-                        });
-
-                    ui.separator();
-
-                    ui.label("🏢 Type:");
-                    egui::ComboBox::from_id_salt("floating_type_filter")
-                        .selected_text(&self.entity_filter_type)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.entity_filter_type, "All".to_string(), "All Types");
-                            ui.selectable_value(&mut self.entity_filter_type, "Investment Manager".to_string(), "Investment Manager");
-                            ui.selectable_value(&mut self.entity_filter_type, "Asset Owner".to_string(), "Asset Owner");
-                            ui.selectable_value(&mut self.entity_filter_type, "Service Provider".to_string(), "Service Provider");
-                        });
-                });
-
-                ui.separator();
-
-                // Filter entities based on search criteria
-                let filtered_entities: Vec<&EntityInfo> = self.available_entities.iter()
-                    .filter(|entity| {
-                        // Region filter
-                        let region_match = self.entity_filter_jurisdiction == "All" ||
-                            (self.entity_filter_jurisdiction == "US" && entity.country_code == "US") ||
-                            (self.entity_filter_jurisdiction == "EU" && ["DE", "FR", "CH", "GB", "NL"].contains(&entity.country_code.as_str())) ||
-                            (self.entity_filter_jurisdiction == "APAC" && ["JP", "CN", "SG", "NZ", "AU", "KR", "HK", "MY", "TH"].contains(&entity.country_code.as_str()));
-
-                        // Type filter
-                        let type_match = self.entity_filter_type == "All" || entity.entity_type == self.entity_filter_type;
-
-                        // Name search (filter-as-you-type)
-                        let name_match = self.entity_search_name.is_empty() ||
-                            entity.entity_name.to_lowercase().contains(&self.entity_search_name.to_lowercase());
-
-                        region_match && type_match && name_match
-                    })
-                    .collect();
-
-                ui.label(format!("📋 Found {} entities:", filtered_entities.len()));
-                ui.separator();
-
-                // CRITICAL: Use available height minus space for controls and buttons (about 200px total)
-                let available_height = ui.available_height();
-                let content_height = (available_height - 200.0).max(150.0); // Reserve space, minimum 150px
-
-                // Scrollable list of filtered entities with proper height allocation
+                // ALL window content must be inside ScrollArea to prevent auto-sizing
                 egui::ScrollArea::vertical()
-                    .max_height(content_height)
-                    .auto_shrink([false, false])
+                    .auto_shrink([false, false]) // Don't shrink to fit content
                     .show(ui, |ui| {
-                        for entity in &filtered_entities {
-                            ui.group(|ui| {
-                                ui.horizontal(|ui| {
-                                    // Entity info
-                                    ui.vertical(|ui| {
-                                        ui.heading(format!("🏢 {}", entity.entity_name));
-                                        ui.horizontal(|ui| {
-                                            ui.label(format!("🆔 {}", entity.entity_id));
-                                            ui.label("•");
-                                            ui.label(format!("📍 {}", entity.jurisdiction));
-                                            ui.label("•");
-                                            ui.label(format!("🏷️ {}", entity.entity_type));
-                                        });
-                                        if let Some(lei) = &entity.lei_code {
-                                            ui.label(format!("🔢 LEI: {}", lei));
-                                        }
-                                    });
+                        // Track entity selections to avoid borrowing issues
+                        let mut entity_selections: Vec<(String, String, String)> = Vec::new(); // (entity_id, entity_name, role)
 
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        // Role selection buttons
-                                        if ui.add_sized([120.0, 30.0], egui::Button::new("👤 Asset Owner")).clicked() {
-                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Asset Owner".to_string()));
-                                        }
-                                        if ui.add_sized([140.0, 30.0], egui::Button::new("💼 Investment Mgr")).clicked() {
-                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Investment Manager".to_string()));
-                                        }
-                                        if ui.add_sized([130.0, 30.0], egui::Button::new("🔧 Managing Co")).clicked() {
-                                            entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Managing Company".to_string()));
-                                        }
-                                    });
-                                });
-                            });
-                            ui.add_space(8.0);
-                        }
-
-                        if filtered_entities.is_empty() && !self.available_entities.is_empty() {
-                            ui.vertical_centered(|ui| {
-                                ui.label("🔍 No entities match your search criteria.");
-                                ui.label("Try adjusting the filters above.");
-                            });
-                        } else if self.available_entities.is_empty() && !self.loading_entities {
-                            ui.vertical_centered(|ui| {
-                                ui.label("📭 No entities loaded");
-                                ui.label("Click 'Load Entities' to fetch from the client entity table");
-                            });
-                        }
-
-                        // CRITICAL: Allocate remaining space for proper window resizing
-                        ui.allocate_space(ui.available_size());
-                    });
-
-                // Selected entities preview
-                let mut entities_to_remove = Vec::new();
-                let mut generate_dsl = false;
-
-                if !self.selected_entities.is_empty() {
-                    ui.separator();
-                    ui.label("✅ Selected Entities for CBU:");
-
-                    for (i, (entity_info, role)) in self.selected_entities.iter().enumerate() {
+                        // Filter controls in a horizontal layout
                         ui.horizontal(|ui| {
-                            ui.label(format!("🏢 {} - 🎭 {}", entity_info, role));
-                            if ui.button("❌").clicked() {
-                                entities_to_remove.push(i);
-                            }
+                            ui.label("🔍 Search:");
+                            ui.text_edit_singleline(&mut self.entity_search_name);
+
+                            ui.separator();
+
+                            ui.label("🌍 Region:");
+                            egui::ComboBox::from_id_salt("floating_region_filter")
+                                .selected_text(&self.entity_filter_jurisdiction)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.entity_filter_jurisdiction, "All".to_string(), "All Regions");
+                                    ui.selectable_value(&mut self.entity_filter_jurisdiction, "US".to_string(), "🇺🇸 United States");
+                                    ui.selectable_value(&mut self.entity_filter_jurisdiction, "EU".to_string(), "🇪🇺 Europe");
+                                    ui.selectable_value(&mut self.entity_filter_jurisdiction, "APAC".to_string(), "🌏 Asia Pacific");
+                                });
+
+                            ui.separator();
+
+                            ui.label("🏢 Type:");
+                            egui::ComboBox::from_id_salt("floating_type_filter")
+                                .selected_text(&self.entity_filter_type)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.entity_filter_type, "All".to_string(), "All Types");
+                                    ui.selectable_value(&mut self.entity_filter_type, "Investment Manager".to_string(), "Investment Manager");
+                                    ui.selectable_value(&mut self.entity_filter_type, "Asset Owner".to_string(), "Asset Owner");
+                                    ui.selectable_value(&mut self.entity_filter_type, "Service Provider".to_string(), "Service Provider");
+                                });
                         });
-                    }
 
-                    ui.add_space(5.0);
+                        ui.separator();
 
-                    ui.horizontal(|ui| {
-                        if ui.button("🚀 Generate CBU DSL").clicked() {
-                            generate_dsl = true;
-                        }
-                        // Clear All button - REMOVED DEFAULT ACTION
-                        // if ui.button("🗑 Clear All").clicked() {
-                        //     self.selected_entities.clear(); // REMOVED: default action that bypassed gRPC state management
-                        // }
-                    });
-                }
+                        // Filter entities based on search criteria
+                        let filtered_entities: Vec<&EntityInfo> = self.available_entities.iter()
+                            .filter(|entity| {
+                                // Region filter
+                                let region_match = self.entity_filter_jurisdiction == "All" ||
+                                    (self.entity_filter_jurisdiction == "US" && entity.country_code == "US") ||
+                                    (self.entity_filter_jurisdiction == "EU" && ["DE", "FR", "CH", "GB", "NL"].contains(&entity.country_code.as_str())) ||
+                                    (self.entity_filter_jurisdiction == "APAC" && ["JP", "CN", "SG", "NZ", "AU", "KR", "HK", "MY", "TH"].contains(&entity.country_code.as_str()));
 
-                // Close button at bottom
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new("✅ Done").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
-                        wasm_utils::console_log("🔄 Done button clicked - generating DSL and closing picker");
+                                // Type filter
+                                let type_match = self.entity_filter_type == "All" || entity.entity_type == self.entity_filter_type;
 
-                        // Generate DSL first using centralized manager
+                                // Name search (filter-as-you-type)
+                                let name_match = self.entity_search_name.is_empty() ||
+                                    entity.entity_name.to_lowercase().contains(&self.entity_search_name.to_lowercase());
+
+                                region_match && type_match && name_match
+                            })
+                            .collect();
+
+                        ui.label(format!("📋 Found {} entities:", filtered_entities.len()));
+                        ui.separator();
+
+                        // Entity list section - nested ScrollArea for the actual entity list
+                        ui.push_id("entity_list_section", |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0) // Fixed height for entity list
+                                .show(ui, |ui| {
+                                    for entity in &filtered_entities {
+                                        ui.group(|ui| {
+                                            ui.horizontal(|ui| {
+                                                // Entity info
+                                                ui.vertical(|ui| {
+                                                    ui.heading(format!("🏢 {}", entity.entity_name));
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(format!("🆔 {}", entity.entity_id));
+                                                        ui.label("•");
+                                                        ui.label(format!("📍 {}", entity.jurisdiction));
+                                                        ui.label("•");
+                                                        ui.label(format!("🏷️ {}", entity.entity_type));
+                                                    });
+                                                    if let Some(lei) = &entity.lei_code {
+                                                        ui.label(format!("🔢 LEI: {}", lei));
+                                                    }
+                                                });
+
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    // Role selection buttons
+                                                    if ui.add_sized([120.0, 30.0], egui::Button::new("👤 Asset Owner")).clicked() {
+                                                        entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Asset Owner".to_string()));
+                                                    }
+                                                    if ui.add_sized([140.0, 30.0], egui::Button::new("💼 Investment Mgr")).clicked() {
+                                                        entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Investment Manager".to_string()));
+                                                    }
+                                                    if ui.add_sized([130.0, 30.0], egui::Button::new("🔧 Managing Co")).clicked() {
+                                                        entity_selections.push((entity.entity_id.clone(), entity.entity_name.clone(), "Managing Company".to_string()));
+                                                    }
+                                                });
+                                            });
+                                        });
+                                        ui.add_space(8.0);
+                                    }
+
+                                    if filtered_entities.is_empty() && !self.available_entities.is_empty() {
+                                        ui.vertical_centered(|ui| {
+                                            ui.label("🔍 No entities match your search criteria.");
+                                            ui.label("Try adjusting the filters above.");
+                                        });
+                                    } else if self.available_entities.is_empty() && !self.loading_entities {
+                                        ui.vertical_centered(|ui| {
+                                            ui.label("📭 No entities loaded");
+                                            ui.label("Click 'Load Entities' to fetch from the client entity table");
+                                        });
+                                    }
+                                });
+                        });
+
+                        // Selected entities preview
+                        let mut entities_to_remove = Vec::new();
+                        let mut generate_dsl = false;
+
                         if !self.selected_entities.is_empty() {
-                            self.manage_dsl_state(DslOperation::UpdateWithEntities { preserve_header: true });
+                            ui.separator();
+                            ui.label("✅ Selected Entities for CBU:");
+
+                            for (i, (entity_info, role)) in self.selected_entities.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("🏢 {} - 🎭 {}", entity_info, role));
+                                    if ui.button("❌").clicked() {
+                                        entities_to_remove.push(i);
+                                    }
+                                });
+                            }
+
+                            ui.add_space(5.0);
+
+                            ui.horizontal(|ui| {
+                                if ui.button("🚀 Generate CBU DSL").clicked() {
+                                    generate_dsl = true;
+                                }
+                            });
                         }
 
-                        // Force close the picker - reset both flags
-                        self.show_floating_entity_picker = false;
-                        self.show_entity_picker = false;
-                        wasm_utils::console_log("✅ Entity picker window closed");
-                    }
+                        // Close button at bottom
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("✅ Done").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
+                                wasm_utils::console_log("🔄 Done button clicked - generating DSL and closing picker");
 
-                    if ui.add(egui::Button::new("❌ Cancel").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
-                        // Just close without updating DSL - reset both flags
-                        self.show_floating_entity_picker = false;
-                        self.show_entity_picker = false;
-                        wasm_utils::console_log("❌ Entity picker cancelled");
-                    }
+                                // Generate DSL first using centralized manager
+                                if !self.selected_entities.is_empty() {
+                                    self.manage_dsl_state(DslOperation::UpdateWithEntities { preserve_header: true });
+                                }
 
-                    ui.label("Select entities and roles, then click 'Done'");
-                });
+                                // Force close the picker - reset both flags
+                                self.show_floating_entity_picker = false;
+                                self.show_entity_picker = false;
+                                wasm_utils::console_log("✅ Entity picker window closed");
+                            }
 
-                // Process entity selections after UI to avoid borrowing issues
-                for (entity_id, entity_name, role) in entity_selections {
-                    self.add_entity_to_dsl(&entity_id, &entity_name, &role);
-                }
+                            if ui.add(egui::Button::new("❌ Cancel").min_size(egui::Vec2::new(80.0, 30.0))).clicked() {
+                                // Just close without updating DSL - reset both flags
+                                self.show_floating_entity_picker = false;
+                                self.show_entity_picker = false;
+                                wasm_utils::console_log("❌ Entity picker cancelled");
+                            }
 
-                // Remove entities (in reverse order to maintain indices)
-                for &i in entities_to_remove.iter().rev() {
-                    if i < self.selected_entities.len() {
-                        self.selected_entities.remove(i);
-                    }
-                }
+                            ui.label("Select entities and roles, then click 'Done'");
+                        });
 
-                // Generate DSL if requested and auto-close panel
-                if generate_dsl {
-                    self.generate_cbu_dsl_from_selection();
-                    self.show_floating_entity_picker = false; // Auto-close after generating DSL
-                }
+                        // Process entity selections after UI to avoid borrowing issues
+                        for (entity_id, entity_name, role) in entity_selections {
+                            self.add_entity_to_dsl(&entity_id, &entity_name, &role);
+                        }
+
+                        // Remove entities (in reverse order to maintain indices)
+                        for &i in entities_to_remove.iter().rev() {
+                            if i < self.selected_entities.len() {
+                                self.selected_entities.remove(i);
+                            }
+                        }
+
+                        // Generate DSL if requested and auto-close panel
+                        if generate_dsl {
+                            self.generate_cbu_dsl_from_selection();
+                            self.show_floating_entity_picker = false; // Auto-close after generating DSL
+                        }
+                    });
             });
 
         // Update state if window was closed via X button
