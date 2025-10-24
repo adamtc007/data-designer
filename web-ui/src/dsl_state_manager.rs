@@ -9,8 +9,8 @@
 /// - Testable public API
 /// - Immutable updates where possible
 
-use crate::cbu_dsl_ide::{CbuRecord, CbuContext};
-use crate::grpc_client::GrpcClient;
+use crate::cbu_dsl_ide::CbuContext;
+use crate::grpc_client::{GrpcClient, CbuRecord};
 use crate::wasm_utils;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +78,7 @@ impl DslStateManager {
         if let Some(cbu) = self.available_cbus.iter().find(|c| c.cbu_id == cbu_id) {
             let dsl_content = format!(
                 "# Editing CBU: {}\nUPDATE CBU {} SET description = '{}'\n  # Add entity updates as needed",
-                cbu.name, cbu.cbu_id, cbu.purpose
+                cbu.cbu_name, cbu.cbu_id, cbu.description.as_deref().unwrap_or("")
             );
 
             self.state = DslState::EditingCbu {
@@ -86,7 +86,7 @@ impl DslStateManager {
                 content: dsl_content,
             };
 
-            wasm_utils::console_log(&format!("📝 Generated DSL for CBU: {} ({})", cbu.name, cbu.cbu_id));
+            wasm_utils::console_log(&format!("📝 Generated DSL for CBU: {} ({})", cbu.cbu_name, cbu.cbu_id));
             Ok(())
         } else {
             Err(format!("CBU not found: {}", cbu_id))

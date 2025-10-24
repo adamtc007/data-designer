@@ -6,6 +6,21 @@
 use std::sync::{Arc, Mutex};
 use crate::wasm_utils;
 
+// Platform-specific time functions
+#[cfg(target_arch = "wasm32")]
+fn get_timestamp_ms() -> u64 {
+    js_sys::Date::now() as u64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_timestamp_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_millis() as u64
+}
+
 #[derive(Debug, Clone)]
 pub struct CallFrame {
     pub function_name: String,
@@ -51,7 +66,7 @@ impl CallTracer {
             call_stack: Vec::new(),
             state_changes: Vec::new(),
             current_depth: 0,
-            start_time: js_sys::Date::now() as u64,
+            start_time: get_timestamp_ms(),
         }
     }
 
@@ -64,7 +79,7 @@ impl CallTracer {
             function_name: function_name.to_string(),
             file_location: file_location.to_string(),
             args,
-            timestamp: js_sys::Date::now() as u64 - self.start_time,
+            timestamp: get_timestamp_ms() - self.start_time,
             depth: self.current_depth,
             thread_id: "main".to_string(), // WASM is single-threaded
             result: None,
@@ -91,7 +106,7 @@ impl CallTracer {
         }
 
         let start_time = self.call_stack[frame_id].timestamp;
-        let duration = js_sys::Date::now() as u64 - self.start_time - start_time;
+        let duration = get_timestamp_ms() - self.start_time - start_time;
 
         self.call_stack[frame_id].result = result.clone();
         self.call_stack[frame_id].duration_ms = Some(duration);
@@ -113,7 +128,7 @@ impl CallTracer {
             field: field.to_string(),
             old_value: old_value.to_string(),
             new_value: new_value.to_string(),
-            timestamp: js_sys::Date::now() as u64 - self.start_time,
+            timestamp: get_timestamp_ms() - self.start_time,
             stack_trace: self.get_current_stack_trace(),
         };
 

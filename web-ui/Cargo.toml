@@ -22,30 +22,24 @@ console_error_panic_hook = ["dep:console_error_panic_hook"]
 # Note: Core library disabled for WASM - using minimal types instead
 # data-designer-core = { path = "../data-designer-core" }
 
-# egui ecosystem for web
+# egui ecosystem - shared
 egui = "0.33"
-eframe = { version = "0.33", default-features = false, features = [
-    "default_fonts",
-    "web_screen_reader",
-    "persistence",
-    "glow",
-] }
-
-# WASM-specific dependencies
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-js-sys = "0.3"
 reqwest = { version = "0.11", features = ["json"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# UUID generation for debugging/testing
-uuid = { version = "1.0", features = ["v4", "js"] }
-
 # Cross-platform dependencies
 console_error_panic_hook = { version = "0.1", optional = true }
+
+# WASM-specific dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+uuid = { version = "1.0", features = ["v4", "js"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 web-sys = { version = "0.3", features = [
   "console",
   "Document",
@@ -66,18 +60,30 @@ web-sys = { version = "0.3", features = [
   "Response",
   "Headers",
 ] }
-
-# WASM-specific dependencies
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
+eframe = { version = "0.33", default-features = false, features = [
+    "default_fonts",
+    "web_screen_reader",
+    "persistence",
+    "glow",  # WASM still uses glow due to getrandom 0.3 ecosystem issue
+] }
 
 # Native-only dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
 anyhow = "1.0"
 thiserror = "1.0"
 log = "0.4"
 env_logger = "0.10"
+eframe = { version = "0.33", default-features = false, features = [
+    "default_fonts",
+    "persistence",
+    "wgpu",
+    "x11",
+    "wayland",
+] }
+# wgpu with Vulkan (primary) and OpenGL ES (fallback) backends for Linux
+wgpu = { version = "27.0", features = ["vulkan", "gles"] }
 egui_extras = { version = "0.33", features = ["default", "image"] }
 reqwest = { version = "0.11", default-features = false, features = ["json", "native-tls"] }
 tokio = { version = "1.0", features = ["full"] }

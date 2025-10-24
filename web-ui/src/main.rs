@@ -25,6 +25,7 @@ async fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([800.0, 600.0]),
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
@@ -92,7 +93,7 @@ impl eframe::App for DataDesignerApp {
                 ui.label(&self.connection_status);
 
                 ui.separator();
-                ui.label("🦀 Desktop Edition - Full Debugging");
+                ui.label("🦀 Desktop Edition - wgpu Renderer");
             });
         });
 
