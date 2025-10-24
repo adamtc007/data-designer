@@ -5,6 +5,7 @@ use wasm_bindgen::JsCast;
 
 mod app;
 mod grpc_client;
+mod cbu_state_manager;
 mod cbu_dsl_ide;
 mod dsl_syntax_highlighter;
 mod dsl_state_manager;

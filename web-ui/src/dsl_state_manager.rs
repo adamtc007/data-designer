@@ -9,7 +9,7 @@
 /// - Testable public API
 /// - Immutable updates where possible
 
-use crate::cbu_dsl_ide::CbuContext;
+use crate::cbu_state_manager::CbuContext;
 use crate::grpc_client::{GrpcClient, CbuRecord};
 use crate::wasm_utils;
 
@@ -287,12 +287,17 @@ mod tests {
 
     fn create_test_cbu() -> CbuRecord {
         CbuRecord {
+            id: 1,
             cbu_id: "TEST_CBU_001".to_string(),
-            name: "Test Investment Fund".to_string(),
-            purpose: "Test fund for DSL validation".to_string(),
-            nature: "Investment Management".to_string(),
-            created_at: "2024-01-01".to_string(),
+            cbu_name: "Test Investment Fund".to_string(),
+            description: Some("Test fund for DSL validation".to_string()),
+            legal_entity_name: None,
+            business_model: None,
             status: "active".to_string(),
+            created_at: Some("2024-01-01".to_string()),
+            updated_at: None,
+            dsl_content: None,
+            dsl_metadata: None,
         }
     }
 

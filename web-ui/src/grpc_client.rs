@@ -133,7 +133,12 @@ pub struct ClientEntity {
     pub jurisdiction: String,
     pub country_code: String,
     pub lei_code: Option<String>,
+    #[serde(default = "default_status")]
     pub status: String,
+}
+
+fn default_status() -> String {
+    "active".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -384,7 +389,7 @@ impl GrpcClient {
         };
 
         wasm_utils::console_log(&format!("✅ Matched endpoint: {}", endpoint));
-        let url = format!("http://localhost:8080{}", endpoint);
+        let url = format!("{}{}", self.base_url, endpoint);
         wasm_utils::console_log(&format!("Making HTTP request to: {}", url));
 
         let response = self.client
