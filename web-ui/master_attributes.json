@@ -1,0 +1,678 @@
+{
+  "attributes": [
+    {
+      "name": "case_id",
+      "data_type": "String",
+      "description": "Unique identifier for a case or process instance",
+      "category": "Identity",
+      "required": true,
+      "validation_rules": {
+        "pattern": "^[A-Z0-9_-]+$",
+        "min_length": 3,
+        "max_length": 50
+      },
+      "ui": {
+        "label": "Case ID",
+        "placeholder": "Enter unique case identifier",
+        "help_text": "Must be unique across all templates"
+      }
+    },
+    {
+      "name": "client_id",
+      "data_type": "String",
+      "description": "Unique identifier for a client entity",
+      "category": "Identity",
+      "required": true,
+      "validation_rules": {
+        "pattern": "^[A-Z0-9_-]+$",
+        "min_length": 3,
+        "max_length": 50
+      },
+      "ui": {
+        "label": "Client ID",
+        "placeholder": "Enter client identifier",
+        "help_text": "Primary client reference"
+      }
+    },
+    {
+      "name": "account_number",
+      "data_type": "String",
+      "description": "Account number for financial services",
+      "category": "Financial",
+      "required": false,
+      "validation_rules": {
+        "pattern": "^[A-Z0-9]+$",
+        "min_length": 8,
+        "max_length": 20
+      },
+      "ui": {
+        "label": "Account Number",
+        "placeholder": "Generated automatically",
+        "help_text": "Usually auto-generated during account setup"
+      }
+    },
+    {
+      "name": "full_name",
+      "data_type": "String",
+      "description": "Complete legal name as it appears on official documents",
+      "category": "Identity",
+      "required": true,
+      "validation_rules": {
+        "min_length": 2,
+        "max_length": 100
+      },
+      "ui": {
+        "label": "Full Legal Name",
+        "placeholder": "First Middle Last",
+        "help_text": "Must match official documentation"
+      }
+    },
+    {
+      "name": "client_legal_name",
+      "data_type": "String",
+      "description": "Official legal name of the client entity",
+      "category": "Identity",
+      "required": true,
+      "validation_rules": {
+        "min_length": 2,
+        "max_length": 200
+      },
+      "ui": {
+        "label": "Client Legal Name",
+        "placeholder": "Official entity name",
+        "help_text": "As registered with authorities"
+      }
+    },
+    {
+      "name": "date_of_birth",
+      "data_type": "Date",
+      "description": "Customer date of birth for age verification and KYC",
+      "category": "Identity",
+      "required": true,
+      "validation_rules": {
+        "format": "YYYY-MM-DD",
+        "min_age": 18
+      },
+      "ui": {
+        "label": "Date of Birth",
+        "input_type": "date",
+        "help_text": "Must be 18+ for account opening"
+      }
+    },
+    {
+      "name": "email",
+      "data_type": "Email",
+      "description": "Primary email address for customer communication",
+      "category": "Contact",
+      "required": true,
+      "validation_rules": {
+        "format": "email"
+      },
+      "ui": {
+        "label": "Email Address",
+        "placeholder": "user@example.com",
+        "help_text": "Primary contact email"
+      }
+    },
+    {
+      "name": "customer_email",
+      "data_type": "Email",
+      "description": "Alternative email address for customer notifications",
+      "category": "Contact",
+      "required": false,
+      "validation_rules": {
+        "format": "email"
+      },
+      "ui": {
+        "label": "Alternative Email",
+        "placeholder": "alt@example.com",
+        "help_text": "Secondary contact email"
+      }
+    },
+    {
+      "name": "phone_number",
+      "data_type": "PhoneNumber",
+      "description": "Primary contact phone number with country code",
+      "category": "Contact",
+      "required": true,
+      "validation_rules": {
+        "pattern": "^\\+[1-9]\\d{1,14}$"
+      },
+      "ui": {
+        "label": "Phone Number",
+        "placeholder": "+1234567890",
+        "help_text": "Include country code"
+      }
+    },
+    {
+      "name": "address",
+      "data_type": "Address",
+      "description": "Primary residential or business address",
+      "category": "Contact",
+      "required": true,
+      "validation_rules": {},
+      "ui": {
+        "label": "Address",
+        "input_type": "textarea",
+        "help_text": "Full street address"
+      }
+    },
+    {
+      "name": "jurisdiction",
+      "data_type": "String",
+      "description": "Legal jurisdiction or regulatory domain",
+      "category": "Regulatory",
+      "required": true,
+      "allowed_values": [
+        "US",
+        "UK",
+        "EU",
+        "APAC",
+        "Canada",
+        "Switzerland",
+        "Singapore",
+        "Hong Kong",
+        "Australia"
+      ],
+      "ui": {
+        "label": "Jurisdiction",
+        "input_type": "select",
+        "help_text": "Primary regulatory jurisdiction"
+      }
+    },
+    {
+      "name": "client_jurisdiction",
+      "data_type": "String",
+      "description": "Client's primary regulatory jurisdiction",
+      "category": "Regulatory",
+      "required": true,
+      "allowed_values": [
+        "US",
+        "UK",
+        "EU",
+        "APAC",
+        "Canada",
+        "Switzerland",
+        "Singapore",
+        "Hong Kong",
+        "Australia"
+      ],
+      "ui": {
+        "label": "Client Jurisdiction",
+        "input_type": "select",
+        "help_text": "Client's regulatory jurisdiction"
+      }
+    },
+    {
+      "name": "status",
+      "data_type": "String",
+      "description": "Current status of the process or case",
+      "category": "Workflow",
+      "required": true,
+      "allowed_values": [
+        "Pending",
+        "InProgress",
+        "Complete",
+        "Screening",
+        "Documentation",
+        "Review",
+        "Approved",
+        "Rejected"
+      ],
+      "ui": {
+        "label": "Status",
+        "input_type": "select",
+        "help_text": "Current process status"
+      }
+    },
+    {
+      "name": "setup_status",
+      "data_type": "String",
+      "description": "Status of account or system setup process",
+      "category": "Workflow",
+      "required": true,
+      "allowed_values": [
+        "Pending",
+        "AccountCreation",
+        "PermissionsSetup",
+        "Integration",
+        "Testing",
+        "Complete"
+      ],
+      "ui": {
+        "label": "Setup Status",
+        "input_type": "select",
+        "help_text": "Account setup progress"
+      }
+    },
+    {
+      "name": "filing_status",
+      "data_type": "String",
+      "description": "Status of regulatory filing process",
+      "category": "Regulatory",
+      "required": true,
+      "allowed_values": [
+        "Pending",
+        "Preparing",
+        "Review",
+        "Filed",
+        "Acknowledged"
+      ],
+      "ui": {
+        "label": "Filing Status",
+        "input_type": "select",
+        "help_text": "Regulatory filing progress"
+      }
+    },
+    {
+      "name": "orchestration_status",
+      "data_type": "String",
+      "description": "Status of orchestration process",
+      "category": "Workflow",
+      "required": true,
+      "allowed_values": [
+        "Initializing",
+        "Discovery",
+        "ResourceCreation",
+        "Execution",
+        "Complete",
+        "Failed"
+      ],
+      "ui": {
+        "label": "Orchestration Status",
+        "input_type": "select",
+        "help_text": "Overall orchestration progress"
+      }
+    },
+    {
+      "name": "risk_rating",
+      "data_type": "String",
+      "description": "Risk assessment rating for the client",
+      "category": "Risk",
+      "required": false,
+      "allowed_values": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ],
+      "ui": {
+        "label": "Risk Rating",
+        "input_type": "select",
+        "help_text": "Client risk assessment"
+      }
+    },
+    {
+      "name": "risk_score",
+      "data_type": "Integer",
+      "description": "Calculated risk score from 0-100 based on KYC assessment",
+      "category": "Risk",
+      "required": false,
+      "validation_rules": {
+        "min": 0,
+        "max": 100
+      },
+      "ui": {
+        "label": "Risk Score",
+        "input_type": "number",
+        "help_text": "0-100 risk score"
+      }
+    },
+    {
+      "name": "priority",
+      "data_type": "String",
+      "description": "Processing priority level",
+      "category": "Workflow",
+      "required": false,
+      "allowed_values": [
+        "Low",
+        "Normal",
+        "High",
+        "Critical"
+      ],
+      "ui": {
+        "label": "Priority",
+        "input_type": "select",
+        "help_text": "Processing priority"
+      }
+    },
+    {
+      "name": "created_by",
+      "data_type": "String",
+      "description": "User who created this case or process",
+      "category": "Audit",
+      "required": true,
+      "validation_rules": {
+        "min_length": 2,
+        "max_length": 50
+      },
+      "ui": {
+        "label": "Created By",
+        "placeholder": "Username or ID",
+        "help_text": "User identifier"
+      }
+    },
+    {
+      "name": "document_type",
+      "data_type": "String",
+      "description": "Type of identification document provided",
+      "category": "Documents",
+      "required": false,
+      "allowed_values": [
+        "passport",
+        "driver_license",
+        "national_id",
+        "birth_certificate",
+        "utility_bill",
+        "bank_statement",
+        "articles_of_incorporation"
+      ],
+      "ui": {
+        "label": "Document Type",
+        "input_type": "select",
+        "help_text": "Type of supporting document"
+      }
+    },
+    {
+      "name": "products",
+      "data_type": "Array",
+      "description": "List of financial products or services",
+      "category": "Financial",
+      "required": false,
+      "allowed_values": [
+        "Trading",
+        "Custody",
+        "Prime Brokerage",
+        "Securities Lending",
+        "Foreign Exchange",
+        "Fixed Income",
+        "Derivatives",
+        "Cash Management"
+      ],
+      "ui": {
+        "label": "Products",
+        "input_type": "multi_select",
+        "help_text": "Select applicable products"
+      }
+    },
+    {
+      "name": "trading_permissions",
+      "data_type": "Array",
+      "description": "Trading permissions granted to the account",
+      "category": "Financial",
+      "required": false,
+      "allowed_values": [
+        "Equities",
+        "FixedIncome",
+        "FX",
+        "Derivatives",
+        "Options",
+        "Futures",
+        "Commodities",
+        "Crypto"
+      ],
+      "ui": {
+        "label": "Trading Permissions",
+        "input_type": "multi_select",
+        "help_text": "Granted trading permissions"
+      }
+    },
+    {
+      "name": "reporting_requirements",
+      "data_type": "Array",
+      "description": "Regulatory reporting requirements",
+      "category": "Regulatory",
+      "required": false,
+      "ui": {
+        "label": "Reporting Requirements",
+        "input_type": "textarea",
+        "help_text": "List of regulatory reporting obligations"
+      }
+    },
+    {
+      "name": "screening_results",
+      "data_type": "Object",
+      "description": "Results from KYC and sanctions screening",
+      "category": "Risk",
+      "required": false,
+      "ui": {
+        "label": "Screening Results",
+        "input_type": "json",
+        "help_text": "KYC screening outcomes"
+      }
+    },
+    {
+      "name": "sub_resources",
+      "data_type": "Object",
+      "description": "Sub-resources created during orchestration",
+      "category": "Workflow",
+      "required": false,
+      "ui": {
+        "label": "Sub Resources",
+        "input_type": "json",
+        "help_text": "Related resource instances"
+      }
+    },
+    {
+      "name": "master_dictionary",
+      "data_type": "Object",
+      "description": "Master data dictionary for the process",
+      "category": "Workflow",
+      "required": false,
+      "ui": {
+        "label": "Master Dictionary",
+        "input_type": "json",
+        "help_text": "Process data dictionary"
+      }
+    },
+    {
+      "name": "current_phase",
+      "data_type": "Number",
+      "description": "Current phase number in multi-phase processes",
+      "category": "Workflow",
+      "required": false,
+      "validation_rules": {
+        "min": 1,
+        "max": 10
+      },
+      "ui": {
+        "label": "Current Phase",
+        "input_type": "number",
+        "help_text": "Process phase number"
+      }
+    },
+    {
+      "name": "entity_type",
+      "data_type": "String",
+      "description": "Type of entity (individual, corporation, etc.)",
+      "category": "Identity",
+      "required": false,
+      "allowed_values": [
+        "Individual",
+        "Corporation",
+        "Partnership",
+        "Trust",
+        "Fund",
+        "Government Entity",
+        "Non-Profit"
+      ],
+      "ui": {
+        "label": "Entity Type",
+        "input_type": "select",
+        "help_text": "Legal entity classification"
+      }
+    },
+    {
+      "name": "account_type",
+      "data_type": "String",
+      "description": "Type of account being opened",
+      "category": "Financial",
+      "required": false,
+      "allowed_values": [
+        "Trading",
+        "Custody",
+        "Prime Brokerage",
+        "Margin",
+        "Cash",
+        "Institutional",
+        "Retail"
+      ],
+      "ui": {
+        "label": "Account Type",
+        "input_type": "select",
+        "help_text": "Account classification"
+      }
+    },
+    {
+      "name": "aum",
+      "data_type": "Number",
+      "description": "Assets under management (in millions)",
+      "category": "Financial",
+      "required": false,
+      "validation_rules": {
+        "min": 0
+      },
+      "ui": {
+        "label": "AUM (Millions)",
+        "input_type": "number",
+        "help_text": "Assets under management"
+      }
+    },
+    {
+      "name": "compliance_status",
+      "data_type": "String",
+      "description": "Compliance review status",
+      "category": "Regulatory",
+      "required": false,
+      "allowed_values": [
+        "Pending",
+        "Under Review",
+        "Approved",
+        "Conditional Approval",
+        "Rejected",
+        "Requires Documentation"
+      ],
+      "ui": {
+        "label": "Compliance Status",
+        "input_type": "select",
+        "help_text": "Compliance review state"
+      }
+    },
+    {
+      "name": "kyc_status",
+      "data_type": "String",
+      "description": "Know Your Customer verification status",
+      "category": "Regulatory",
+      "required": false,
+      "allowed_values": [
+        "Not Started",
+        "In Progress",
+        "Document Review",
+        "Enhanced Due Diligence",
+        "Approved",
+        "Rejected",
+        "Expired"
+      ],
+      "ui": {
+        "label": "KYC Status",
+        "input_type": "select",
+        "help_text": "KYC verification state"
+      }
+    },
+    {
+      "name": "approval_date",
+      "data_type": "Date",
+      "description": "Date when approval was granted",
+      "category": "Audit",
+      "required": false,
+      "validation_rules": {
+        "format": "YYYY-MM-DD"
+      },
+      "ui": {
+        "label": "Approval Date",
+        "input_type": "date",
+        "help_text": "When approval was granted"
+      }
+    },
+    {
+      "name": "expiry_date",
+      "data_type": "Date",
+      "description": "Expiration date for approvals or documents",
+      "category": "Audit",
+      "required": false,
+      "validation_rules": {
+        "format": "YYYY-MM-DD"
+      },
+      "ui": {
+        "label": "Expiry Date",
+        "input_type": "date",
+        "help_text": "When approval expires"
+      }
+    },
+    {
+      "name": "notes",
+      "data_type": "String",
+      "description": "Additional notes or comments",
+      "category": "Audit",
+      "required": false,
+      "validation_rules": {
+        "max_length": 1000
+      },
+      "ui": {
+        "label": "Notes",
+        "input_type": "textarea",
+        "help_text": "Additional comments"
+      }
+    }
+  ],
+  "categories": [
+    {
+      "name": "Identity",
+      "description": "Identity and identification attributes",
+      "icon": "👤",
+      "color": "#3B82F6"
+    },
+    {
+      "name": "Contact",
+      "description": "Contact information and communication details",
+      "icon": "📞",
+      "color": "#10B981"
+    },
+    {
+      "name": "Financial",
+      "description": "Financial products, accounts, and monetary information",
+      "icon": "💰",
+      "color": "#F59E0B"
+    },
+    {
+      "name": "Regulatory",
+      "description": "Regulatory compliance and jurisdiction information",
+      "icon": "⚖️",
+      "color": "#EF4444"
+    },
+    {
+      "name": "Risk",
+      "description": "Risk assessment and scoring attributes",
+      "icon": "⚠️",
+      "color": "#F97316"
+    },
+    {
+      "name": "Workflow",
+      "description": "Process flow and orchestration attributes",
+      "icon": "🔄",
+      "color": "#8B5CF6"
+    },
+    {
+      "name": "Documents",
+      "description": "Document types and verification information",
+      "icon": "📄",
+      "color": "#06B6D4"
+    },
+    {
+      "name": "Audit",
+      "description": "Audit trail and tracking information",
+      "icon": "📊",
+      "color": "#84CC16"
+    }
+  ]
+}

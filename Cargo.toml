@@ -1,16 +1,29 @@
-[package]
-name = "data_designer"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "data-designer-core",
+    "grpc-server",
+    "web-ui",
+    "template-server",
+    "cbu-dsl-lsp",
+]
+resolver = "2"
 
-[build-dependencies]
-tauri-build = { version = "2.0.0-beta", features = [] }
-
-[dependencies]
+[workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
 serde_json = "1.0"
-nom = "7.1"
-chrono = "0.4"
-regex = "1.10"
-tauri = { version = "2.0.0-beta", features = [] }
-tauri-plugin-shell = "2.0.0-beta"
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+clap = { version = "4.0", features = ["derive"] }
+fasteval = "0.2"
+petgraph = "0.6"
+ndarray = "0.15"
+regex = "1"
+nom = "7"
+tower-lsp = "0.20"
+log = "0.4"
+env_logger = "0.10"
+fastrand = "2.0"
+
+# WASM compatibility handled in web-ui dependencies

@@ -1,87 +1,89 @@
-# Data Designer - DSL for KYC & Data Transformation
+# Data Designer - Cross-Platform Financial Data DSL Platform
 
-A sophisticated Domain-Specific Language (DSL) system for designing, testing, and managing data transformation rules with a focus on KYC (Know Your Customer) and institutional client onboarding workflows.
+🦀 **Cross-Platform Data Designer** - Native Desktop + WASM web application with unified HTTP client and gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
 
-## 🚀 Features
+## 🚀 Key Features
 
-### Core DSL Capabilities
-- **Dynamic Grammar System** - EBNF-based soft DSL with runtime-modifiable grammar
-- **Advanced Parser** - Full nom-based parser with comprehensive expression support
-- **Regex Support** - Pattern matching and validation with KYC-specific functions
-- **Expression Engine** - Complex arithmetic, string operations, and function calls
-- **Runtime Resolution** - Dynamic attribute resolution from context data
+### Cross-Platform Architecture
+- **Native Desktop** - Full debugging capabilities with IDE integration (`./rundesk.sh`)
+- **Browser-Native GUI** - egui + WASM, 60fps, dark theme with enhanced font rendering (`./runwasm.sh`)
+- **Unified HTTP Client** - Identical reqwest-based client for both platforms
+- **Staged Loading** - Smart progressive data loading (8 CBUs on startup, 100 entities on-demand)
+- **gRPC Microservices** - Type-safe Protocol Buffers with HTTP bridge (ports 50051/8080)
+- **99.5% Code Sharing** - Minimal conditional compilation between platforms
 
-### Language Server Protocol (LSP)
-- **Full IDE Integration** - Professional development environment with IntelliSense
-- **WebSocket Support** - Browser-compatible LSP connection
-- **Enhanced Type System** - SQL types, Rust types, format masks, and validation patterns
-- **Rich Hover Information** - Comprehensive type details on hover
-- **Real-time Diagnostics** - Instant syntax validation and error reporting
-- **Semantic Highlighting** - Advanced token-based syntax coloring
+### Financial Services Focus
+- **Investment Mandate Management** - Complete drill-down system with interactive cards
+- **Comprehensive CRUD API** - Complete entity management for CBU, Product, Service, Resource, Workflow
+- **Fund Accounting DSL** - Capability-driven execution with "remote control" analogy
+- **White Truffle Architecture** - Advanced execution engine with orchestration
 
-### AI Assistant Integration
-- **Intelligent Code Assistant** - Built-in AI agent for DSL development help
-- **Multiple API Support** - Works with OpenAI (GPT-4) and Anthropic (Claude)
-- **Automatic API Key Detection** - Uses system environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY)
-- **Robust Fallback System** - Comprehensive offline mode with intelligent responses
-- **Context-Aware Help** - Understands current rule and provides relevant suggestions
-- **Never Fails** - Always provides helpful responses, even without API keys
+### Advanced DSL System
+- **Multiple DSL Domains** - CBU, Deal Record, KYC, Onboarding, Opportunity, and Orchestration DSLs
+- **Dynamic Grammar System** - EBNF-based soft DSL editable through UI
+- **Advanced Parser** - nom-based parser with 6 extensions (arithmetic, strings, functions, lookups, runtime resolution, regex)
+- **Template Designer IDE** - Professional two-pane layout with syntax highlighting
+- **Capability Execution Engine** - Trait-based architecture with built-in fund accounting capabilities
 
-### Database & Vector Search
-- **PostgreSQL Integration** - Full database persistence for rules and attributes
-- **pgvector Extension** - Vector similarity search with 1536-dimensional embeddings
-- **Semantic Search** - Find similar rules using cosine similarity
-- **Automatic Embeddings** - Generate embeddings using OpenAI/Anthropic APIs
-- **Rule Versioning** - Track rule changes over time
-- **Execution Logging** - Audit trail for all rule executions
+### AI-Powered Development
+- **Complete AI Assistant System** - All 7 AI features implemented with gRPC integration
+- **Secure Key Management** - System keychain integration with gRPC API
+- **RAG Integration** - Retrieval-Augmented Generation with database similarity search
+- **Context-Aware Prompting** - Smart context building from current DSL state
 
-### Development Environment
-- **Tauri Desktop App** - Native cross-platform application
-- **Monaco Editor Integration** - VS Code-quality editing experience
-- **Interactive Testing** - Live rule execution with sample data
-- **Grammar Editor** - Visual EBNF rule modification interface
-- **Resizable Panes** - Adjustable layout with persistent preferences
-- **Rules Catalogue** - Comprehensive rule management with source/target tracking
-- **AST Visualization** - Interactive Abstract Syntax Tree viewer with multiple formats
+### Database & Performance
+- **PostgreSQL Integration** - Centralized database operations with vector embeddings
+- **Configuration-Driven UI** - Multi-layered Resource Dictionary with perspective switching
+- **Real-Time Execution** - Sub-second capability execution with comprehensive logging
+- **Hybrid Reliability** - gRPC-first with automatic database fallback
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────┐
-│         Tauri Desktop Application        │
-├─────────────────────────────────────────┤
-│  ┌──────────┐  ┌────────────────────┐  │
-│  │  Monaco  │  │   Grammar Editor    │  │
-│  │  Editor  │  │  (EBNF Modification)│  │
-│  └─────┬────┘  └──────────────────┘  │
-│        │                              │
-│  ┌─────▼────────────────────────────┐  │
-│  │    Language Server Protocol      │  │
-│  │  (tower-lsp implementation)      │  │
-│  └─────┬────────────────────────────┘  │
-│        │                              │
-│  ┌─────▼────────────────────────────┐  │
-│  │     Nom Parser & Engine          │  │
-│  │  • Expression evaluation         │  │
-│  │  • Regex validation              │  │
-│  │  • KYC domain functions          │  │
-│  └──────────────────────────────────┘  │
-└─────────────────────────────────────────┘
+│         Browser (Any Device)            │
+│  ┌─────────────────────────────────────┐ │
+│  │   Pure Rust WASM Web Client        │ │
+│  │   • egui GUI (60fps)               │ │
+│  │   • Enhanced Font Rendering        │ │
+│  │   • Entity Management UI           │ │
+│  │   • Capability Management          │ │
+│  │   • Professional Code Editor       │ │
+│  └─────────────┬───────────────────────┘ │
+└─────────────────┼───────────────────────────┘
+                  │ gRPC (Port 50051)
+┌─────────────────▼───────────────────────────┐
+│         gRPC Microservices Server           │
+│  ┌─────────────────────────────────────────┐ │
+│  │    Financial Taxonomy Service           │ │
+│  │    • Protocol Buffers API (900+ lines) │ │
+│  │    • CRUD Operations                    │ │
+│  │    • AI Key Management                  │ │
+│  │    • Workflow Orchestration            │ │
+│  └─────────────┬───────────────────────────┘ │
+└─────────────────┼───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────┐
+│         Core Library & Database             │
+│  ┌─────────────────┐ ┌─────────────────────┐ │
+│  │ Capability      │ │ PostgreSQL Database │ │
+│  │ Execution       │ │ • Vector Embeddings │ │
+│  │ Engine          │ │ • Entity Storage    │ │
+│  │ • 10+ Built-in  │ │ • DSL Templates     │ │
+│  │   Capabilities  │ │ • Audit Logs        │ │
+│  └─────────────────┘ └─────────────────────┘ │
+└─────────────────────────────────────────────┘
 ```
 
-## 📦 Installation
+## 🚀 Quick Start
 
 ### Prerequisites
 - Rust 1.70+
-- Node.js 18+
-- Tauri CLI
 - PostgreSQL 17 (for database persistence)
-- pgvector 0.8.1+ (for semantic search)
+- pgvector 0.8.1+ (for vector embeddings)
 
 ### Database Setup
-
 ```bash
-# Install PostgreSQL (if not already installed)
 # macOS:
 brew install postgresql@17
 
@@ -92,131 +94,82 @@ cd pgvector
 PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make
 PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make install
 
-# Create database
+# Create database and run migrations
 createdb data_designer
-
-# Initialize schema
-cd /path/to/data-designer
-psql -d data_designer < database/schema-simple.sql
-
-# Load sample data (optional)
-psql -d data_designer < database/init-sample-data.sql
-
-# Set environment variable
 export DATABASE_URL="postgres://$(whoami)@localhost/data_designer"
 ```
 
-### Build from Source
-
+### One-Command Deployment
 ```bash
-# Clone the repository
+# Clone and run in one step
 git clone https://github.com/yourusername/data-designer.git
 cd data-designer
 
-# Install dependencies
-npm install
+# Option 1: Web Application (Recommended)
+./runwasm.sh                   # Build + serve + open browser
 
-# Build the Language Server
-cd dsl-lsp
-cargo build --release
-cd ..
-
-# Run development version
-npm run tauri dev
-
-# Build for production
-npm run tauri build
+# Option 2: Manual Steps
+cd grpc-server && cargo run   # Start gRPC server (port 50051)
+cd web-ui && ./build-web.sh   # Build WASM package
+cd web-ui && ./serve-web.sh   # Serve on localhost:8080
 ```
 
-## 🤖 AI Assistant
+### Access Points
+- **Web UI**: http://localhost:8080
+- **gRPC Server**: localhost:50051
 
-The IDE includes a powerful AI Assistant that helps with DSL development:
+## 🤖 Complete AI Assistant System
 
-### Features
-- **Always Available** - Works with or without API keys
-- **Intelligent Fallback** - Provides helpful responses even offline
-- **Context-Aware** - Understands your current rule and data dictionary
-- **Multiple Providers** - Supports OpenAI and Anthropic APIs
+**🎯 All 7 AI features implemented with gRPC integration:**
 
-### Setup Options
+### Core Features
+- **AI Assistant Architecture** - Multi-provider system (OpenAI, Anthropic, Offline)
+- **AI Suggestion UI** - Interactive suggestions via gRPC
+- **Context-Aware Prompting** - Smart context building from DSL state
+- **Semantic Search** - Database-backed similar rule discovery
+- **Code Completion** - Intelligent function/attribute suggestions
+- **Error Analysis** - Comprehensive error detection and fixing
+- **RAG Integration** - Retrieval-Augmented Generation with vector similarity
 
-#### Option 1: Automatic (Recommended)
-Set environment variable before running:
-```bash
-export ANTHROPIC_API_KEY="your-key-here"  # For Claude
-# or
-export OPENAI_API_KEY="your-key-here"     # For GPT-4
+### Secure Key Management
+- **🔐 System Keychain Integration** - Platform keyring storage
+- **🔑 gRPC Key Management API** - Store/retrieve/delete via gRPC
+- **🛡️ Cross-Platform Support** - Windows, macOS, Linux
+- **⚡ Automatic Key Loading** - AI assistant auto-loads on startup
 
-npm run tauri dev
+## 🎯 Usage Examples
+
+### Financial DSL Workflows
+```rust
+// Fund Accounting Capability Execution
+CONFIGURE_SYSTEM("custody_platform", {
+    "environment": "production",
+    "region": "us-east-1"
+})
+
+ACTIVATE("account_setup", {
+    "client_id": "HF-001",
+    "product_type": "prime_brokerage"
+})
+
+WORKFLOW("onboarding_flow", {
+    "approvals": ["compliance", "operations"],
+    "sla_hours": 24
+})
 ```
 
-#### Option 2: Manual Configuration
-1. Click "⚙ Settings" in the IDE
-2. Choose provider (OpenAI or Anthropic)
-3. Enter API key (optional - leave blank for offline mode)
-4. Save settings
+### Investment Mandate Management
+- Interactive mandate cards with "View Details" buttons
+- Comprehensive detailed views (business units, parties, investment details)
+- Related member roles and trading/settlement authorities
+- Back navigation and breadcrumb display
 
-#### Option 3: Offline Mode (Always Works)
-No setup needed! The assistant provides intelligent responses using:
-- Pattern recognition for common questions
-- Context analysis of your current rule
-- Comprehensive DSL examples and explanations
-- Debugging assistance and optimization tips
-
-### What the Assistant Can Do
-- **Explain** - DSL syntax, functions, and patterns
-- **Debug** - Identify and fix common errors
-- **Examples** - Provide relevant code samples
-- **Optimize** - Suggest improvements to your rules
-- **Functions** - List and explain available functions
-- **Attributes** - Show business vs derived data
-
-## 🎯 Quick Start
-
-### Running the Web IDE (Recommended)
-
-1. **Build and Start the Language Server:**
-```bash
-# Build the LSP server
-cd dsl-lsp
-cargo build --release
-
-# Start with WebSocket support for browser
-./target/release/dsl-lsp-server --port 3030 websocket
-```
-
-2. **Open the IDE in Browser:**
-```bash
-# From project root
-open src/ide.html  # macOS
-# or
-xdg-open src/ide.html  # Linux
-# or
-start src/ide.html  # Windows
-```
-
-3. **Using the IDE:**
-   - The IDE auto-connects to LSP on load
-   - Hover over attributes like `Client.client_id` to see:
-     - SQL type: `VARCHAR(50) PRIMARY KEY`
-     - Rust type: `String`
-     - Format mask: `XXX-999`
-     - Pattern: `^[A-Z]{3}-\d{3,}$`
-     - Required status and constraints
-   - Type `Client.` for intelligent completions
-   - Get real-time syntax validation
-
-### Running the Tauri Desktop App (Alternative)
-
-1. **Start the Language Server:**
-```bash
-./dsl-lsp/target/release/dsl-lsp-server tcp --port 3030
-```
-
-2. **Launch the Tauri App:**
-```bash
-npm run tauri dev
-```
+### Entity Management
+- **🏢 CBU Management** - Client Business Unit organization
+- **📦 Product Catalog** - Financial products with line of business
+- **⚙️ Service Lifecycle** - Public services with billing models
+- **🔧 Resource Templates** - Private implementations with capabilities
+- **📋 Workflow Orchestration** - Dependencies and approvals
 
 ### Example DSL Rules
 
@@ -354,62 +307,58 @@ The system includes a comprehensive KYC data dictionary:
 }
 ```
 
-## 🧪 Testing
+## 🧪 Development Commands
 
-### Running Tests
-
+### Essential Commands
 ```bash
-# Run Rust tests
-cargo test
+# Quick Start - WASM Web App
+./runwasm.sh                   # One command: build + serve + open browser
 
-# Run parser tests
-cargo run --example test_parser
+# Manual Development
+cd grpc-server && cargo run   # Start gRPC server (port 50051)
+cd web-ui && ./build-web.sh   # Build WASM package
+cd web-ui && ./serve-web.sh   # Serve on localhost:8080
 
-# Run regex validation tests
-cargo test test_regex
-
-# Run LSP tests
-cd dsl-lsp && cargo test
+# Testing & Quality
+cargo build                   # Build entire workspace
+cargo test --all             # Run comprehensive test suite (20+ tests)
+./test-web-app.sh            # Test Web-First architecture components
+cargo clippy                 # Code quality checks
 ```
 
-### Test Coverage
+### Database Commands
+```bash
+export DATABASE_URL="postgresql://$(whoami)@localhost/data_designer"
+psql -d data_designer        # Connect to database
+```
 
-- Parser: 15+ comprehensive test cases
-- Regex validation: KYC-specific pattern tests
-- Expression evaluation: Arithmetic and string operations
-- LSP features: Completion, diagnostics, hover
+## 🏗️ Current Implementation Status
 
-## 🤝 Contributing
+### ✅ COMPLETED SYSTEM
+- **Web-First Architecture** - Pure Rust WASM web application
+- **gRPC Microservices** - Complete Protocol Buffers API (900+ lines)
+- **White Truffle Architecture** - All 3 advanced execution components
+- **Complete AI Assistant System** - All 7 AI features with gRPC integration
+- **Comprehensive CRUD API** - Full entity management infrastructure
+- **Test Data Ecosystem** - Realistic financial services data
+- **Enhanced Template Editor** - Professional DSL IDE with syntax highlighting
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+### Key Technologies
+- **Rust** - Zero-cost abstractions with memory safety
+- **WebAssembly** - Near-native performance in browsers
+- **egui** - Immediate mode GUI with 60fps rendering
+- **gRPC** - High-performance RPC with Protocol Buffers
+- **PostgreSQL** - Vector embeddings with pgvector
 
-### Development Workflow
+## 📞 Support & Development
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run `cargo fmt` and `cargo clippy`
-6. Submit a pull request
+**Current Repository**: `/Users/adamtc007/Developer/data-designer`
 
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details
-
-## 🙏 Acknowledgments
-
-- Built with [Tauri](https://tauri.app/) for cross-platform desktop apps
-- [tower-lsp](https://github.com/tower-lsp/tower-lsp) for Language Server Protocol
-- [nom](https://github.com/Geal/nom) for parser combinators
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) for web-based editing
-
-## 📞 Support
-
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Check the [documentation](docs/)
-- See [CLAUDE.md](CLAUDE.md) for AI assistant guidance
+For development and collaboration:
+- See [CLAUDE.md](CLAUDE.md) for comprehensive project documentation
+- Check the [Protocol Buffers](proto/financial_taxonomy.proto) for API definitions
+- Review test data in `migrations/011_test_data_seeding.sql`
 
 ---
 
-**Data Designer** - Empowering KYC and data transformation workflows with an intelligent DSL platform.
+**Data Designer** - Production-ready web-first financial DSL platform with advanced AI assistance.

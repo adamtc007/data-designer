@@ -1,0 +1,37 @@
+[package]
+name = "test-harness"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core test framework
+tokio = { version = "1.0", features = ["full"] }
+tokio-test = "0.4"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Elasticsearch integration
+elasticsearch = "8.5"
+
+# Database testing
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+
+# HTTP client for API testing
+reqwest = { version = "0.11", features = ["json"] }
+
+# gRPC testing
+tonic = "0.12"
+
+# Service mocking
+mockall = "0.11"
+wiremock = "0.5"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Local dependencies
+data-designer-core = { path = "../../data-designer-core" }

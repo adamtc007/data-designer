@@ -1,3 +1,0 @@
-RULE "Complex Math" IF status == "active" THEN result = 100 + 5 * 2 - 10 / 2
-
-// Multiple arithmetic operators

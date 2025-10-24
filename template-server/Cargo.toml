@@ -1,0 +1,37 @@
+[package]
+name = "template-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# HTTP server
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# HTTP client for Elasticsearch
+reqwest = { version = "0.12", features = ["json"] }
+uuid = { version = "1.0", features = ["v4"] }
+
+# Async
+futures = "0.3"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+[[bin]]
+name = "template-server"
+path = "src/main.rs"

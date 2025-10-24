@@ -1,0 +1,136 @@
+(* EBNF Grammar for CBU LISP DSL *)
+(* Domain: Client Business Unit Management *)
+(* Structure: LISP S-expressions with domain-specific verbs *)
+
+(* Root expression - CBU DSL program *)
+cbu_dsl_program = { comment | s_expression } ;
+
+(* Comments - LISP style semicolon comments *)
+comment = ";" , { any_character - newline } , newline ;
+
+(* S-Expression structure *)
+s_expression = list | atom ;
+
+list = "(" , [ list_content ] , ")" ;
+list_content = s_expression , { whitespace , s_expression } ;
+
+atom = symbol | string | number | boolean ;
+
+(* CBU DSL Functions - Function Signatures *)
+
+(* Primary CBU CRUD Operations *)
+create_cbu_expr = "(" , "create-cbu" , string , string , [ entities_expr ] , ")" ;
+update_cbu_expr = "(" , "update-cbu" , string , [ string ] , [ string ] , [ entities_expr ] , ")" ;
+delete_cbu_expr = "(" , "delete-cbu" , string , ")" ;
+query_cbu_expr = "(" , "query-cbu" , [ query_params ] , ")" ;
+
+(* Entity Management *)
+entities_expr = "(" , "entities" , { entity_expr } , ")" ;
+entity_expr = "(" , "entity" , string , string , symbol , ")" ;
+
+(* Utility Functions *)
+list_expr = "(" , "list" , { s_expression } , ")" ;
+quote_expr = "(" , "quote" , s_expression , ")" ;
+
+(* Function Signatures Documentation *)
+(*
+create-cbu: (create-cbu name:string description:string [entities:entities_expr]) -> cbu_result
+  - Creates new CBU with name and description
+  - Optional entities parameter for associated legal entities
+  - Returns: (create-cbu-result cbu_id:string success:boolean data:list)
+
+update-cbu: (update-cbu cbu_id:string [name:string] [description:string] [entities:entities_expr]) -> cbu_result
+  - Updates existing CBU by ID
+  - All parameters except cbu_id are optional
+  - Returns: (update-cbu-result cbu_id:string success:boolean)
+
+delete-cbu: (delete-cbu cbu_id:string) -> cbu_result
+  - Deletes CBU by ID
+  - Returns: (delete-cbu-result cbu_id:string success:boolean)
+
+query-cbu: (query-cbu [params:query_params]) -> cbu_query_result
+  - Queries CBUs with optional parameters
+  - Returns: (query-cbu-result cbu_list:list)
+
+entities: (entities entity_expr...) -> entities_list
+  - Container for multiple entity expressions
+  - Returns list of processed entities
+
+entity: (entity entity_id:string entity_name:string role:symbol) -> entity_data
+  - Defines single entity with ID, name, and role
+  - Role symbols: investment-manager, asset-owner, custodian, administrator, etc.
+  - Returns: (entity entity_id entity_name role)
+*)
+
+(* Query Parameters *)
+query_params = query_filter | query_sort | query_limit ;
+query_filter = "(" , "filter" , filter_expr , ")" ;
+query_sort = "(" , "sort" , sort_field , sort_direction , ")" ;
+query_limit = "(" , "limit" , number , ")" ;
+
+filter_expr = field_filter | and_filter | or_filter ;
+field_filter = "(" , "=" | "!=" | "like" | "in" , symbol , atom , ")" ;
+and_filter = "(" , "and" , { filter_expr } , ")" ;
+or_filter = "(" , "or" , { filter_expr } , ")" ;
+
+sort_field = symbol ;
+sort_direction = "asc" | "desc" ;
+
+(* Entity Role Symbols - Valid roles for CBU entities *)
+entity_role = investment_manager | asset_owner | custodian | administrator |
+              prime_broker | fund_administrator | compliance_officer |
+              portfolio_manager | risk_manager | trading_desk ;
+
+investment_manager = "investment-manager" ;
+asset_owner = "asset-owner" ;
+custodian = "custodian" ;
+administrator = "administrator" ;
+prime_broker = "prime-broker" ;
+fund_administrator = "fund-administrator" ;
+compliance_officer = "compliance-officer" ;
+portfolio_manager = "portfolio-manager" ;
+risk_manager = "risk-manager" ;
+trading_desk = "trading-desk" ;
+
+(* Primitive Types *)
+symbol = letter , { letter | digit | "-" | "_" } ;
+string = '"' , { string_char } , '"' ;
+string_char = ( any_character - '"' - "\" ) | escape_sequence ;
+escape_sequence = "\" , ( '"' | "\" | "n" | "t" | "r" ) ;
+
+number = [ "-" ] , ( integer | float ) ;
+integer = digit , { digit } ;
+float = integer , "." , integer ;
+
+boolean = "true" | "false" | "#t" | "#f" ;
+
+(* Lexical Elements *)
+whitespace = " " | "\t" | "\n" | "\r" ;
+letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
+         "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" |
+         "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" |
+         "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+any_character = ? any Unicode character ? ;
+newline = "\n" | "\r\n" ;
+
+(* Example Valid Expressions:
+
+   ; Create new CBU with entities
+   (create-cbu "Growth Fund Alpha" "Diversified growth investment fund"
+     (entities
+       (entity "US001" "Alpha Corp" investment-manager)
+       (entity "US002" "Beta Holdings" asset-owner)))
+
+   ; Update existing CBU
+   (update-cbu "CBU_001" "Updated Growth Fund" "Updated description")
+
+   ; Query CBUs with filters
+   (query-cbu
+     (filter (= status "active"))
+     (sort name asc)
+     (limit 10))
+
+   ; Delete CBU
+   (delete-cbu "CBU_001")
+*)

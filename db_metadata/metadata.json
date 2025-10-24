@@ -1,0 +1,26 @@
+{
+  "export_info": {
+    "timestamp": "2024-10-21T12:15:00Z",
+    "connection": "postgresql://***@localhost:5432/data_designer",
+    "schemas": "all_user_schemas",
+    "exporter_version": "2.0"
+  },
+  "database_stats": {
+    "tables": 95,
+    "columns": 1742,
+    "indexes": 373,
+    "constraints": 614,
+    "views": 23,
+    "functions": 155
+  },
+  "files_exported": [
+    "tables.csv",
+    "columns.csv",
+    "indexes.csv",
+    "constraints.csv",
+    "views.csv",
+    "functions.csv",
+    "schema_ddl.sql",
+    "database_summary.md"
+  ]
+}

@@ -1,85 +1,75 @@
-use data_designer::{BusinessRule, RulesEngine, generate_test_context, get_sample_rules};
+/// Integration test suite for Data Designer
+///
+/// This test suite demonstrates the comprehensive testing strategy:
+/// - Elasticsearch integration for debugging
+/// - End-to-end data flow testing
+/// - Performance benchmarking
+/// - Error handling verification
+/// - Service integration testing
 
-#[cfg(test)]
-mod integration_tests {
+pub mod common;
+pub mod unit;
+pub mod integration;
+pub mod e2e;
+
+// Re-export test harness for convenience
+pub use test_harness::*;
+
+/// Test configuration
+pub struct TestConfig {
+    pub elasticsearch_url: String,
+    pub database_url: String,
+    pub grpc_port: u16,
+    pub cleanup_on_failure: bool,
+}
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        Self {
+            elasticsearch_url: std::env::var("TEST_ELASTICSEARCH_URL")
+                .unwrap_or_else(|_| "http://localhost:9200".to_string()),
+            database_url: std::env::var("TEST_DATABASE_URL")
+                .unwrap_or_else(|_| "postgresql://adamtc007@localhost/data_designer_test".to_string()),
+            grpc_port: 50051,
+            cleanup_on_failure: true,
+        }
+    }
+}
+
+/// Test utilities module
+pub mod test_utils {
     use super::*;
 
-    #[test]
-    fn test_simple_arithmetic() {
-        let context = generate_test_context();
-        let mut rule = BusinessRule::new(
-            "test".to_string(),
-            "Test".to_string(),
-            "Test arithmetic".to_string(),
-            "10 + 20 * 3".to_string(),
-        );
+    /// Initialize test environment
+    pub async fn init_test_env() -> anyhow::Result<TestHarness> {
+        // Set up logging for tests
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("debug")
+            .try_init();
 
-        assert!(rule.parse().is_ok());
-        let result = rule.evaluate(&context).unwrap();
-        assert_eq!(result.as_f64().unwrap(), 70.0);
+        TestHarness::setup().await
     }
 
-    #[test]
-    fn test_string_concatenation() {
-        let context = generate_test_context();
-        let mut rule = BusinessRule::new(
-            "test".to_string(),
-            "Test".to_string(),
-            "Test string concat".to_string(),
-            r#""Hello " & "World""#.to_string(),
-        );
-
-        assert!(rule.parse().is_ok());
-        let result = rule.evaluate(&context).unwrap();
-        assert_eq!(result.as_str().unwrap(), "Hello World");
+    /// Cleanup test environment
+    pub async fn cleanup_test_env(harness: TestHarness) -> anyhow::Result<()> {
+        harness.cleanup().await
     }
 
-    #[test]
-    fn test_variable_reference() {
-        let context = generate_test_context();
-        let mut rule = BusinessRule::new(
-            "test".to_string(),
-            "Test".to_string(),
-            "Test variable reference".to_string(),
-            "price * quantity".to_string(),
+    /// Assert test completion with metrics
+    pub async fn assert_test_success(harness: &TestHarness, test_name: &str) -> anyhow::Result<()> {
+        let metrics = harness.get_test_metrics().await?;
+
+        assert!(
+            metrics.failed_tests == 0,
+            "Test '{}' had {} failures",
+            test_name,
+            metrics.failed_tests
         );
 
-        assert!(rule.parse().is_ok());
-        let result = rule.evaluate(&context).unwrap();
-        // 29.99 * 5 = 149.95
-        assert_eq!(result.as_f64().unwrap(), 149.95);
-    }
+        println!("✅ Test '{}' completed successfully", test_name);
+        println!("📊 Metrics: {} passed, {} failed",
+                metrics.passed_tests, metrics.failed_tests);
 
-    #[test]
-    fn test_function_call() {
-        let context = generate_test_context();
-        let mut rule = BusinessRule::new(
-            "test".to_string(),
-            "Test".to_string(),
-            "Test function call".to_string(),
-            r#"CONCAT("Hello ", name, "!")"#.to_string(),
-        );
-
-        assert!(rule.parse().is_ok());
-        let result = rule.evaluate(&context).unwrap();
-        // Context has name = "Alice"
-        assert_eq!(result.as_str().unwrap(), "Hello Alice!");
-    }
-
-    #[test]
-    fn test_rules_engine() {
-        let context = generate_test_context();
-        let mut engine = RulesEngine::new();
-
-        for rule in get_sample_rules().into_iter().take(3) {
-            assert!(engine.add_rule(rule).is_ok());
-        }
-
-        let results = engine.evaluate_all(&context);
-        assert_eq!(results.len(), 3);
-
-        for (_, result) in results {
-            assert!(result.is_ok());
-        }
+        Ok(())
     }
 }

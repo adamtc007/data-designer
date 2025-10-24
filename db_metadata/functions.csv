@@ -1,0 +1,156 @@
+routine_schema,routine_name,routine_type,data_type
+public,ai_semantic_attribute_search,FUNCTION,record
+public,array_to_halfvec,FUNCTION,USER-DEFINED
+public,array_to_halfvec,FUNCTION,USER-DEFINED
+public,array_to_halfvec,FUNCTION,USER-DEFINED
+public,array_to_halfvec,FUNCTION,USER-DEFINED
+public,array_to_sparsevec,FUNCTION,USER-DEFINED
+public,array_to_sparsevec,FUNCTION,USER-DEFINED
+public,array_to_sparsevec,FUNCTION,USER-DEFINED
+public,array_to_sparsevec,FUNCTION,USER-DEFINED
+public,array_to_vector,FUNCTION,USER-DEFINED
+public,array_to_vector,FUNCTION,USER-DEFINED
+public,array_to_vector,FUNCTION,USER-DEFINED
+public,array_to_vector,FUNCTION,USER-DEFINED
+public,avg,,USER-DEFINED
+public,avg,,USER-DEFINED
+public,binary_quantize,FUNCTION,bit
+public,binary_quantize,FUNCTION,bit
+public,compile_rule_to_rust,FUNCTION,text
+public,copy_attribute_set,FUNCTION,integer
+public,cosine_distance,FUNCTION,double precision
+public,cosine_distance,FUNCTION,double precision
+public,cosine_distance,FUNCTION,double precision
+public,create_attribute_set_snapshot,FUNCTION,boolean
+public,create_semantic_clusters,FUNCTION,jsonb
+public,discover_all_attributes,FUNCTION,record
+public,execute_derivation_rule,FUNCTION,jsonb
+public,filter_attributes_advanced,FUNCTION,record
+public,find_similar_attributes,FUNCTION,record
+public,generate_form_layout,FUNCTION,jsonb
+public,get_attribute_with_persistence,FUNCTION,jsonb
+public,get_enhanced_product_taxonomy_hierarchy,FUNCTION,record
+public,get_filter_suggestions,FUNCTION,jsonb
+public,get_product_taxonomy_hierarchy,FUNCTION,record
+public,halfvec,FUNCTION,USER-DEFINED
+public,halfvec_accum,FUNCTION,ARRAY
+public,halfvec_add,FUNCTION,USER-DEFINED
+public,halfvec_avg,FUNCTION,USER-DEFINED
+public,halfvec_cmp,FUNCTION,integer
+public,halfvec_combine,FUNCTION,ARRAY
+public,halfvec_concat,FUNCTION,USER-DEFINED
+public,halfvec_eq,FUNCTION,boolean
+public,halfvec_ge,FUNCTION,boolean
+public,halfvec_gt,FUNCTION,boolean
+public,halfvec_in,FUNCTION,USER-DEFINED
+public,halfvec_l2_squared_distance,FUNCTION,double precision
+public,halfvec_le,FUNCTION,boolean
+public,halfvec_lt,FUNCTION,boolean
+public,halfvec_mul,FUNCTION,USER-DEFINED
+public,halfvec_ne,FUNCTION,boolean
+public,halfvec_negative_inner_product,FUNCTION,double precision
+public,halfvec_out,FUNCTION,cstring
+public,halfvec_recv,FUNCTION,USER-DEFINED
+public,halfvec_send,FUNCTION,bytea
+public,halfvec_spherical_distance,FUNCTION,double precision
+public,halfvec_sub,FUNCTION,USER-DEFINED
+public,halfvec_to_float4,FUNCTION,ARRAY
+public,halfvec_to_sparsevec,FUNCTION,USER-DEFINED
+public,halfvec_to_vector,FUNCTION,USER-DEFINED
+public,halfvec_typmod_in,FUNCTION,integer
+public,hamming_distance,FUNCTION,double precision
+public,hnsw_bit_support,FUNCTION,internal
+public,hnsw_halfvec_support,FUNCTION,internal
+public,hnsw_sparsevec_support,FUNCTION,internal
+public,hnswhandler,FUNCTION,index_am_handler
+public,inner_product,FUNCTION,double precision
+public,inner_product,FUNCTION,double precision
+public,inner_product,FUNCTION,double precision
+public,insert_mandate_with_instruments,FUNCTION,character varying
+public,ivfflat_bit_support,FUNCTION,internal
+public,ivfflat_halfvec_support,FUNCTION,internal
+public,ivfflathandler,FUNCTION,index_am_handler
+public,jaccard_distance,FUNCTION,double precision
+public,l1_distance,FUNCTION,double precision
+public,l1_distance,FUNCTION,double precision
+public,l1_distance,FUNCTION,double precision
+public,l2_distance,FUNCTION,double precision
+public,l2_distance,FUNCTION,double precision
+public,l2_distance,FUNCTION,double precision
+public,l2_norm,FUNCTION,double precision
+public,l2_norm,FUNCTION,double precision
+public,l2_normalize,FUNCTION,USER-DEFINED
+public,l2_normalize,FUNCTION,USER-DEFINED
+public,l2_normalize,FUNCTION,USER-DEFINED
+public,mark_rule_for_recompilation,FUNCTION,trigger
+public,refresh_data_dictionary,FUNCTION,void
+public,resolve_persistence_target,FUNCTION,jsonb
+public,sparsevec,FUNCTION,USER-DEFINED
+public,sparsevec_cmp,FUNCTION,integer
+public,sparsevec_eq,FUNCTION,boolean
+public,sparsevec_ge,FUNCTION,boolean
+public,sparsevec_gt,FUNCTION,boolean
+public,sparsevec_in,FUNCTION,USER-DEFINED
+public,sparsevec_l2_squared_distance,FUNCTION,double precision
+public,sparsevec_le,FUNCTION,boolean
+public,sparsevec_lt,FUNCTION,boolean
+public,sparsevec_ne,FUNCTION,boolean
+public,sparsevec_negative_inner_product,FUNCTION,double precision
+public,sparsevec_out,FUNCTION,cstring
+public,sparsevec_recv,FUNCTION,USER-DEFINED
+public,sparsevec_send,FUNCTION,bytea
+public,sparsevec_to_halfvec,FUNCTION,USER-DEFINED
+public,sparsevec_to_vector,FUNCTION,USER-DEFINED
+public,sparsevec_typmod_in,FUNCTION,integer
+public,subvector,FUNCTION,USER-DEFINED
+public,subvector,FUNCTION,USER-DEFINED
+public,sum,,USER-DEFINED
+public,sum,,USER-DEFINED
+public,update_comprehensive_metadata,FUNCTION,trigger
+public,update_embedding_trigger,FUNCTION,trigger
+public,update_resource_instances_updated_at,FUNCTION,trigger
+public,update_updated_at_column,FUNCTION,trigger
+public,update_workflow_completion,FUNCTION,trigger
+public,uuid_generate_v1,FUNCTION,uuid
+public,uuid_generate_v1mc,FUNCTION,uuid
+public,uuid_generate_v3,FUNCTION,uuid
+public,uuid_generate_v4,FUNCTION,uuid
+public,uuid_generate_v5,FUNCTION,uuid
+public,uuid_nil,FUNCTION,uuid
+public,uuid_ns_dns,FUNCTION,uuid
+public,uuid_ns_oid,FUNCTION,uuid
+public,uuid_ns_url,FUNCTION,uuid
+public,uuid_ns_x500,FUNCTION,uuid
+public,validate_commercial_taxonomy,FUNCTION,record
+public,validate_derived_attribute,FUNCTION,trigger
+public,validate_ebnf_grammar,FUNCTION,jsonb
+public,validate_resource_attribute_set,FUNCTION,record
+public,vector,FUNCTION,USER-DEFINED
+public,vector_accum,FUNCTION,ARRAY
+public,vector_add,FUNCTION,USER-DEFINED
+public,vector_avg,FUNCTION,USER-DEFINED
+public,vector_cmp,FUNCTION,integer
+public,vector_combine,FUNCTION,ARRAY
+public,vector_concat,FUNCTION,USER-DEFINED
+public,vector_dims,FUNCTION,integer
+public,vector_dims,FUNCTION,integer
+public,vector_eq,FUNCTION,boolean
+public,vector_ge,FUNCTION,boolean
+public,vector_gt,FUNCTION,boolean
+public,vector_in,FUNCTION,USER-DEFINED
+public,vector_l2_squared_distance,FUNCTION,double precision
+public,vector_le,FUNCTION,boolean
+public,vector_lt,FUNCTION,boolean
+public,vector_mul,FUNCTION,USER-DEFINED
+public,vector_ne,FUNCTION,boolean
+public,vector_negative_inner_product,FUNCTION,double precision
+public,vector_norm,FUNCTION,double precision
+public,vector_out,FUNCTION,cstring
+public,vector_recv,FUNCTION,USER-DEFINED
+public,vector_send,FUNCTION,bytea
+public,vector_spherical_distance,FUNCTION,double precision
+public,vector_sub,FUNCTION,USER-DEFINED
+public,vector_to_float4,FUNCTION,ARRAY
+public,vector_to_halfvec,FUNCTION,USER-DEFINED
+public,vector_to_sparsevec,FUNCTION,USER-DEFINED
+public,vector_typmod_in,FUNCTION,integer
