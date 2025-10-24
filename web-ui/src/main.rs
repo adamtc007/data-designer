@@ -9,7 +9,9 @@ use eframe::egui;
 
 mod grpc_client;
 mod cbu_state_manager;
+mod resource_state_manager;
 mod cbu_dsl_ide;
+mod resource_dsl_ide;
 mod dsl_syntax_highlighter;
 mod dsl_state_manager;
 mod call_tracer;
@@ -17,7 +19,15 @@ mod wasm_utils;
 
 use cbu_dsl_ide::CbuDslIDE;
 use cbu_state_manager::CbuStateManager;
+use resource_dsl_ide::ResourceDslIDE;
+use resource_state_manager::ResourceStateManager;
 use grpc_client::GrpcClient;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ActiveView {
+    Cbu,
+    Resource,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), eframe::Error> {
@@ -44,8 +54,16 @@ async fn main() -> Result<(), eframe::Error> {
 }
 
 struct DataDesignerApp {
+    active_view: ActiveView,
+
+    // Dual state managers - single source of truth
+    cbu_state: CbuStateManager,
+    resource_state: ResourceStateManager,
+
+    // IDE components - UI only
     cbu_dsl_ide: CbuDslIDE,
-    state: CbuStateManager,
+    resource_dsl_ide: ResourceDslIDE,
+
     grpc_endpoint: String,
     connection_status: String,
 }
@@ -54,11 +72,14 @@ impl DataDesignerApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Default HTTP endpoint for local development (gRPC server exposes HTTP on 8080)
         let grpc_endpoint = "http://localhost:8080".to_string();
-        let grpc_client = Some(GrpcClient::new(&grpc_endpoint));
+        let grpc_client = GrpcClient::new(&grpc_endpoint);
 
         Self {
+            active_view: ActiveView::Cbu,
+            cbu_state: CbuStateManager::new(Some(grpc_client.clone())),
+            resource_state: ResourceStateManager::new(Some(grpc_client)),
             cbu_dsl_ide: CbuDslIDE::new(),
-            state: CbuStateManager::new(grpc_client),
+            resource_dsl_ide: ResourceDslIDE::new(),
             grpc_endpoint,
             connection_status: "Connected to localhost:8080 (HTTP/gRPC bridge)".to_string(),
         }
@@ -67,10 +88,11 @@ impl DataDesignerApp {
 
 impl eframe::App for DataDesignerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Update state from async operations
-        self.state.update_from_async();
+        // Update state from async operations for both managers
+        self.cbu_state.update_from_async();
+        self.resource_state.update_from_async();
 
-        // Top panel with connection info
+        // Top panel with connection info and view tabs
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -84,13 +106,15 @@ impl eframe::App for DataDesignerApp {
                     ui.text_edit_singleline(&mut self.grpc_endpoint);
 
                     if ui.button("Reconnect").clicked() {
-                        let grpc_client = Some(GrpcClient::new(&self.grpc_endpoint));
-                        self.state = CbuStateManager::new(grpc_client);
+                        let grpc_client = GrpcClient::new(&self.grpc_endpoint);
+                        self.cbu_state = CbuStateManager::new(Some(grpc_client.clone()));
+                        self.resource_state = ResourceStateManager::new(Some(grpc_client));
                         self.connection_status = format!("Connected to {}", self.grpc_endpoint);
                     }
 
                     if ui.button("Disconnect").clicked() {
-                        self.state = CbuStateManager::new(None);
+                        self.cbu_state = CbuStateManager::new(None);
+                        self.resource_state = ResourceStateManager::new(None);
                         self.connection_status = "Disconnected".to_string();
                     }
                 });
@@ -101,22 +125,47 @@ impl eframe::App for DataDesignerApp {
                 ui.separator();
                 ui.label("🦀 Desktop Edition - wgpu Renderer");
             });
-        });
 
-        // Main content area
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("CBU DSL IDE - Desktop Edition");
             ui.separator();
 
-            // Render the same CBU DSL IDE as the WASM version
-            self.cbu_dsl_ide.render(ui, &mut self.state);
+            // View tabs - CBU vs Resource
+            ui.horizontal(|ui| {
+                ui.heading("🏢 Data Designer");
+                ui.separator();
+
+                if ui.selectable_label(
+                    self.active_view == ActiveView::Cbu,
+                    "📋 CBU DSL"
+                ).clicked() {
+                    self.active_view = ActiveView::Cbu;
+                }
+
+                if ui.selectable_label(
+                    self.active_view == ActiveView::Resource,
+                    "🔧 Resource DSL"
+                ).clicked() {
+                    self.active_view = ActiveView::Resource;
+                }
+            });
+        });
+
+        // Main content area - render active view
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match self.active_view {
+                ActiveView::Cbu => {
+                    self.cbu_dsl_ide.render(ui, &mut self.cbu_state);
+                }
+                ActiveView::Resource => {
+                    self.resource_dsl_ide.render(ui, &mut self.resource_state);
+                }
+            }
         });
 
         // Status bar
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Status:");
-                if self.state.get_grpc_client().is_some() {
+                if self.cbu_state.get_grpc_client().is_some() {
                     ui.colored_label(egui::Color32::GREEN, "✅ gRPC Connected");
                 } else {
                     ui.colored_label(egui::Color32::RED, "❌ gRPC Disconnected");
@@ -127,6 +176,12 @@ impl eframe::App for DataDesignerApp {
 
                 ui.separator();
                 ui.label("Press F11 for fullscreen");
+
+                ui.separator();
+                match self.active_view {
+                    ActiveView::Cbu => ui.label("Active: CBU DSL"),
+                    ActiveView::Resource => ui.label("Active: Resource DSL"),
+                };
             });
         });
     }

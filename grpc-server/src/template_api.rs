@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use tokio::fs;
 use tracing::{info, error};
 use tower_http::cors::CorsLayer;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use data_designer_core::cbu_dsl::CbuDslParser;
 use data_designer_core::lisp_cbu_dsl::LispCbuParser;
 use data_designer_core::dsl_utils;
@@ -154,6 +154,11 @@ pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<T
         .route("/api/ai-suggestions", post(get_ai_suggestions))
         .route("/api/entities", post(get_entities))
         .route("/api/list-products", post(list_products))
+        // Resource DSL endpoints
+        .route("/api/list-resources", post(list_resources))
+        .route("/api/get-resource-dsl", post(get_resource_dsl))
+        .route("/api/update-resource-dsl", post(update_resource_dsl))
+        .route("/api/execute-resource-dsl", post(execute_resource_dsl))
         .with_state((db_pool, taxonomy_server))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
@@ -614,4 +619,210 @@ async fn execute_dsl(
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
+}
+
+// ============================================
+// RESOURCE DSL ENDPOINTS
+// ============================================
+
+async fn list_resources(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ListResources called");
+
+    let status_filter = request.get("status_filter")
+        .and_then(|v| v.as_str())
+        .unwrap_or("active");
+    let resource_type_filter = request.get("resource_type_filter")
+        .and_then(|v| v.as_str());
+
+    // Query resources table with optional join to dsl_metadata
+    let query = if let Some(type_filter) = resource_type_filter {
+        sqlx::query(
+            "SELECT r.id, r.resource_id, r.resource_name, r.resource_type, r.description,
+                    r.location, r.status, r.created_at, r.updated_at,
+                    d.dsl_content, d.metadata as dsl_metadata
+             FROM resources r
+             LEFT JOIN dsl_metadata d ON r.resource_id = d.entity_id AND d.dsl_domain = 'Resource'
+             WHERE r.status = $1 AND r.resource_type = $2
+             ORDER BY r.resource_name"
+        )
+        .bind(status_filter)
+        .bind(type_filter)
+    } else {
+        sqlx::query(
+            "SELECT r.id, r.resource_id, r.resource_name, r.resource_type, r.description,
+                    r.location, r.status, r.created_at, r.updated_at,
+                    d.dsl_content, d.metadata as dsl_metadata
+             FROM resources r
+             LEFT JOIN dsl_metadata d ON r.resource_id = d.entity_id AND d.dsl_domain = 'Resource'
+             WHERE r.status = $1
+             ORDER BY r.resource_name"
+        )
+        .bind(status_filter)
+    };
+
+    match query.fetch_all(&pool).await {
+        Ok(rows) => {
+            let resources: Vec<serde_json::Value> = rows.iter().map(|row| {
+                serde_json::json!({
+                    "id": row.get::<i32, _>("id"),
+                    "resource_id": row.get::<String, _>("resource_id"),
+                    "resource_name": row.get::<String, _>("resource_name"),
+                    "resource_type": row.get::<String, _>("resource_type"),
+                    "description": row.get::<Option<String>, _>("description"),
+                    "location": row.get::<Option<String>, _>("location"),
+                    "status": row.get::<String, _>("status"),
+                    "created_at": null,  // Simplified - timestamps handled separately if needed
+                    "updated_at": null,
+                    "dsl_content": row.get::<Option<String>, _>("dsl_content"),
+                    "dsl_metadata": row.get::<Option<String>, _>("dsl_metadata"),
+                })
+            }).collect();
+
+            info!("Successfully fetched {} resources", resources.len());
+            let json_response = serde_json::json!({
+                "resources": resources,
+                "total_count": resources.len()
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(e) => {
+            error!("Failed to fetch resources: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn get_resource_dsl(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP GetResourceDsl called");
+
+    let resource_id = request.get("resource_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    // Query dsl_metadata table for Resource DSL
+    let query = sqlx::query(
+        "SELECT entity_id, dsl_content, dsl_version, syntax_valid, metadata,
+                created_at, updated_at
+         FROM dsl_metadata
+         WHERE entity_id = $1 AND dsl_domain = 'Resource'"
+    )
+    .bind(resource_id);
+
+    match query.fetch_optional(&pool).await {
+        Ok(Some(row)) => {
+            let json_response = serde_json::json!({
+                "success": true,
+                "resource_id": row.get::<String, _>("entity_id"),
+                "dsl_content": row.get::<String, _>("dsl_content"),
+                "dsl_version": row.get::<i32, _>("dsl_version"),
+                "syntax_valid": row.get::<bool, _>("syntax_valid"),
+                "metadata": row.get::<Option<serde_json::Value>, _>("metadata"),
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Ok(None) => {
+            info!("No DSL found for resource: {}", resource_id);
+            let json_response = serde_json::json!({
+                "success": false,
+                "message": format!("No DSL found for resource: {}", resource_id),
+                "resource_id": resource_id,
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(e) => {
+            error!("Failed to fetch resource DSL: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn update_resource_dsl(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP UpdateResourceDsl called");
+
+    let resource_id = request.get("resource_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let dsl_content = request.get("dsl_content")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let metadata = request.get("metadata")
+        .and_then(|v| v.as_str());
+
+    // Parse metadata as JSON if provided
+    let metadata_json: Option<serde_json::Value> = metadata
+        .and_then(|m| serde_json::from_str(m).ok());
+
+    // Upsert into dsl_metadata table
+    let query = sqlx::query(
+        "INSERT INTO dsl_metadata (entity_id, dsl_domain, dsl_content, metadata, updated_at)
+         VALUES ($1, 'Resource', $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (entity_id, dsl_domain)
+         DO UPDATE SET
+            dsl_content = EXCLUDED.dsl_content,
+            metadata = EXCLUDED.metadata,
+            updated_at = CURRENT_TIMESTAMP,
+            dsl_version = dsl_metadata.dsl_version + 1"
+    )
+    .bind(resource_id)
+    .bind(dsl_content)
+    .bind(metadata_json);
+
+    match query.execute(&pool).await {
+        Ok(_) => {
+            info!("Successfully updated DSL for resource: {}", resource_id);
+            let json_response = serde_json::json!({
+                "success": true,
+                "message": "Resource DSL updated successfully",
+                "resource_id": resource_id,
+            });
+            Ok(ResponseJson(json_response))
+        }
+        Err(e) => {
+            error!("Failed to update resource DSL: {}", e);
+            let json_response = serde_json::json!({
+                "success": false,
+                "message": format!("Failed to update Resource DSL: {}", e),
+                "resource_id": resource_id,
+            });
+            Ok(ResponseJson(json_response))
+        }
+    }
+}
+
+async fn execute_resource_dsl(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("HTTP ExecuteResourceDsl called");
+
+    let resource_id = request.get("resource_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let dsl_script = request.get("dsl_script")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    info!("Executing Resource DSL for resource: {}", resource_id);
+    info!("DSL Script: {}", dsl_script);
+
+    // TODO: Implement Resource DSL parser and execution engine
+    // For now, return a stub success response
+    let json_response = serde_json::json!({
+        "success": true,
+        "message": "Resource DSL execution completed (stub implementation)",
+        "resource_id": resource_id,
+        "validation_errors": [],
+        "data": null,
+    });
+
+    Ok(ResponseJson(json_response))
 }

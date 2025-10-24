@@ -113,6 +113,76 @@ pub struct CreateCbuResponse {
     pub cbu: Option<CbuRecord>,
 }
 
+// Resource DSL types (parallel to CBU types)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceRecord {
+    pub id: i32,
+    pub resource_id: String,
+    pub resource_name: String,
+    pub resource_type: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    pub status: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub dsl_content: Option<String>,   // DSL content from dsl_metadata table (dsl_domain='Resource')
+    pub dsl_metadata: Option<String>,  // Metadata JSON from dsl_metadata table
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResourcesRequest {
+    pub status_filter: Option<String>,
+    pub resource_type_filter: Option<String>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResourcesResponse {
+    pub resources: Vec<ResourceRecord>,
+    pub total_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetResourceDslRequest {
+    pub resource_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetResourceDslResponse {
+    pub success: bool,
+    pub resource: Option<ResourceRecord>,
+    pub dsl_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateResourceDslRequest {
+    pub resource_id: String,
+    pub dsl_content: String,
+    pub metadata: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateResourceDslResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteResourceDslRequest {
+    pub resource_id: String,
+    pub dsl_script: String,
+    pub context: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteResourceDslResponse {
+    pub success: bool,
+    pub message: String,
+    pub validation_errors: Vec<String>,
+    pub execution_result: Option<String>, // JSON string with execution details
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetEntitiesRequest {
     pub jurisdiction: Option<String>,
@@ -382,6 +452,10 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/UpdateResource" => "/api/update-resource",
             "financial_taxonomy.FinancialTaxonomyService/DeleteResource" => "/api/delete-resource",
             "financial_taxonomy.FinancialTaxonomyService/ListResources" => "/api/list-resources",
+            // Resource DSL operations
+            "financial_taxonomy.FinancialTaxonomyService/GetResourceDsl" => "/api/get-resource-dsl",
+            "financial_taxonomy.FinancialTaxonomyService/UpdateResourceDsl" => "/api/update-resource-dsl",
+            "financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl" => "/api/execute-resource-dsl",
             _ => {
                 wasm_utils::console_log(&format!("❌ Unknown service method: '{}'", service_method));
                 return Err(make_error(&format!("Unknown service method: {}", service_method)));
@@ -522,6 +596,42 @@ impl GrpcClient {
         request: GetCbuRequest,
     ) -> Result<GetCbuResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetCbu", &request)
+            .await
+    }
+
+    // ============================================
+    // Resource DSL Methods
+    // ============================================
+
+    pub async fn list_resources(
+        &self,
+        request: ListResourcesRequest,
+    ) -> Result<ListResourcesResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ListResources", &request)
+            .await
+    }
+
+    pub async fn get_resource_dsl(
+        &self,
+        request: GetResourceDslRequest,
+    ) -> Result<GetResourceDslResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetResourceDsl", &request)
+            .await
+    }
+
+    pub async fn update_resource_dsl(
+        &self,
+        request: UpdateResourceDslRequest,
+    ) -> Result<UpdateResourceDslResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/UpdateResourceDsl", &request)
+            .await
+    }
+
+    pub async fn execute_resource_dsl(
+        &self,
+        request: ExecuteResourceDslRequest,
+    ) -> Result<ExecuteResourceDslResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl", &request)
             .await
     }
 }
