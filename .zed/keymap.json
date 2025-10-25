@@ -1,38 +1,10 @@
 [
   {
-    "context": "Editor",
     "bindings": {
-      "ctrl-space": "editor::ShowCompletions",
-      "cmd-k cmd-d": "assistant::InlineAssist",
-      "cmd-shift-a": "assistant::ToggleFocus",
-      "cmd-enter": "assistant::Assist",
-      "ctrl-enter": "assistant::Split",
-      "cmd-shift-enter": "assistant::QuoteSelection",
-      "f2": "editor::Rename",
-      "f12": "editor::GoToDefinition",
-      "shift-f12": "editor::GoToReferences",
-      "ctrl-k ctrl-f": "editor::Format",
-      "cmd-shift-p": "command_palette::Toggle"
-    }
-  },
-  {
-    "context": "ProjectPanel",
-    "bindings": {
-      "cmd-shift-e": "workspace::ToggleLeftDock"
-    }
-  },
-  {
-    "context": "Terminal",
-    "bindings": {
-      "cmd-`": "terminal_panel::ToggleFocus"
-    }
-  },
-  {
-    "context": "AssistantPanel",
-    "bindings": {
-      "cmd-enter": "assistant::Assist",
-      "ctrl-c": "assistant::Cancel",
-      "escape": "assistant::ToggleFocus"
+      "ctrl-?": "agent::NewThread",
+      "ctrl-alt-/": "agent::CycleModel",
+      "cmd-alt-o": ["task::Spawn", { "task_name": "Onboarding: compile & run demo" }],
+      "cmd-alt-r": "task::Rerun"
     }
   }
 ]

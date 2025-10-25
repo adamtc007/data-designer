@@ -1,154 +1,39 @@
-{
-  "tasks": [
-    {
-      "label": "Run WASM App",
-      "command": "./runwasm.sh",
-      "args": [],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Run WASM App with LSP",
-      "command": "./runwasm.sh",
-      "args": ["--with-lsp"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Start LSP Server",
-      "command": "./run-lsp-server.sh",
-      "args": [],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Start LSP Background",
-      "command": "./run-lsp-server-background.sh",
-      "args": ["start"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Build Core",
-      "command": "cargo",
-      "args": ["build", "--package", "data-designer-core"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "silent",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Build gRPC Server",
-      "command": "cargo",
-      "args": ["build", "--package", "grpc-server"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "silent",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Build Web UI",
-      "command": "cargo",
-      "args": ["build", "--package", "web-ui"],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "silent",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Test All",
-      "command": "cargo",
-      "args": ["test", "--all"],
-      "group": "test",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Clippy Check",
-      "command": "cargo",
-      "args": ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"],
-      "group": "test",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "Export for AI",
-      "command": "./export-for-ai.sh",
-      "args": [],
-      "group": "build",
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      },
-      "problemMatcher": []
-    }
-  ]
-}
+[
+  {
+    "label": "Onboarding: compile & run demo",
+    "command": "cargo",
+    "args": ["run", "-p", "onboarding-cli"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "Onboarding: tests",
+    "command": "cargo",
+    "args": ["test", "-p", "onboarding"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always"
+  },
+  {
+    "label": "Onboarding: watch (rebuild + run)",
+    "command": "cargo",
+    "args": ["watch", "-x", "run -p onboarding-cli"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always"
+  },
+  {
+    "label": "Onboarding: plan → DOT",
+    "command": "bash",
+    "args": ["-lc", "./scripts/plan_to_dot.sh"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always"
+  },
+  {
+    "label": "Onboarding: DOT → PNG & open",
+    "command": "bash",
+    "args": ["-lc", "dot -Tpng var/plan.dot -o var/plan.png && (xdg-open var/plan.png >/dev/null 2>&1 || open var/plan.png || true)"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "reveal": "always"
+  }
+]
