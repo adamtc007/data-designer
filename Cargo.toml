@@ -5,6 +5,10 @@ members = [
     "web-ui",
     "template-server",
     "cbu-dsl-lsp",
+    "onboarding",
+]
+exclude = [
+    "tools/*",
 ]
 resolver = "2"
 

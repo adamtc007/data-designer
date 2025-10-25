@@ -1,0 +1,27 @@
+products:
+  - id: GlobalCustody@v3
+    services:
+      - serviceId: Safekeeping
+      - serviceId: TradeCapture
+        options:
+          - id: instructionMethod
+            prompt: How will you instruct trades?
+            type: select
+            choices: ["SWIFT","API","ManualPlatform"]
+            requiredForResources: ["trade-router:v2","swift-gateway:v2"]
+      - serviceId: MarketAccess
+        options:
+          - id: enabledMarkets
+            prompt: Which markets do you require access to?
+            type: multiselect
+            choices: ["US","UK","EU","APAC"]
+            requiredForResources: ["trading-system:v4"]
+    resources:
+      - type: custody-core:v1
+        implements: ["Safekeeping"]
+      - type: trade-router:v2
+        implements: ["TradeCapture"]
+      - type: swift-gateway:v2
+        implements: ["TradeCapture"]
+      - type: trading-system:v4
+        implements: ["MarketAccess"]

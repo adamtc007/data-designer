@@ -1,0 +1,13 @@
+cbuTemplates:
+  - id: EU_Equities_Fund_Structure@v1
+    description: SICAV equities fund
+    requiredRoles:
+      - role: ManagementCompany
+        entityTypeConstraint: ["ManagementCompany"]
+      - role: SICAV
+        entityTypeConstraint: ["SICAV"]
+      - role: AssetOwnerSPV
+        entityTypeConstraint: ["SPV"]
+      - role: InvestmentManager
+        entityTypeConstraint: ["InvestmentManager"]
+      - role: PrimaryCommercialClient
