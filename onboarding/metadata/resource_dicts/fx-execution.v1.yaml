@@ -1,0 +1,26 @@
+resourceTypes:
+  - id: fx-execution:v1
+    dictionary:
+      attrs:
+        - key: execution-venue
+          type: array[string]
+          required: true
+          values: ["Internal","ECN","PrimeOfDay","BestExecution"]
+        - key: counterparty-limit-checking
+          type: boolean
+          required: true
+          default: true
+        - key: slippage-tolerance-bps
+          type: integer
+          required: true
+          default: 5
+        - key: settlement-instructions
+          type: string
+          required: true
+          default: standard-fx-ssi-v1
+        - key: trade-confirmation-mode
+          type: enum
+          values: ["Automated","ManualConfirmation"]
+          required: true
+          default: Automated
+    lifecycle: {}

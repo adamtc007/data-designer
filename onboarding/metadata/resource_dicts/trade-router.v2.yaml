@@ -1,0 +1,21 @@
+resourceTypes:
+  - id: trade-router:v2
+    dictionary:
+      attrs:
+        - key: instruction-method
+          type: enum
+          values: ["SWIFT","API","ManualPlatform"]
+          required: true
+        - key: routing-rules
+          type: string
+          required: true
+          default: trade-routing-v2
+        - key: supported-asset-classes
+          type: array[string]
+          required: true
+          default: ["Equity","FixedIncome","Derivatives"]
+        - key: settlement-calendar
+          type: string
+          required: true
+          default: global-settlement-v1
+    lifecycle: {}

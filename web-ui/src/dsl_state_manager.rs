@@ -8,7 +8,6 @@
 /// - Clear state transitions
 /// - Testable public API
 /// - Immutable updates where possible
-
 use crate::cbu_state_manager::CbuContext;
 use crate::grpc_client::{GrpcClient, CbuRecord};
 use crate::wasm_utils;

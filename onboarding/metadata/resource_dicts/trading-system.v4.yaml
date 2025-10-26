@@ -1,0 +1,21 @@
+resourceTypes:
+  - id: trading-system:v4
+    dictionary:
+      attrs:
+        - key: enabled-markets
+          type: array[string]
+          required: true
+          values: ["US","UK","EU","APAC"]
+        - key: order-types
+          type: array[string]
+          required: true
+          default: ["Market","Limit","Stop","StopLimit"]
+        - key: pre-trade-compliance
+          type: boolean
+          required: true
+          default: true
+        - key: oms-version
+          type: string
+          required: true
+          default: oms-v4.2
+    lifecycle: {}

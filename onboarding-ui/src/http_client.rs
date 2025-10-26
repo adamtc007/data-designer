@@ -1,3 +1,8 @@
+//! HTTP Client for onboarding-ui
+//! Adapted from grpc_client.rs - many methods unused but kept for compatibility
+
+#![allow(dead_code)] // Legacy code from grpc_client.rs
+
 use serde::{Deserialize, Serialize};
 use crate::wasm_utils;
 

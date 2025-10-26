@@ -1,0 +1,24 @@
+resourceTypes:
+  - id: distribution-engine:v1
+    dictionary:
+      attrs:
+        - key: distribution-channels
+          type: array[string]
+          required: true
+          values: ["Direct","Platform","Intermediary"]
+        - key: commission-structure
+          type: string
+          required: true
+          default: tiered-commission-v1
+        - key: rebate-processing
+          type: boolean
+          required: true
+          default: true
+        - key: platform-integrations
+          type: array[string]
+          required: false
+        - key: distribution-agreement-template
+          type: string
+          required: true
+          default: standard-distribution-v2
+    lifecycle: {}

@@ -1150,10 +1150,7 @@ impl CommandExecutor {
             data_resolvers: HashMap::new(),
             validators: HashMap::new(),
             rule_executor: EbnfRuleExecutor::default(),
-            capability_engine: Arc::new(
-                // This is not safe but needed for compilation - should use new_with_capability_engine
-                unsafe { std::mem::zeroed() }
-            ),
+            capability_engine: Arc::new(CapabilityEngine::default()),
         }
     }
 

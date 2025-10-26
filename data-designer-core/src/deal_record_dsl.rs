@@ -459,9 +459,8 @@ impl DealRecordDslParser {
     /// Extract string from quotes
     fn extract_quoted_string(&self, text: &str) -> Result<String, DealRecordDslError> {
         let text = text.trim();
-        if text.starts_with('\'') && text.ends_with('\'') && text.len() >= 2 {
-            Ok(text[1..text.len()-1].to_string())
-        } else if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+        if (text.starts_with('\'') && text.ends_with('\'') ||
+            text.starts_with('"') && text.ends_with('"')) && text.len() >= 2 {
             Ok(text[1..text.len()-1].to_string())
         } else {
             Err(DealRecordDslError::ParseError(
@@ -492,42 +491,42 @@ impl DealRecordDslParser {
 
         // Validate CBUs
         for cbu_id in &command.cbu_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "cbu", "cbu_id", cbu_id).await {
+            if self.validate_resource_exists(pool, "cbu", "cbu_id", cbu_id).await.is_err() {
                 validation_errors.push(format!("CBU '{}' not found", cbu_id));
             }
         }
 
         // Validate Products
         for product_id in &command.product_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "products", "product_id", product_id).await {
+            if self.validate_resource_exists(pool, "products", "product_id", product_id).await.is_err() {
                 validation_errors.push(format!("Product '{}' not found", product_id));
             }
         }
 
         // Validate Contracts (assuming contracts table)
         for contract_id in &command.contract_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "contracts", "contract_id", contract_id).await {
+            if self.validate_resource_exists(pool, "contracts", "contract_id", contract_id).await.is_err() {
                 validation_errors.push(format!("Contract '{}' not found", contract_id));
             }
         }
 
         // Validate KYC Clearances (assuming kyc_clearances table)
         for kyc_id in &command.kyc_clearance_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "kyc_clearances", "kyc_id", kyc_id).await {
+            if self.validate_resource_exists(pool, "kyc_clearances", "kyc_id", kyc_id).await.is_err() {
                 validation_errors.push(format!("KYC Clearance '{}' not found", kyc_id));
             }
         }
 
         // Validate Service Maps (assuming service_maps table)
         for service_map_id in &command.service_map_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "service_maps", "service_map_id", service_map_id).await {
+            if self.validate_resource_exists(pool, "service_maps", "service_map_id", service_map_id).await.is_err() {
                 validation_errors.push(format!("Service Map '{}' not found", service_map_id));
             }
         }
 
         // Validate Opportunities
         for opportunity_id in &command.opportunity_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "opportunities", "opportunity_id", opportunity_id).await {
+            if self.validate_resource_exists(pool, "opportunities", "opportunity_id", opportunity_id).await.is_err() {
                 validation_errors.push(format!("Opportunity '{}' not found", opportunity_id));
             }
         }

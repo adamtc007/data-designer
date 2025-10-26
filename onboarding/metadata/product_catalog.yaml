@@ -25,3 +25,68 @@ products:
         implements: ["TradeCapture"]
       - type: trading-system:v4
         implements: ["MarketAccess"]
+
+  - id: FundAccounting@v2
+    services:
+      - serviceId: NavCalculation
+        options:
+          - id: navFrequency
+            prompt: NAV calculation frequency?
+            type: select
+            choices: ["Daily","Weekly","Monthly"]
+      - serviceId: FinancialReporting
+        options:
+          - id: reportingStandards
+            prompt: Which reporting standards?
+            type: multiselect
+            choices: ["IFRS","USGAAP","LocalGAAP"]
+      - serviceId: ExpenseAccrual
+    resources:
+      - type: accounting-engine:v2
+        implements: ["NavCalculation","ExpenseAccrual"]
+      - type: reporting-module:v1
+        implements: ["FinancialReporting"]
+
+  - id: TransferAgency@v1
+    services:
+      - serviceId: ShareholderRegistry
+      - serviceId: SubscriptionRedemption
+        options:
+          - id: automationLevel
+            prompt: Level of automation?
+            type: select
+            choices: ["FullyAutomated","SemiAutomated","Manual"]
+      - serviceId: Distribution
+        options:
+          - id: distributionChannels
+            prompt: Distribution channels?
+            type: multiselect
+            choices: ["Direct","Platform","Intermediary"]
+    resources:
+      - type: registry-system:v1
+        implements: ["ShareholderRegistry"]
+      - type: order-management:v2
+        implements: ["SubscriptionRedemption"]
+      - type: distribution-engine:v1
+        implements: ["Distribution"]
+
+  - id: FXTrading@v1
+    services:
+      - serviceId: SpotFX
+      - serviceId: ForwardFX
+        options:
+          - id: forwardTenors
+            prompt: Forward tenors supported?
+            type: multiselect
+            choices: ["1M","3M","6M","12M"]
+      - serviceId: FXExecution
+        options:
+          - id: executionVenue
+            prompt: Execution venues?
+            type: multiselect
+            choices: ["Internal","ECN","PrimeOfDay","BestExecution"]
+    resources:
+      - type: fx-pricing-engine:v1
+        implements: ["SpotFX","ForwardFX"]
+      - type: fx-execution:v1
+        implements: ["FXExecution"]

@@ -2144,6 +2144,346 @@ impl FinancialTaxonomyService for TaxonomyServer {
     // Note: The other methods like create_product, update_product, etc. would follow similar patterns
     // For brevity, implementing key service and resource operations
 
+    // === ONBOARDING REQUEST MANAGEMENT gRPC METHODS ===
+
+    async fn create_onboarding_request(
+        &self,
+        request: Request<CreateOnboardingRequestRequest>,
+    ) -> Result<Response<CreateOnboardingRequestResponse>, Status> {
+        info!("📝 [gRPC] CreateOnboardingRequest called");
+        let req = request.into_inner();
+
+        use sqlx::types::chrono::Utc;
+        let year = Utc::now().format("%Y").to_string();
+
+        let count_result = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM onboarding_request WHERE onboarding_id LIKE $1"
+        )
+        .bind(format!("OR-{}-%%", year))
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        let next_num = count_result + 1;
+        let onboarding_id = format!("OR-{}-{:05}", year, next_num);
+
+        let insert_result = sqlx::query(
+            "INSERT INTO onboarding_request (onboarding_id, name, description, status, cbu_id, created_at, updated_at)
+             VALUES ($1, $2, $3, 'draft', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING id"
+        )
+        .bind(&onboarding_id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(&req.cbu_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to create request: {}", e)))?;
+
+        let request_id: i32 = insert_result.get("id");
+
+        // Insert DSL template
+        let default_products: Vec<String> = vec![];
+        let default_team_users = serde_json::json!([
+            {"email": "ops.admin@client.com", "role": "Administrator"},
+            {"email": "ops.approver@client.com", "role": "Approver"}
+        ]);
+        let default_cbu_profile = serde_json::json!({"region": "EU"});
+
+        sqlx::query(
+            "INSERT INTO onboarding_request_dsl (onboarding_request_id, instance_id, products, team_users, cbu_profile, template_version)
+             VALUES ($1, $2, $3, $4, $5, 'v1')"
+        )
+        .bind(request_id)
+        .bind(&onboarding_id)
+        .bind(&default_products)
+        .bind(&default_team_users)
+        .bind(&default_cbu_profile)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to create DSL template: {}", e)))?;
+
+        info!("✅ [gRPC] Created onboarding request: {}", onboarding_id);
+
+        let response = CreateOnboardingRequestResponse {
+            success: true,
+            message: format!("Onboarding request {} created successfully", onboarding_id),
+            onboarding_id: Some(onboarding_id),
+            request_id: Some(request_id),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn get_onboarding_request(
+        &self,
+        request: Request<GetOnboardingRequestRequest>,
+    ) -> Result<Response<GetOnboardingRequestResponse>, Status> {
+        info!("🔍 [gRPC] GetOnboardingRequest called");
+        let req = request.into_inner();
+
+        let row = sqlx::query(
+            "SELECT r.id, r.onboarding_id, r.name, r.description, r.status, r.cbu_id, r.created_at, r.updated_at,
+                    d.products, d.team_users, d.cbu_profile, d.workflow_config
+             FROM onboarding_request r
+             LEFT JOIN onboarding_request_dsl d ON r.id = d.onboarding_request_id
+             WHERE r.onboarding_id = $1"
+        )
+        .bind(&req.onboarding_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        match row {
+            Some(row) => {
+                use sqlx::types::chrono::{DateTime, Utc};
+                let created_at = row.get::<DateTime<Utc>, _>("created_at");
+                let updated_at = row.get::<DateTime<Utc>, _>("updated_at");
+
+                let team_users_json = row.get::<Option<serde_json::Value>, _>("team_users")
+                    .map(|v| v.to_string());
+                let cbu_profile_json = row.get::<Option<serde_json::Value>, _>("cbu_profile")
+                    .map(|v| v.to_string());
+                let workflow_config_json = row.get::<Option<serde_json::Value>, _>("workflow_config")
+                    .map(|v| v.to_string());
+
+                let details = OnboardingRequestDetails {
+                    id: row.get("id"),
+                    onboarding_id: row.get("onboarding_id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    status: row.get("status"),
+                    cbu_id: row.get("cbu_id"),
+                    products: row.get::<Option<Vec<String>>, _>("products").unwrap_or_default(),
+                    team_users_json,
+                    cbu_profile_json,
+                    workflow_config_json,
+                    created_at: Some(prost_types::Timestamp {
+                        seconds: created_at.timestamp(),
+                        nanos: created_at.timestamp_subsec_nanos() as i32,
+                    }),
+                    updated_at: Some(prost_types::Timestamp {
+                        seconds: updated_at.timestamp(),
+                        nanos: updated_at.timestamp_subsec_nanos() as i32,
+                    }),
+                };
+
+                let response = GetOnboardingRequestResponse {
+                    success: true,
+                    message: "Request found".to_string(),
+                    request: Some(details),
+                };
+
+                Ok(Response::new(response))
+            }
+            None => {
+                let response = GetOnboardingRequestResponse {
+                    success: false,
+                    message: format!("Request {} not found", req.onboarding_id),
+                    request: None,
+                };
+                Ok(Response::new(response))
+            }
+        }
+    }
+
+    async fn list_onboarding_requests(
+        &self,
+        request: Request<ListOnboardingRequestsRequest>,
+    ) -> Result<Response<ListOnboardingRequestsResponse>, Status> {
+        info!("📋 [gRPC] ListOnboardingRequests called");
+        let req = request.into_inner();
+
+        let limit = req.limit.unwrap_or(100);
+        let offset = req.offset.unwrap_or(0);
+
+        let mut query_str = "SELECT id, onboarding_id, name, description, status, cbu_id, created_at, updated_at
+             FROM onboarding_request WHERE 1=1".to_string();
+
+        if let Some(status) = &req.status_filter {
+            query_str.push_str(&format!(" AND status = '{}'", status));
+        }
+        if let Some(cbu_id) = &req.cbu_id_filter {
+            query_str.push_str(&format!(" AND cbu_id = '{}'", cbu_id));
+        }
+
+        query_str.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset));
+
+        let rows = sqlx::query(&query_str)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        use sqlx::types::chrono::{DateTime, Utc};
+        let requests: Vec<OnboardingRequestSummary> = rows.iter().map(|row| {
+            let created_at = row.get::<DateTime<Utc>, _>("created_at");
+            let updated_at = row.get::<DateTime<Utc>, _>("updated_at");
+
+            OnboardingRequestSummary {
+                id: row.get("id"),
+                onboarding_id: row.get("onboarding_id"),
+                name: row.get("name"),
+                description: row.get("description"),
+                status: row.get("status"),
+                cbu_id: row.get("cbu_id"),
+                created_at: Some(prost_types::Timestamp {
+                    seconds: created_at.timestamp(),
+                    nanos: created_at.timestamp_subsec_nanos() as i32,
+                }),
+                updated_at: Some(prost_types::Timestamp {
+                    seconds: updated_at.timestamp(),
+                    nanos: updated_at.timestamp_subsec_nanos() as i32,
+                }),
+            }
+        }).collect();
+
+        let total_count = requests.len() as i32;
+
+        let response = ListOnboardingRequestsResponse {
+            requests,
+            total_count,
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn update_onboarding_request_status(
+        &self,
+        request: Request<UpdateOnboardingRequestStatusRequest>,
+    ) -> Result<Response<UpdateOnboardingRequestStatusResponse>, Status> {
+        info!("🔄 [gRPC] UpdateOnboardingRequestStatus called");
+        let req = request.into_inner();
+
+        let result = sqlx::query(
+            "UPDATE onboarding_request SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE onboarding_id = $2"
+        )
+        .bind(&req.status)
+        .bind(&req.onboarding_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Ok(Response::new(UpdateOnboardingRequestStatusResponse {
+                success: false,
+                message: format!("Request {} not found", req.onboarding_id),
+            }));
+        }
+
+        let response = UpdateOnboardingRequestStatusResponse {
+            success: true,
+            message: format!("Status updated to {}", req.status),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn compile_onboarding_workflow(
+        &self,
+        request: Request<CompileOnboardingWorkflowRequest>,
+    ) -> Result<Response<CompileOnboardingWorkflowResponse>, Status> {
+        info!("⚙️ [gRPC] CompileOnboardingWorkflow called");
+        let req = request.into_inner();
+
+        use onboarding::{compile_onboard, CompileInputs};
+        use onboarding::ast::oodl::OnboardIntent;
+        use onboarding::meta::loader::load_from_dir;
+
+        let meta = load_from_dir(std::path::Path::new("onboarding/metadata"))
+            .map_err(|e| Status::internal(format!("Failed to load metadata: {}", e)))?;
+
+        let intent = OnboardIntent {
+            instance_id: req.instance_id.unwrap_or_else(|| req.onboarding_id.clone()),
+            cbu_id: req.cbu_id.unwrap_or_default(),
+            products: req.products.clone(),
+        };
+
+        let team_users: Vec<serde_json::Value> = req.team_users_json.iter()
+            .filter_map(|s| serde_json::from_str(s).ok())
+            .collect();
+
+        let cbu_profile = req.cbu_profile_json
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        let inputs = CompileInputs {
+            intent: &intent,
+            meta: &meta,
+            team_users,
+            cbu_profile,
+        };
+
+        match compile_onboard(inputs) {
+            Ok(outputs) => {
+                let plan_json = serde_json::to_string(&outputs.plan)
+                    .map_err(|e| Status::internal(format!("Serialization error: {}", e)))?;
+                let idd_json = serde_json::to_string(&outputs.idd)
+                    .map_err(|e| Status::internal(format!("Serialization error: {}", e)))?;
+                let bindings_json = serde_json::to_string(&outputs.bindings)
+                    .map_err(|e| Status::internal(format!("Serialization error: {}", e)))?;
+
+                let response = CompileOnboardingWorkflowResponse {
+                    success: true,
+                    message: "Workflow compiled successfully".to_string(),
+                    plan_json: Some(plan_json),
+                    idd_json: Some(idd_json),
+                    bindings_json: Some(bindings_json),
+                };
+
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                let response = CompileOnboardingWorkflowResponse {
+                    success: false,
+                    message: format!("Compilation failed: {}", e),
+                    plan_json: None,
+                    idd_json: None,
+                    bindings_json: None,
+                };
+                Ok(Response::new(response))
+            }
+        }
+    }
+
+    async fn execute_onboarding_workflow(
+        &self,
+        request: Request<ExecuteOnboardingWorkflowRequest>,
+    ) -> Result<Response<ExecuteOnboardingWorkflowResponse>, Status> {
+        info!("▶️ [gRPC] ExecuteOnboardingWorkflow called");
+        let req = request.into_inner();
+
+        use onboarding::{execute_plan, ExecutionConfig};
+        use onboarding::ir::Plan;
+
+        let plan: Plan = serde_json::from_str(&req.plan_json)
+            .map_err(|e| Status::invalid_argument(format!("Invalid plan JSON: {}", e)))?;
+
+        let config = ExecutionConfig {};
+
+        match execute_plan(&plan, &config).await {
+            Ok(_) => {
+                let response = ExecuteOnboardingWorkflowResponse {
+                    success: true,
+                    message: "Workflow executed successfully".to_string(),
+                    execution_log: vec![
+                        "Execution started".to_string(),
+                        format!("Executed {} tasks", plan.steps.len()),
+                        "Execution completed".to_string(),
+                    ],
+                };
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                let response = ExecuteOnboardingWorkflowResponse {
+                    success: false,
+                    message: format!("Execution failed: {}", e),
+                    execution_log: vec![],
+                };
+                Ok(Response::new(response))
+            }
+        }
+    }
+
 }
 
 // AI Assistant implementation

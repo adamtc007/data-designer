@@ -1,0 +1,25 @@
+resourceTypes:
+  - id: registry-system:v1
+    dictionary:
+      attrs:
+        - key: shareholder-id-format
+          type: string
+          required: true
+          default: numeric-8-digit
+        - key: kyc-integration
+          type: boolean
+          required: true
+          default: true
+        - key: aml-screening
+          type: boolean
+          required: true
+          default: true
+        - key: fatca-crs-reporting
+          type: boolean
+          required: true
+          default: true
+        - key: supported-investor-types
+          type: array[string]
+          required: true
+          default: ["Retail","Institutional","Qualified"]
+    lifecycle: {}

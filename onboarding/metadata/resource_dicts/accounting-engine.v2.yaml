@@ -1,0 +1,25 @@
+resourceTypes:
+  - id: accounting-engine:v2
+    dictionary:
+      attrs:
+        - key: nav-frequency
+          type: enum
+          values: ["Daily","Weekly","Monthly"]
+          required: true
+        - key: accounting-method
+          type: enum
+          values: ["Accrual","Cash"]
+          required: true
+          default: Accrual
+        - key: expense-allocation
+          type: string
+          required: true
+          default: pro-rata-by-nav
+        - key: base-currency
+          type: iso-4217
+          required: true
+        - key: multi-currency-support
+          type: boolean
+          required: true
+          default: true
+    lifecycle: {}

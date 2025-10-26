@@ -338,12 +338,12 @@ impl OpportunityDslParser {
         let amount_str = self.extract_quoted_string(parts[1].trim())?;
 
         // Parse amount (remove $ and convert to float)
-        let (currency, amount) = if amount_str.starts_with('$') {
-            ("USD".to_string(), amount_str[1..].replace(",", ""))
-        } else if amount_str.starts_with('£') {
-            ("GBP".to_string(), amount_str[1..].replace(",", ""))
-        } else if amount_str.starts_with('€') {
-            ("EUR".to_string(), amount_str[1..].replace(",", ""))
+        let (currency, amount) = if let Some(stripped) = amount_str.strip_prefix('$') {
+            ("USD".to_string(), stripped.replace(',', ""))
+        } else if let Some(stripped) = amount_str.strip_prefix('£') {
+            ("GBP".to_string(), stripped.replace(',', ""))
+        } else if let Some(stripped) = amount_str.strip_prefix('€') {
+            ("EUR".to_string(), stripped.replace(',', ""))
         } else {
             ("USD".to_string(), amount_str.replace(",", ""))
         };
@@ -363,9 +363,8 @@ impl OpportunityDslParser {
     /// Extract string from quotes
     fn extract_quoted_string(&self, text: &str) -> Result<String, OpportunityDslError> {
         let text = text.trim();
-        if text.starts_with('\'') && text.ends_with('\'') && text.len() >= 2 {
-            Ok(text[1..text.len()-1].to_string())
-        } else if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+        if (text.starts_with('\'') && text.ends_with('\'') ||
+            text.starts_with('"') && text.ends_with('"')) && text.len() >= 2 {
             Ok(text[1..text.len()-1].to_string())
         } else {
             Err(OpportunityDslError::ParseError(
@@ -394,14 +393,14 @@ impl OpportunityDslParser {
 
         // Validate CBUs
         for cbu_id in &command.cbu_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "cbu", "cbu_id", cbu_id).await {
+            if self.validate_resource_exists(pool, "cbu", "cbu_id", cbu_id).await.is_err() {
                 validation_errors.push(format!("CBU '{}' not found", cbu_id));
             }
         }
 
         // Validate Products
         for product_id in &command.product_ids {
-            if let Err(_) = self.validate_resource_exists(pool, "products", "product_id", product_id).await {
+            if self.validate_resource_exists(pool, "products", "product_id", product_id).await.is_err() {
                 validation_errors.push(format!("Product '{}' not found", product_id));
             }
         }

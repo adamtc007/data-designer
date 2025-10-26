@@ -210,7 +210,7 @@ impl LispCbuParser {
                 }
                 ';' => {
                     // Skip line comments
-                    while let Some(ch) = chars.next() {
+                    for ch in chars.by_ref() {
                         if ch == '\n' {
                             break;
                         }
@@ -589,7 +589,7 @@ impl LispCbuParser {
     pub fn generate_dsl_from_cbu(&self, cbu_name: &str, description: &str, entities: &[LispCbuEntity]) -> String {
         let mut dsl = String::new();
 
-        dsl.push_str(&format!(";; Generated CBU DSL\n"));
+        dsl.push_str(";; Generated CBU DSL\n");
         dsl.push_str(&format!("(create-cbu \"{}\" \"{}\"\n", cbu_name, description));
 
         if !entities.is_empty() {
@@ -602,7 +602,7 @@ impl LispCbuParser {
             dsl.push_str("  )");
         }
 
-        dsl.push_str(")");
+        dsl.push(')');
         dsl
     }
 }

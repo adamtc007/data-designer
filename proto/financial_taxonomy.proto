@@ -144,6 +144,16 @@ service FinancialTaxonomyService {
   rpc ListOpportunities(ListOpportunitiesRequest) returns (ListOpportunitiesResponse);
   rpc GetOpportunityRevenueAnalysis(GetOpportunityRevenueAnalysisRequest) returns (GetOpportunityRevenueAnalysisResponse);
 
+  // === ONBOARDING REQUEST MANAGEMENT ===
+
+  // Onboarding Request Management
+  rpc CreateOnboardingRequest(CreateOnboardingRequestRequest) returns (CreateOnboardingRequestResponse);
+  rpc GetOnboardingRequest(GetOnboardingRequestRequest) returns (GetOnboardingRequestResponse);
+  rpc ListOnboardingRequests(ListOnboardingRequestsRequest) returns (ListOnboardingRequestsResponse);
+  rpc UpdateOnboardingRequestStatus(UpdateOnboardingRequestStatusRequest) returns (UpdateOnboardingRequestStatusResponse);
+  rpc CompileOnboardingWorkflow(CompileOnboardingWorkflowRequest) returns (CompileOnboardingWorkflowResponse);
+  rpc ExecuteOnboardingWorkflow(ExecuteOnboardingWorkflowRequest) returns (ExecuteOnboardingWorkflowResponse);
+
 }
 
 // === EXISTING MESSAGES ===
@@ -1533,3 +1543,111 @@ message OpportunityRevenueAnalysis {
   google.protobuf.Timestamp created_at = 11;
 }
 
+
+// === ONBOARDING REQUEST MANAGEMENT MESSAGES ===
+
+// Create Onboarding Request
+message CreateOnboardingRequestRequest {
+  string name = 1;
+  optional string description = 2;
+  optional string cbu_id = 3;
+}
+
+message CreateOnboardingRequestResponse {
+  bool success = 1;
+  string message = 2;
+  optional string onboarding_id = 3;
+  optional int32 request_id = 4;
+}
+
+// Get Onboarding Request
+message GetOnboardingRequestRequest {
+  string onboarding_id = 1;
+}
+
+message GetOnboardingRequestResponse {
+  bool success = 1;
+  string message = 2;
+  optional OnboardingRequestDetails request = 3;
+}
+
+// List Onboarding Requests
+message ListOnboardingRequestsRequest {
+  optional string status_filter = 1;
+  optional string cbu_id_filter = 2;
+  optional int32 limit = 3;
+  optional int32 offset = 4;
+}
+
+message ListOnboardingRequestsResponse {
+  repeated OnboardingRequestSummary requests = 1;
+  int32 total_count = 2;
+}
+
+// Update Onboarding Request Status
+message UpdateOnboardingRequestStatusRequest {
+  string onboarding_id = 1;
+  string status = 2; // draft, compiled, executing, completed, failed
+}
+
+message UpdateOnboardingRequestStatusResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Compile Onboarding Workflow  
+message CompileOnboardingWorkflowRequest {
+  string onboarding_id = 1;
+  optional string instance_id = 2;
+  optional string cbu_id = 3;
+  repeated string products = 4;
+  repeated string team_users_json = 5;
+  optional string cbu_profile_json = 6;
+}
+
+message CompileOnboardingWorkflowResponse {
+  bool success = 1;
+  string message = 2;
+  optional string plan_json = 3;
+  optional string idd_json = 4;
+  optional string bindings_json = 5;
+}
+
+// Execute Onboarding Workflow
+message ExecuteOnboardingWorkflowRequest {
+  string onboarding_id = 1;
+  string plan_json = 2;
+}
+
+message ExecuteOnboardingWorkflowResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string execution_log = 3;
+}
+
+// Supporting data structures
+message OnboardingRequestSummary {
+  int32 id = 1;
+  string onboarding_id = 2;
+  string name = 3;
+  optional string description = 4;
+  string status = 5;
+  optional string cbu_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message OnboardingRequestDetails {
+  int32 id = 1;
+  string onboarding_id = 2;
+  string name = 3;
+  optional string description = 4;
+  string status = 5;
+  optional string cbu_id = 6;
+  repeated string products = 7;
+  optional string team_users_json = 8;
+  optional string cbu_profile_json = 9;
+  optional string workflow_config_json = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}

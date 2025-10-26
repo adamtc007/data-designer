@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::fs;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use tower_http::cors::CorsLayer;
 use sqlx::{PgPool, Row};
 use data_designer_core::cbu_dsl::CbuDslParser;
@@ -159,6 +159,15 @@ pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<T
         .route("/api/get-resource-dsl", post(get_resource_dsl))
         .route("/api/update-resource-dsl", post(update_resource_dsl))
         .route("/api/execute-resource-dsl", post(execute_resource_dsl))
+        // Onboarding workflow endpoints
+        .route("/api/onboarding/get-metadata", get(get_onboarding_metadata))
+        .route("/api/onboarding/update-metadata", post(update_onboarding_metadata))
+        .route("/api/onboarding/compile", post(compile_onboarding_workflow))
+        .route("/api/onboarding/execute", post(execute_onboarding_workflow))
+        // Onboarding request management endpoints
+        .route("/api/onboarding/requests", post(create_onboarding_request))
+        .route("/api/onboarding/requests", get(list_onboarding_requests))
+        .route("/api/onboarding/requests/:onboarding_id", get(get_onboarding_request))
         .with_state((db_pool, taxonomy_server))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
@@ -825,4 +834,473 @@ async fn execute_resource_dsl(
     });
 
     Ok(ResponseJson(json_response))
+}
+
+// ========== ONBOARDING WORKFLOW ENDPOINTS ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnboardingMetadata {
+    pub product_catalog: String,
+    pub cbu_templates: String,
+    pub resource_dicts: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMetadataRequest {
+    pub file_type: String, // "product_catalog", "cbu_templates", or resource dict name
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWorkflowRequest {
+    pub instance_id: String,
+    pub cbu_id: String,
+    pub products: Vec<String>,
+    pub team_users: Vec<serde_json::Value>,
+    pub cbu_profile: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWorkflowResponse {
+    pub success: bool,
+    pub message: String,
+    pub plan: Option<serde_json::Value>,
+    pub idd: Option<serde_json::Value>,
+    pub bindings: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteWorkflowRequest {
+    pub plan: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteWorkflowResponse {
+    pub success: bool,
+    pub message: String,
+    pub execution_log: Vec<String>,
+}
+
+async fn get_onboarding_metadata() -> Result<ResponseJson<OnboardingMetadata>, StatusCode> {
+    info!("🔄 [STATE] Getting onboarding metadata");
+
+    let metadata_dir = std::path::Path::new("onboarding/metadata");
+
+    // Read product catalog
+    info!("📦 [LOAD] Reading product_catalog.yaml");
+    let product_catalog = tokio::fs::read_to_string(metadata_dir.join("product_catalog.yaml"))
+        .await
+        .map_err(|e| {
+            error!("❌ [ERROR] Failed to read product_catalog.yaml: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    info!("✅ [LOAD] Product catalog loaded ({} bytes)", product_catalog.len());
+
+    // Read CBU templates
+    info!("📋 [LOAD] Reading cbu_templates.yaml");
+    let cbu_templates = tokio::fs::read_to_string(metadata_dir.join("cbu_templates.yaml"))
+        .await
+        .map_err(|e| {
+            error!("❌ [ERROR] Failed to read cbu_templates.yaml: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    info!("✅ [LOAD] CBU templates loaded ({} bytes)", cbu_templates.len());
+
+    // Read resource dictionaries
+    let mut resource_dicts = HashMap::new();
+    let resource_dicts_dir = metadata_dir.join("resource_dicts");
+
+    info!("📚 [LOAD] Reading resource dictionaries from {:?}", resource_dicts_dir);
+    if let Ok(mut entries) = tokio::fs::read_dir(&resource_dicts_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
+                if let Some(file_name) = path.file_stem().and_then(|s| s.to_str()) {
+                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                        info!("  ✅ Loaded resource dict: {} ({} bytes)", file_name, content.len());
+                        resource_dicts.insert(file_name.to_string(), content);
+                    } else {
+                        warn!("  ⚠️ Failed to read resource dict: {}", file_name);
+                    }
+                }
+            }
+        }
+    } else {
+        warn!("⚠️ [WARN] Resource dicts directory not found or inaccessible");
+    }
+
+    info!("✅ [STATE] Metadata loaded successfully: {} resource dictionaries", resource_dicts.len());
+
+    let response = OnboardingMetadata {
+        product_catalog,
+        cbu_templates,
+        resource_dicts,
+    };
+
+    Ok(ResponseJson(response))
+}
+
+async fn update_onboarding_metadata(
+    Json(request): Json<UpdateMetadataRequest>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("Updating onboarding metadata: {}", request.file_type);
+
+    let metadata_dir = std::path::Path::new("onboarding/metadata");
+
+    let file_path = match request.file_type.as_str() {
+        "product_catalog" => metadata_dir.join("product_catalog.yaml"),
+        "cbu_templates" => metadata_dir.join("cbu_templates.yaml"),
+        name => metadata_dir.join("resource_dicts").join(format!("{}.yaml", name)),
+    };
+
+    tokio::fs::write(&file_path, request.content)
+        .await
+        .map_err(|e| {
+            error!("Failed to write file {:?}: {}", file_path, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let response = serde_json::json!({
+        "success": true,
+        "message": format!("Successfully updated {}", request.file_type),
+    });
+
+    Ok(ResponseJson(response))
+}
+
+async fn compile_onboarding_workflow(
+    Json(request): Json<CompileWorkflowRequest>,
+) -> Result<ResponseJson<CompileWorkflowResponse>, StatusCode> {
+    info!("⚙️ [COMPILE] Starting workflow compilation");
+    info!("  Instance ID: {}", request.instance_id);
+    info!("  CBU ID: {}", request.cbu_id);
+    info!("  Products: {:?}", request.products);
+    info!("  Team users: {} entries", request.team_users.len());
+
+    use onboarding::{compile_onboard, CompileInputs};
+    use onboarding::ast::oodl::OnboardIntent;
+    use onboarding::meta::loader::load_from_dir;
+
+    // Load metadata from disk
+    info!("📚 [COMPILE] Loading metadata from disk");
+    let meta = load_from_dir(std::path::Path::new("onboarding/metadata"))
+        .map_err(|e| {
+            error!("❌ [COMPILE] Failed to load metadata: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    info!("✅ [COMPILE] Metadata loaded successfully");
+
+    // Create onboard intent
+    info!("📝 [COMPILE] Creating onboard intent");
+    let intent = OnboardIntent {
+        instance_id: request.instance_id.clone(),
+        cbu_id: request.cbu_id.clone(),
+        products: request.products.clone(),
+    };
+
+    // Compile
+    info!("🔧 [COMPILE] Starting compilation with {} products", request.products.len());
+    let inputs = CompileInputs {
+        intent: &intent,
+        meta: &meta,
+        team_users: request.team_users.clone(),
+        cbu_profile: request.cbu_profile.clone(),
+    };
+
+    match compile_onboard(inputs) {
+        Ok(outputs) => {
+            info!("✅ [COMPILE] Compilation successful");
+            info!("  Plan steps: {}", outputs.plan.steps.len());
+            info!("  IDD gaps: {}", outputs.idd.gaps.len());
+            info!("  Bindings tasks: {}", outputs.bindings.tasks.len());
+
+            let plan_json = serde_json::to_value(&outputs.plan)
+                .map_err(|e| {
+                    error!("❌ [COMPILE] Failed to serialize plan: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            let idd_json = serde_json::to_value(&outputs.idd)
+                .map_err(|e| {
+                    error!("❌ [COMPILE] Failed to serialize IDD: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            let bindings_json = serde_json::to_value(&outputs.bindings)
+                .map_err(|e| {
+                    error!("❌ [COMPILE] Failed to serialize bindings: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            let response = CompileWorkflowResponse {
+                success: true,
+                message: "Workflow compiled successfully".to_string(),
+                plan: Some(plan_json),
+                idd: Some(idd_json),
+                bindings: Some(bindings_json),
+            };
+
+            info!("✅ [COMPILE] Response prepared and returning");
+            Ok(ResponseJson(response))
+        }
+        Err(e) => {
+            error!("❌ [COMPILE] Compilation failed: {}", e);
+            let response = CompileWorkflowResponse {
+                success: false,
+                message: format!("Compilation failed: {}", e),
+                plan: None,
+                idd: None,
+                bindings: None,
+            };
+            Ok(ResponseJson(response))
+        }
+    }
+}
+
+async fn execute_onboarding_workflow(
+    Json(request): Json<ExecuteWorkflowRequest>,
+) -> Result<ResponseJson<ExecuteWorkflowResponse>, StatusCode> {
+    info!("▶️ [EXECUTE] Starting workflow execution");
+
+    use onboarding::{execute_plan, ExecutionConfig};
+    use onboarding::ir::Plan;
+
+    // Deserialize plan from JSON
+    info!("📝 [EXECUTE] Deserializing execution plan");
+    let plan: Plan = serde_json::from_value(request.plan)
+        .map_err(|e| {
+            error!("❌ [EXECUTE] Failed to deserialize plan: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+    info!("✅ [EXECUTE] Plan deserialized: {} steps to execute", plan.steps.len());
+
+    let config = ExecutionConfig {};
+
+    info!("🚀 [EXECUTE] Executing plan with {} steps", plan.steps.len());
+    match execute_plan(&plan, &config).await {
+        Ok(_) => {
+            info!("✅ [EXECUTE] Workflow executed successfully");
+            let response = ExecuteWorkflowResponse {
+                success: true,
+                message: "Workflow executed successfully".to_string(),
+                execution_log: vec![
+                    "Execution started".to_string(),
+                    format!("Executed {} tasks", plan.steps.len()),
+                    "Execution completed".to_string(),
+                ],
+            };
+            Ok(ResponseJson(response))
+        }
+        Err(e) => {
+            error!("❌ [EXECUTE] Execution failed: {}", e);
+            let response = ExecuteWorkflowResponse {
+                success: false,
+                message: format!("Execution failed: {}", e),
+                execution_log: vec![],
+            };
+            Ok(ResponseJson(response))
+        }
+    }
+}
+
+// ========== ONBOARDING REQUEST MANAGEMENT ENDPOINTS ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateOnboardingRequestRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub cbu_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateOnboardingRequestResponse {
+    pub success: bool,
+    pub message: String,
+    pub onboarding_id: Option<String>,
+    pub request_id: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnboardingRequestSummary {
+    pub id: i32,
+    pub onboarding_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub cbu_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+async fn create_onboarding_request(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<CreateOnboardingRequestRequest>,
+) -> Result<ResponseJson<CreateOnboardingRequestResponse>, StatusCode> {
+    info!("📝 [ONBOARDING] Creating new onboarding request");
+    info!("  Name: {}", request.name);
+    info!("  Description: {:?}", request.description);
+    info!("  CBU ID: {:?}", request.cbu_id);
+
+    // Generate onboarding ID
+    use sqlx::types::chrono::Utc;
+    let year = Utc::now().format("%Y").to_string();
+
+    // Get next sequence number for this year
+    let count_result = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM onboarding_request WHERE onboarding_id LIKE $1"
+    )
+    .bind(format!("OR-{}-%%", year))
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to count existing requests: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let next_num = count_result + 1;
+    let onboarding_id = format!("OR-{}-{:05}", year, next_num);
+
+    info!("  Generated onboarding_id: {}", onboarding_id);
+
+    // Insert into onboarding_request table
+    let insert_result = sqlx::query(
+        "INSERT INTO onboarding_request (onboarding_id, name, description, status, cbu_id, created_at, updated_at)
+         VALUES ($1, $2, $3, 'draft', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         RETURNING id"
+    )
+    .bind(&onboarding_id)
+    .bind(&request.name)
+    .bind(&request.description)
+    .bind(&request.cbu_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to insert onboarding request: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let request_id: i32 = insert_result.get("id");
+    info!("✅ [ONBOARDING] Created onboarding request with ID: {}", request_id);
+
+    // Insert initial DSL from template into onboarding_request_dsl
+    let default_products: Vec<String> = vec![];
+    let default_team_users = serde_json::json!([
+        {"email": "ops.admin@client.com", "role": "Administrator"},
+        {"email": "ops.approver@client.com", "role": "Approver"}
+    ]);
+    let default_cbu_profile = serde_json::json!({"region": "EU"});
+
+    sqlx::query(
+        "INSERT INTO onboarding_request_dsl (onboarding_request_id, instance_id, products, team_users, cbu_profile, template_version, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'v1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+    )
+    .bind(request_id)
+    .bind(&onboarding_id)
+    .bind(&default_products)
+    .bind(&default_team_users)
+    .bind(&default_cbu_profile)
+    .execute(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to insert DSL template: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!("✅ [ONBOARDING] Initialized DSL template for request {}", onboarding_id);
+
+    let response = CreateOnboardingRequestResponse {
+        success: true,
+        message: format!("Onboarding request {} created successfully", onboarding_id),
+        onboarding_id: Some(onboarding_id),
+        request_id: Some(request_id),
+    };
+
+    Ok(ResponseJson(response))
+}
+
+async fn list_onboarding_requests(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+) -> Result<ResponseJson<Vec<OnboardingRequestSummary>>, StatusCode> {
+    info!("📋 [ONBOARDING] Listing all onboarding requests");
+
+    let rows = sqlx::query(
+        "SELECT id, onboarding_id, name, description, status, cbu_id, created_at, updated_at
+         FROM onboarding_request
+         ORDER BY created_at DESC
+         LIMIT 100"
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to fetch requests: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let requests: Vec<OnboardingRequestSummary> = rows.iter().map(|row| {
+        use sqlx::types::chrono::{DateTime, Utc};
+        OnboardingRequestSummary {
+            id: row.get("id"),
+            onboarding_id: row.get("onboarding_id"),
+            name: row.get("name"),
+            description: row.get("description"),
+            status: row.get("status"),
+            cbu_id: row.get("cbu_id"),
+            created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
+            updated_at: row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
+        }
+    }).collect();
+
+    info!("✅ [ONBOARDING] Found {} requests", requests.len());
+
+    Ok(ResponseJson(requests))
+}
+
+async fn get_onboarding_request(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Path(onboarding_id): Path<String>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("🔍 [ONBOARDING] Getting request: {}", onboarding_id);
+
+    // Get request details
+    let request_row = sqlx::query(
+        "SELECT r.id, r.onboarding_id, r.name, r.description, r.status, r.cbu_id, r.created_at, r.updated_at,
+                d.products, d.team_users, d.cbu_profile, d.workflow_config
+         FROM onboarding_request r
+         LEFT JOIN onboarding_request_dsl d ON r.id = d.onboarding_request_id
+         WHERE r.onboarding_id = $1"
+    )
+    .bind(&onboarding_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to fetch request: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    match request_row {
+        Some(row) => {
+            use sqlx::types::chrono::{DateTime, Utc};
+            let response = serde_json::json!({
+                "success": true,
+                "id": row.get::<i32, _>("id"),
+                "onboarding_id": row.get::<String, _>("onboarding_id"),
+                "name": row.get::<String, _>("name"),
+                "description": row.get::<Option<String>, _>("description"),
+                "status": row.get::<String, _>("status"),
+                "cbu_id": row.get::<Option<String>, _>("cbu_id"),
+                "products": row.get::<Option<Vec<String>>, _>("products").unwrap_or_default(),
+                "team_users": row.get::<Option<serde_json::Value>, _>("team_users"),
+                "cbu_profile": row.get::<Option<serde_json::Value>, _>("cbu_profile"),
+                "workflow_config": row.get::<Option<serde_json::Value>, _>("workflow_config"),
+                "created_at": row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
+                "updated_at": row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
+            });
+
+            info!("✅ [ONBOARDING] Found request {}", onboarding_id);
+            Ok(ResponseJson(response))
+        }
+        None => {
+            warn!("⚠️ [ONBOARDING] Request not found: {}", onboarding_id);
+            Err(StatusCode::NOT_FOUND)
+        }
+    }
 }

@@ -323,9 +323,7 @@ impl CbuDslParser {
     /// Extract string from quotes
     fn extract_quoted_string(&self, text: &str) -> Result<String, CbuDslError> {
         let text = text.trim();
-        if text.starts_with('\'') && text.ends_with('\'') && text.len() >= 2 {
-            Ok(text[1..text.len()-1].to_string())
-        } else if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+        if (text.starts_with('\'') && text.ends_with('\'') || text.starts_with('"') && text.ends_with('"')) && text.len() >= 2 {
             Ok(text[1..text.len()-1].to_string())
         } else {
             Err(CbuDslError::ParseError(

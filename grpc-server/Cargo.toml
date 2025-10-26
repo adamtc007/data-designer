@@ -54,6 +54,10 @@ tracing-subscriber = "0.3"
 
 # Core library
 data-designer-core = { path = "../data-designer-core" }
+onboarding = { path = "../onboarding" }
+
+# YAML parsing
+serde_yaml = "0.9"
 
 [build-dependencies]
 tonic-build = "0.12"

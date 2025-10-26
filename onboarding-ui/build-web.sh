@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Build script for Data Designer Web (WASM)
+# Build script for Onboarding Platform Web (WASM)
 set -e
 
-echo "🦀 Building Data Designer Web UI..."
+echo "🦀 Building Onboarding Platform Web UI..."
 
 # Ensure cargo bin is in PATH
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -36,7 +36,7 @@ cat > dist/index.html << 'EOF'
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Data Designer - Web Edition</title>
+    <title>Onboarding Workflow Platform</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         html, body {
@@ -82,14 +82,14 @@ cat > dist/index.html << 'EOF'
 <body>
     <div id="loading_text">
         <div class="spinner"></div>
-        <p>🦀 Loading Data Designer Web Edition...</p>
+        <p>🚀 Loading Onboarding Workflow Platform...</p>
         <p style="font-size: 14px; color: #888;">Built with Rust + WASM + egui</p>
     </div>
 
     <canvas id="the_canvas_id"></canvas>
 
     <script type="module">
-        import init, { start } from './data_designer_web_ui.js';
+        import init, { start } from './onboarding_ui.js';
 
         async function run() {
             try {
@@ -114,6 +114,6 @@ ls -la dist/
 
 echo ""
 echo "🚀 To serve with miniserve:"
-echo "   miniserve dist/ --port 8080 --index index.html"
+echo "   miniserve dist/ --port 8000 --index index.html"
 echo ""
-echo "🌐 Then open: http://localhost:8080"
+echo "🌐 Then open: http://localhost:8000"

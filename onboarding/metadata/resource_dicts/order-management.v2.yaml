@@ -1,0 +1,25 @@
+resourceTypes:
+  - id: order-management:v2
+    dictionary:
+      attrs:
+        - key: automation-level
+          type: enum
+          values: ["FullyAutomated","SemiAutomated","Manual"]
+          required: true
+        - key: subscription-cutoff-time
+          type: string
+          required: true
+          default: "16:00:00"
+        - key: redemption-settlement-days
+          type: integer
+          required: true
+          default: 3
+        - key: minimum-subscription-amount
+          type: decimal
+          required: false
+        - key: order-routing
+          type: enum
+          values: ["Straight-Through","Manual-Review"]
+          required: true
+          default: Straight-Through
+    lifecycle: {}

@@ -5,6 +5,9 @@
 
 set -e
 
+# Ensure cargo bin is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
 function check_docker() {
     echo "🐳 Checking Docker status..."
 
@@ -115,6 +118,10 @@ if [ "$START_LSP" = true ]; then
     fi
 fi
 
+# Set database URL for gRPC server (required for sqlx compile-time query verification)
+# Use Unix socket instead of TCP to avoid password authentication
+export DATABASE_URL="postgresql:///data_designer?user=adamtc007"
+
 # Check if gRPC server is already running
 echo "🔍 Checking gRPC server status..."
 if curl -s http://localhost:8080/api/health >/dev/null 2>&1; then
@@ -123,21 +130,38 @@ if curl -s http://localhost:8080/api/health >/dev/null 2>&1; then
 else
     echo "🚀 Starting gRPC server..."
     cd grpc-server
-    cargo run &
+    DATABASE_URL="$DATABASE_URL" cargo run &
     GRPC_SERVER_PID=$!
     cd ..
 
-    # Wait for gRPC server to start
+    # Wait for gRPC server to start (longer timeout for compilation)
     echo "⏳ Waiting for gRPC server to start..."
-    sleep 5
+    echo "   (This may take 1-2 minutes on first run while Cargo compiles...)"
+    WAIT_COUNT=0
+    MAX_WAIT=120  # 2 minutes for first-time compilation
+
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if curl -s http://localhost:8080/api/health >/dev/null 2>&1; then
+            echo ""
+            echo "✅ gRPC server ready on port 8080 (took ${WAIT_COUNT}s)"
+            break
+        fi
+        sleep 1
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        # Show progress every 10 seconds
+        if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
+            echo "   Still waiting... (${WAIT_COUNT}s / ${MAX_WAIT}s)"
+        fi
+    done
 
     # Check if gRPC server HTTP API is running
     if ! curl -s http://localhost:8080/api/health >/dev/null 2>&1; then
-        echo "❌ gRPC server failed to start"
+        echo ""
+        echo "❌ gRPC server failed to start after ${MAX_WAIT}s"
+        echo "💡 Server may still be compiling. Check: ps aux | grep 'cargo run'"
         kill $GRPC_SERVER_PID 2>/dev/null || true
         exit 1
     fi
-    echo "✅ gRPC server ready on port 50051 + HTTP API on port 8080"
 fi
 
 # Start LSP server if requested

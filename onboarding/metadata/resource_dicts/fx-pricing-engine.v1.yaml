@@ -1,0 +1,22 @@
+resourceTypes:
+  - id: fx-pricing-engine:v1
+    dictionary:
+      attrs:
+        - key: currency-pairs
+          type: array[string]
+          required: true
+          default: ["EUR/USD","GBP/USD","USD/JPY","EUR/GBP"]
+        - key: forward-tenors
+          type: array[string]
+          required: true
+          values: ["1M","3M","6M","12M"]
+        - key: pricing-source
+          type: enum
+          values: ["Bloomberg","Reuters","Internal"]
+          required: true
+          default: Bloomberg
+        - key: price-refresh-interval-seconds
+          type: integer
+          required: true
+          default: 30
+    lifecycle: {}

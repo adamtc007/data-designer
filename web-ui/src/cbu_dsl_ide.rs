@@ -1,6 +1,5 @@
 // CBU DSL IDE - Interactive panel for writing and executing CBU CRUD operations
 use eframe::egui;
-use crate::grpc_client::CbuRecord;
 use crate::wasm_utils;
 use crate::dsl_syntax_highlighter::{DslSyntaxHighlighter, SyntaxTheme};
 use serde::{Deserialize, Serialize};
@@ -9,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 // Import types from state manager (when available for WASM)
 #[cfg(not(target_arch = "wasm32"))]
-use crate::cbu_state_manager::{CbuDslResponse, CbuContext, EntityInfo, CbuStateManager};
+use crate::cbu_state_manager::{CbuDslResponse, CbuContext, EntityInfo};
 
 // For WASM builds, define locally until module loading is fixed
 #[cfg(target_arch = "wasm32")]
@@ -1866,7 +1865,7 @@ impl CbuDslIDE {
     }
 
     /// Check for completed CBU creation from async task and switch to active CBU context (WASM only)
-    fn check_for_new_cbu_creation(&mut self, state: &mut crate::cbu_state_manager::CbuStateManager) {
+    fn check_for_new_cbu_creation(&mut self, _state: &mut crate::cbu_state_manager::CbuStateManager) {
         #[cfg(target_arch = "wasm32")]
         {
             if let Ok(window) = web_sys::window().ok_or("no window") {
@@ -1913,7 +1912,7 @@ impl CbuDslIDE {
     }
 
     /// Check for completed CBU DSL loading from async task and update DSL content (WASM only)
-    fn check_for_cbu_dsl_loaded(&mut self, state: &mut crate::cbu_state_manager::CbuStateManager) {
+    fn check_for_cbu_dsl_loaded(&mut self, _state: &mut crate::cbu_state_manager::CbuStateManager) {
         #[cfg(target_arch = "wasm32")]
         {
             if let Ok(window) = web_sys::window().ok_or("no window") {

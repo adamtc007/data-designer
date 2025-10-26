@@ -60,12 +60,18 @@ impl std::fmt::Display for CapabilityError {
 
 impl std::error::Error for CapabilityError {}
 
+impl Default for CapabilityEngine {
+    fn default() -> Self {
+        Self {
+            capability_registry: HashMap::new(),
+        }
+    }
+}
+
 impl CapabilityEngine {
     /// Create new capability engine
     pub async fn new() -> Result<Self, String> {
-        let mut engine = Self {
-            capability_registry: HashMap::new(),
-        };
+        let mut engine = Self::default();
 
         // Register built-in fund accounting capabilities
         engine.register_fund_accounting_capabilities()?;

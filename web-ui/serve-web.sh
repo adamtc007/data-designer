@@ -3,6 +3,9 @@
 # Serve script for Data Designer Web using miniserve
 set -e
 
+# Ensure cargo bin is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
 echo "🌐 Starting Data Designer Web Edition..."
 
 # Check if miniserve is installed
@@ -28,7 +31,7 @@ echo "🌐 URL: http://localhost:8081"
 echo ""
 
 # Start miniserve with appropriate settings
-miniserve dist/ \
+$HOME/.cargo/bin/miniserve dist/ \
     --port 8081 \
     --index index.html \
     --header "Cross-Origin-Embedder-Policy: require-corp" \

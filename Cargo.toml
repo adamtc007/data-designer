@@ -6,6 +6,8 @@ members = [
     "template-server",
     "cbu-dsl-lsp",
     "onboarding",
+    "onboarding-cli",
+    "onboarding-ui",
 ]
 exclude = [
     "tools/*",

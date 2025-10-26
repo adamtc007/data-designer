@@ -130,8 +130,8 @@ impl ResourceStateManager {
         self.loading_resources = true;
         self.last_error = None;
 
-        let client_clone = self.grpc_client.as_ref().unwrap().clone();
-        let resource_id_clone = resource_id.clone();
+        let _client_clone = self.grpc_client.as_ref().unwrap().clone();
+        let _resource_id_clone = resource_id.clone();
 
         // For now, we'll just look it up from available_resources
         // In the future, this should make an API call to get_resource_dsl

@@ -1,0 +1,21 @@
+resourceTypes:
+  - id: swift-gateway:v2
+    dictionary:
+      attrs:
+        - key: swift-bic
+          type: string
+          required: true
+        - key: message-types
+          type: array[string]
+          required: true
+          default: ["MT540","MT541","MT542","MT543"]
+        - key: connectivity-mode
+          type: enum
+          values: ["Alliance","DirectConnection"]
+          required: true
+          default: Alliance
+        - key: auto-validation
+          type: boolean
+          required: true
+          default: true
+    lifecycle: {}

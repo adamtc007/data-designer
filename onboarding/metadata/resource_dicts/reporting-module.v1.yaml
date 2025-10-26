@@ -1,0 +1,21 @@
+resourceTypes:
+  - id: reporting-module:v1
+    dictionary:
+      attrs:
+        - key: reporting-standards
+          type: array[string]
+          required: true
+          values: ["IFRS","USGAAP","LocalGAAP"]
+        - key: report-formats
+          type: array[string]
+          required: true
+          default: ["PDF","Excel","CSV"]
+        - key: distribution-channels
+          type: array[string]
+          required: true
+          default: ["Email","Portal","API"]
+        - key: retention-period-years
+          type: integer
+          required: true
+          default: 7
+    lifecycle: {}
