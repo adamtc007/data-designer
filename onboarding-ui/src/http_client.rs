@@ -405,11 +405,22 @@ pub struct GrpcClient {
 
 impl GrpcClient {
     pub fn new(grpc_endpoint: &str) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let client = {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .connect_timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new())
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                reqwest::Client::builder()
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new())
+            }
+        };
 
         Self {
             base_url: grpc_endpoint.to_string(),
@@ -418,7 +429,7 @@ impl GrpcClient {
     }
 
     /// Make unified HTTP call to gRPC server (both platforms)
-    async fn grpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(
+    pub async fn grpc_call<T: Serialize, R: for<'de> Deserialize<'de>>(
         &self,
         service_method: &str,
         request: &T,
@@ -495,6 +506,7 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/GetOnboardingRequest" => "/api/onboarding/GetOnboardingRequest",
             "financial_taxonomy.FinancialTaxonomyService/ListOnboardingRequests" => "/api/onboarding/ListOnboardingRequests",
             "financial_taxonomy.FinancialTaxonomyService/UpdateOnboardingRequestStatus" => "/api/onboarding/UpdateOnboardingRequestStatus",
+            "financial_taxonomy.FinancialTaxonomyService/UpdateOnboardingRequestDsl" => "/api/onboarding/UpdateOnboardingRequestDsl",
             "financial_taxonomy.FinancialTaxonomyService/CompileOnboardingWorkflow" => "/api/onboarding/CompileOnboardingWorkflow",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteOnboardingWorkflow" => "/api/onboarding/ExecuteOnboardingWorkflow",
             _ => {
@@ -789,12 +801,20 @@ impl GrpcClient {
             .await
     }
 
-    pub async fn get_onboarding_db_records<R: for<'de> Deserialize<'de>>(
+    pub async fn get_onboarding_request<T: Serialize, R: for<'de> Deserialize<'de>>(
         &self,
-        onboarding_id: String,
+        request: T,
     ) -> Result<R> {
-        let endpoint = format!("/api/onboarding/requests/{}/db-records", onboarding_id);
-        self.get_request(&endpoint).await
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/GetOnboardingRequest", &request)
+            .await
+    }
+
+    pub async fn update_onboarding_request_dsl<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        request: T,
+    ) -> Result<R> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/UpdateOnboardingRequestDsl", &request)
+            .await
     }
 }
 

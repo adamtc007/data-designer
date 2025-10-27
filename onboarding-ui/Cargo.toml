@@ -23,18 +23,23 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4", "js"] }
 chrono = "0.4"
-
-# Async runtime - use same version as other packages
-tokio = { version = "1.48", features = ["full"], optional = true }
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement"] }
 console_error_panic_hook = "0.1"
+# WASM-compatible tokio features only
+tokio = { version = "1.48", features = ["macros", "rt", "time"], default-features = false, optional = true }
+
+# Desktop-specific dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Desktop tokio with full features
+tokio = { version = "1.48", features = ["macros", "rt", "rt-multi-thread", "time"], optional = true }
 
 [features]
 default = ["tokio"]

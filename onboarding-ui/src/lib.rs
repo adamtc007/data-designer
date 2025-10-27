@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 
 mod app;
 mod http_client;
+pub mod onboarding;
 mod state_manager;
 pub mod wasm_utils;
 
