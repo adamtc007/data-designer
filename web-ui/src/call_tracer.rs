@@ -49,6 +49,8 @@ pub struct CallTracer {
     state_changes: Vec<StateChange>,
     current_depth: usize,
     start_time: u64,
+    max_stack_size: usize,
+    max_state_changes: usize,
 }
 
 impl Default for CallTracer {
@@ -66,6 +68,8 @@ impl CallTracer {
             state_changes: Vec::new(),
             current_depth: 0,
             start_time: get_timestamp_ms(),
+            max_stack_size: 1000,      // Limit to last 1000 calls
+            max_state_changes: 1000,   // Limit to last 1000 state changes
         }
     }
 
@@ -74,6 +78,13 @@ impl CallTracer {
     }
 
     pub fn enter_function(&mut self, function_name: &str, file_location: &str, args: Vec<String>) -> usize {
+        // Clear old entries if we hit the limit
+        if self.call_stack.len() >= self.max_stack_size {
+            // Keep only the last half to avoid constant resizing
+            let keep_from = self.max_stack_size / 2;
+            self.call_stack.drain(0..keep_from);
+        }
+
         let frame = CallFrame {
             function_name: function_name.to_string(),
             file_location: file_location.to_string(),
@@ -122,6 +133,13 @@ impl CallTracer {
     }
 
     pub fn log_state_change(&mut self, component: &str, field: &str, old_value: &str, new_value: &str) {
+        // Clear old entries if we hit the limit
+        if self.state_changes.len() >= self.max_state_changes {
+            // Keep only the last half to avoid constant resizing
+            let keep_from = self.max_state_changes / 2;
+            self.state_changes.drain(0..keep_from);
+        }
+
         let change = StateChange {
             component: component.to_string(),
             field: field.to_string(),
