@@ -174,7 +174,7 @@ createdb data_designer
 
 ### Start the Onboarding UI
 ```bash
-./run-onboarding-desk.sh
+./runobd.sh
 ```
 
 The applications will connect to PostgreSQL and should show:

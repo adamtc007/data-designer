@@ -9,6 +9,7 @@ use serde_json;
 use chrono::Utc;
 
 /// Capability Execution Engine - Orchestrates resource capability execution
+#[derive(Default)]
 pub struct CapabilityEngine {
     capability_registry: HashMap<String, CapabilityImplementation>,
 }
@@ -60,13 +61,6 @@ impl std::fmt::Display for CapabilityError {
 
 impl std::error::Error for CapabilityError {}
 
-impl Default for CapabilityEngine {
-    fn default() -> Self {
-        Self {
-            capability_registry: HashMap::new(),
-        }
-    }
-}
 
 impl CapabilityEngine {
     /// Create new capability engine

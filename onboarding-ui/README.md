@@ -45,7 +45,7 @@ This is the **runtime/execution platform** for the onboarding system, complement
 
 ```bash
 # From project root
-./run-onboarding-desk.sh
+./runobd.sh
 ```
 
 **Features:**
@@ -58,7 +58,7 @@ This is the **runtime/execution platform** for the onboarding system, complement
 
 ```bash
 # From project root
-./run-onboarding-wasm.sh
+./runobw.sh
 ```
 
 **Features:**
@@ -381,8 +381,8 @@ This is part of the Data Designer workspace. See main project README.
 
 **Development:**
 1. Make changes to source files
-2. Test with `./run-onboarding-desk.sh`
-3. Verify WASM build with `./run-onboarding-wasm.sh`
+2. Test with `./runobd.sh`
+3. Verify WASM build with `./runobw.sh`
 4. Run tests: `cargo test --package onboarding-ui`
 
 ---
