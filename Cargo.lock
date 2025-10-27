@@ -3948,6 +3948,7 @@ name = "onboarding"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "lexpr",
  "petgraph 0.6.5",
  "regex",
@@ -3956,6 +3957,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sqlx",
  "thiserror 1.0.69",
  "time",
  "tokio",

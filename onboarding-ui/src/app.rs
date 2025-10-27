@@ -46,8 +46,8 @@ impl eframe::App for OnboardingApp {
         // Update state from async operations
         self.state.update_from_async();
 
-        // Load metadata on first render
-        if self.state.metadata.is_none() && !self.state.metadata_loading {
+        // Load onboarding requests on first render
+        if self.state.onboarding_requests.is_empty() && !self.state.metadata_loading {
             self.state.load_metadata();
         }
 
@@ -146,6 +146,76 @@ impl OnboardingApp {
             ui.heading("Create New Onboarding Request");
             ui.add_space(10.0);
 
+            // Database Records List
+            if !self.state.onboarding_requests.is_empty() {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading(format!("📊 Onboarding Requests ({} records)", self.state.onboarding_requests.len()));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("🔄 Refresh").clicked() {
+                                self.state.load_metadata();
+                            }
+                            if self.state.metadata_loading {
+                                ui.spinner();
+                                ui.label("Loading...");
+                            }
+                        });
+                    });
+                    ui.separator();
+
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            egui::Grid::new("onboarding_requests_grid")
+                                .num_columns(6)
+                                .spacing([8.0, 4.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    // Header
+                                    ui.strong("ID");
+                                    ui.strong("Onboarding ID");
+                                    ui.strong("Name");
+                                    ui.strong("Description");
+                                    ui.strong("Status");
+                                    ui.strong("CBU ID");
+                                    ui.end_row();
+
+                                    // Data rows
+                                    for request in &self.state.onboarding_requests {
+                                        ui.label(request.id.to_string());
+                                        ui.label(&request.onboarding_id);
+                                        ui.label(request.name.as_deref().unwrap_or("N/A"));
+                                        ui.label(request.description.as_deref().unwrap_or("N/A"));
+                                        ui.label(&request.status);
+                                        ui.label(request.cbu_id.as_deref().unwrap_or("N/A"));
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                });
+                ui.add_space(15.0);
+            } else if self.state.metadata_loading {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Loading onboarding requests...");
+                    });
+                });
+                ui.add_space(15.0);
+            } else {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("📊 No onboarding requests loaded");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("🔄 Load Requests").clicked() {
+                                self.state.load_metadata();
+                            }
+                        });
+                    });
+                });
+                ui.add_space(15.0);
+            }
+
             ui.group(|ui| {
                 ui.label("Request Details");
                 ui.separator();
@@ -216,6 +286,121 @@ impl OnboardingApp {
                         ui.label(&result.message);
                     }
                 });
+
+                ui.add_space(10.0);
+
+                // Database Records (Round-trip visibility) - Two Read-Only Windows
+                if result.success {
+                    ui.add_space(10.0);
+
+                    // Main OB Entity Record Display Window
+                    if let Some(ref request_record) = self.state.db_request_record {
+                        ui.group(|ui| {
+                            ui.heading("📊 Main OB Entity Record");
+                            ui.separator();
+
+                            // Format as readable text content
+                            let entity_content = format!(
+                                "Onboarding Request Entity\n\
+                                ========================\n\n\
+                                ID: {}\n\
+                                Onboarding ID: {}\n\
+                                Name: {}\n\
+                                Description: {}\n\
+                                Status: {}\n\
+                                CBU ID: {}\n\
+                                Created: {}\n\
+                                Updated: {}\n\n\
+                                Record successfully retrieved from database via gRPC → HTTP → WASM UI flow.",
+                                request_record.id,
+                                request_record.onboarding_id,
+                                request_record.name.as_deref().unwrap_or("None"),
+                                request_record.description.as_deref().unwrap_or("None"),
+                                request_record.status,
+                                request_record.cbu_id.as_deref().unwrap_or("None"),
+                                request_record.created_at,
+                                request_record.updated_at
+                            );
+
+                            ui.add(
+                                egui::TextEdit::multiline(&mut entity_content.as_str())
+                                    .font(egui::TextStyle::Monospace)
+                                    .code_editor()
+                                    .desired_rows(12)
+                                    .desired_width(f32::INFINITY)
+                                    .interactive(false) // Read-only
+                            );
+                        });
+                    }
+
+                    ui.add_space(10.0);
+
+                    // OB DSL Content Display Window
+                    if let Some(ref dsl_record) = self.state.db_dsl_record {
+                        ui.group(|ui| {
+                            ui.heading("📋 OB DSL Content");
+                            ui.separator();
+
+                            // Format DSL content as readable text
+                            let mut dsl_content = format!(
+                                "Onboarding DSL Metadata\n\
+                                =======================\n\n\
+                                DSL ID: {}\n\
+                                Request ID: {}\n\
+                                Instance ID: {}\n\
+                                Products: {}\n\
+                                Template Version: {}\n\
+                                Created: {}\n\
+                                Updated: {}\n\n",
+                                dsl_record.id,
+                                dsl_record.onboarding_request_id,
+                                dsl_record.instance_id.as_deref().unwrap_or("None"),
+                                dsl_record.products.as_ref().map(|p| p.join(", ")).unwrap_or("None".to_string()),
+                                dsl_record.template_version.as_deref().unwrap_or("None"),
+                                dsl_record.created_at,
+                                dsl_record.updated_at
+                            );
+
+                            // Add JSON content sections
+                            if let Some(ref team_users) = dsl_record.team_users {
+                                dsl_content.push_str("Team Users JSON:\n");
+                                dsl_content.push_str("----------------\n");
+                                if let Ok(json_str) = serde_json::to_string_pretty(team_users) {
+                                    dsl_content.push_str(&json_str);
+                                    dsl_content.push_str("\n\n");
+                                }
+                            }
+
+                            if let Some(ref cbu_profile) = dsl_record.cbu_profile {
+                                dsl_content.push_str("CBU Profile JSON:\n");
+                                dsl_content.push_str("-----------------\n");
+                                if let Ok(json_str) = serde_json::to_string_pretty(cbu_profile) {
+                                    dsl_content.push_str(&json_str);
+                                    dsl_content.push_str("\n\n");
+                                }
+                            }
+
+                            dsl_content.push_str("DSL metadata successfully retrieved from database via gRPC → HTTP → WASM UI flow.");
+
+                            ui.add(
+                                egui::TextEdit::multiline(&mut dsl_content.as_str())
+                                    .font(egui::TextStyle::Monospace)
+                                    .code_editor()
+                                    .desired_rows(20)
+                                    .desired_width(f32::INFINITY)
+                                    .interactive(false) // Read-only
+                            );
+                        });
+                    }
+
+                    // Loading indicator for database records
+                    if self.state.loading_db_records {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Loading database records...");
+                        });
+                    }
+                }
             }
 
             if let Some(error) = &self.state.metadata_error {

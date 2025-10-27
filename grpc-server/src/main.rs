@@ -436,9 +436,9 @@ impl FinancialTaxonomyService for TaxonomyServer {
                         entity_id: row.get("entity_id"),
                         entity_name: row.get("entity_name"),
                         entity_type: row.get("entity_type"),
-                        jurisdiction: row.get("jurisdiction"),
+                        jurisdiction: row.get::<Option<String>, _>("jurisdiction").unwrap_or_default(),
                         country_code: row.get("country_code"),
-                        lei_code: row.get("lei_code"),
+                        lei_code: row.get::<Option<String>, _>("lei_code"),
                     })
                     .collect();
 
@@ -2717,7 +2717,7 @@ impl SimpleAiAssistant {
                         title: name.clone().unwrap_or("Template Example".to_string()),
                         dsl_code: code.to_string(),
                         description: format!("DSL example from template: {}", name.unwrap_or_default()),
-                        similarity_score: self.calculate_similarity_score(&code, query).await
+                        similarity_score: self.calculate_similarity_score(code, query).await
                     });
                 }
             }

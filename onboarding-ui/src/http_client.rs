@@ -423,8 +423,31 @@ impl GrpcClient {
         service_method: &str,
         request: &T,
     ) -> Result<R> {
-        wasm_utils::console_log(&format!("🔍 Making unified HTTP call for service method: '{}'", service_method));
-        self.try_http_call(service_method, request).await
+        wasm_utils::console_log(&format!("🔍 [TRACE-START] gRPC call: service_method='{}', base_url='{}'", service_method, self.base_url));
+
+        // Serialize request for logging
+        let request_json = match serde_json::to_string_pretty(request) {
+            Ok(json) => json,
+            Err(e) => format!("[Failed to serialize: {}]", e),
+        };
+        wasm_utils::console_log(&format!("📤 [TRACE-REQUEST] {}", request_json));
+
+        let result = self.try_http_call(service_method, request).await;
+
+        match &result {
+            Ok(_) => {
+                wasm_utils::console_log(&format!("✅ [TRACE-SUCCESS] gRPC call completed: '{}'", service_method));
+            }
+            Err(e) => {
+                #[cfg(target_arch = "wasm32")]
+                let error_msg = e;
+                #[cfg(not(target_arch = "wasm32"))]
+                let error_msg = &e.to_string();
+                wasm_utils::console_log(&format!("❌ [TRACE-ERROR] gRPC call failed: '{}' - Error: {}", service_method, error_msg));
+            }
+        }
+
+        result
     }
 
     /// Make an HTTP call to gRPC server (both platforms)
@@ -433,7 +456,7 @@ impl GrpcClient {
         service_method: &str,
         request: &T,
     ) -> Result<R> {
-        wasm_utils::console_log(&format!("🔍 Trying HTTP call for service method: '{}'", service_method));
+        wasm_utils::console_log(&format!("🔗 [TRACE-HTTP] Trying HTTP call for service method: '{}'", service_method));
         let endpoint = match service_method {
             "financial_taxonomy.FinancialTaxonomyService/InstantiateResource" => "/api/instantiate",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteDsl" => "/api/execute-dsl",
@@ -467,32 +490,62 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/GetResourceDsl" => "/api/get-resource-dsl",
             "financial_taxonomy.FinancialTaxonomyService/UpdateResourceDsl" => "/api/update-resource-dsl",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl" => "/api/execute-resource-dsl",
+            // Onboarding operations - Mirror gRPC proto exactly
+            "financial_taxonomy.FinancialTaxonomyService/CreateOnboardingRequest" => "/api/onboarding/CreateOnboardingRequest",
+            "financial_taxonomy.FinancialTaxonomyService/GetOnboardingRequest" => "/api/onboarding/GetOnboardingRequest",
+            "financial_taxonomy.FinancialTaxonomyService/ListOnboardingRequests" => "/api/onboarding/ListOnboardingRequests",
+            "financial_taxonomy.FinancialTaxonomyService/UpdateOnboardingRequestStatus" => "/api/onboarding/UpdateOnboardingRequestStatus",
+            "financial_taxonomy.FinancialTaxonomyService/CompileOnboardingWorkflow" => "/api/onboarding/CompileOnboardingWorkflow",
+            "financial_taxonomy.FinancialTaxonomyService/ExecuteOnboardingWorkflow" => "/api/onboarding/ExecuteOnboardingWorkflow",
             _ => {
                 wasm_utils::console_log(&format!("❌ Unknown service method: '{}'", service_method));
                 return Err(make_error(&format!("Unknown service method: {}", service_method)));
             }
         };
 
-        wasm_utils::console_log(&format!("✅ Matched endpoint: {}", endpoint));
+        wasm_utils::console_log(&format!("🎯 [TRACE-ENDPOINT] Matched endpoint: {}", endpoint));
         let url = format!("{}{}", self.base_url, endpoint);
-        wasm_utils::console_log(&format!("Making HTTP request to: {}", url));
+        wasm_utils::console_log(&format!("🌐 [TRACE-URL] Making HTTP POST to: {}", url));
 
         let response = self.client
             .post(&url)
             .json(request)
             .send()
             .await
-            .map_err(|e| make_error(&format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("HTTP request failed: {}", e);
+                wasm_utils::console_log(&format!("💥 [TRACE-HTTP-ERROR] {}", error_msg));
+                make_error(&error_msg)
+            })?;
 
-        if !response.status().is_success() {
-            return Err(make_error(&format!("HTTP request failed with status: {}", response.status())));
+        let status = response.status();
+        wasm_utils::console_log(&format!("📊 [TRACE-STATUS] HTTP response status: {}", status));
+
+        if !status.is_success() {
+            let error_msg = format!("HTTP request failed with status: {}", status);
+            wasm_utils::console_log(&format!("❌ [TRACE-STATUS-ERROR] {}", error_msg));
+            return Err(make_error(&error_msg));
         }
 
-        let response_body = response
-            .json::<R>()
+        let response_text = response
+            .text()
             .await
-            .map_err(|e| make_error(&format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("Failed to read response text: {}", e);
+                wasm_utils::console_log(&format!("💥 [TRACE-PARSE-ERROR] {}", error_msg));
+                make_error(&error_msg)
+            })?;
 
+        wasm_utils::console_log(&format!("📥 [TRACE-RESPONSE] Raw response body: {}", response_text));
+
+        let response_body: R = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                let error_msg = format!("Failed to parse JSON response: {} - Response was: {}", e, response_text);
+                wasm_utils::console_log(&format!("💥 [TRACE-JSON-ERROR] {}", error_msg));
+                make_error(&error_msg)
+            })?;
+
+        wasm_utils::console_log("🎉 [TRACE-HTTP-SUCCESS] HTTP call completed successfully");
         Ok(response_body)
     }
 
@@ -698,6 +751,50 @@ impl GrpcClient {
     ) -> Result<ExecuteResourceDslResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl", &request)
             .await
+    }
+
+    // ============================================
+    // Onboarding Methods - Route through gRPC API
+    // ============================================
+
+    pub async fn create_onboarding_request<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        request: T,
+    ) -> Result<R> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/CreateOnboardingRequest", &request)
+            .await
+    }
+
+    pub async fn list_onboarding_requests<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        request: T,
+    ) -> Result<R> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ListOnboardingRequests", &request)
+            .await
+    }
+
+    pub async fn compile_onboarding_workflow<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        request: T,
+    ) -> Result<R> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/CompileOnboardingWorkflow", &request)
+            .await
+    }
+
+    pub async fn execute_onboarding_workflow<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        request: T,
+    ) -> Result<R> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteOnboardingWorkflow", &request)
+            .await
+    }
+
+    pub async fn get_onboarding_db_records<R: for<'de> Deserialize<'de>>(
+        &self,
+        onboarding_id: String,
+    ) -> Result<R> {
+        let endpoint = format!("/api/onboarding/requests/{}/db-records", onboarding_id);
+        self.get_request(&endpoint).await
     }
 }
 

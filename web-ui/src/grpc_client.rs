@@ -391,6 +391,37 @@ pub struct CbuEntityAssociation {
     pub active_in_cbu: bool,
 }
 
+// Onboarding workflow types (unified API)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWorkflowRequest {
+    pub instance_id: String,
+    pub cbu_id: String,
+    pub products: Vec<String>,
+    pub team_users: Vec<serde_json::Value>,
+    pub cbu_profile: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileWorkflowResponse {
+    pub success: bool,
+    pub message: String,
+    pub plan: Option<serde_json::Value>,
+    pub idd: Option<serde_json::Value>,
+    pub bindings: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteWorkflowRequest {
+    pub plan: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteWorkflowResponse {
+    pub success: bool,
+    pub message: String,
+    pub execution_log: Vec<String>,
+}
+
 #[derive(Clone)]
 // Unified HTTP client for both platforms
 pub struct GrpcClient {
@@ -456,6 +487,9 @@ impl GrpcClient {
             "financial_taxonomy.FinancialTaxonomyService/GetResourceDsl" => "/api/get-resource-dsl",
             "financial_taxonomy.FinancialTaxonomyService/UpdateResourceDsl" => "/api/update-resource-dsl",
             "financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl" => "/api/execute-resource-dsl",
+            // Onboarding operations (mapping to gRPC services)
+            "financial_taxonomy.FinancialTaxonomyService/CompileOnboardingWorkflow" => "/api/onboarding/compile",
+            "financial_taxonomy.FinancialTaxonomyService/ExecuteOnboardingWorkflow" => "/api/onboarding/execute",
             _ => {
                 wasm_utils::console_log(&format!("❌ Unknown service method: '{}'", service_method));
                 return Err(make_error(&format!("Unknown service method: {}", service_method)));
@@ -686,6 +720,26 @@ impl GrpcClient {
         request: ExecuteResourceDslRequest,
     ) -> Result<ExecuteResourceDslResponse> {
         self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteResourceDsl", &request)
+            .await
+    }
+
+    // ============================================
+    // Unified Onboarding API (maps to gRPC)
+    // ============================================
+
+    pub async fn compile_onboarding_workflow(
+        &self,
+        request: CompileWorkflowRequest,
+    ) -> Result<CompileWorkflowResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/CompileOnboardingWorkflow", &request)
+            .await
+    }
+
+    pub async fn execute_onboarding_workflow(
+        &self,
+        request: ExecuteWorkflowRequest,
+    ) -> Result<ExecuteWorkflowResponse> {
+        self.grpc_call("financial_taxonomy.FinancialTaxonomyService/ExecuteOnboardingWorkflow", &request)
             .await
     }
 }

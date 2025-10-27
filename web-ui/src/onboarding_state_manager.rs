@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::grpc_client::GrpcClient;
+use crate::grpc_client::{GrpcClient, CompileWorkflowRequest, CompileWorkflowResponse, ExecuteWorkflowRequest, ExecuteWorkflowResponse};
 use crate::wasm_utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,35 +11,6 @@ pub struct OnboardingMetadata {
     pub resource_dicts: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompileWorkflowRequest {
-    pub instance_id: String,
-    pub cbu_id: String,
-    pub products: Vec<String>,
-    pub team_users: Vec<serde_json::Value>,
-    pub cbu_profile: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompileWorkflowResponse {
-    pub success: bool,
-    pub message: String,
-    pub plan: Option<serde_json::Value>,
-    pub idd: Option<serde_json::Value>,
-    pub bindings: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecuteWorkflowRequest {
-    pub plan: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecuteWorkflowResponse {
-    pub success: bool,
-    pub message: String,
-    pub execution_log: Vec<String>,
-}
 
 pub struct OnboardingStateManager {
     client: Option<GrpcClient>,
@@ -54,7 +25,12 @@ pub struct OnboardingStateManager {
     pub current_content: String,
     pub content_modified: bool,
 
-    // Workflow compilation inputs
+    // Simple onboarding inputs
+    pub cbu_name: String,
+    pub cbu_description: String,
+    pub product_name: String,
+
+    // Legacy workflow compilation inputs (keep for compatibility)
     pub instance_id: String,
     pub cbu_id: String,
     pub products_input: String, // comma-separated
@@ -86,6 +62,9 @@ impl OnboardingStateManager {
             selected_file: "product_catalog".to_string(),
             current_content: String::new(),
             content_modified: false,
+            cbu_name: String::new(),
+            cbu_description: String::new(),
+            product_name: String::new(),
             instance_id: "OR-2025-00042".to_string(),
             cbu_id: "CBU-12345".to_string(),
             products_input: "GlobalCustody@v3".to_string(),
@@ -258,7 +237,7 @@ impl OnboardingStateManager {
         self.error_state = Some(error_state.clone());
 
         wasm_utils::spawn_async(async move {
-            match client.post_request::<_, CompileWorkflowResponse>("/api/onboarding/compile", &request).await {
+            match client.compile_onboarding_workflow(request).await {
                 Ok(response) => {
                     if let Ok(mut state) = compile_state.lock() {
                         *state = Some(response);
@@ -307,7 +286,7 @@ impl OnboardingStateManager {
         self.error_state = Some(error_state.clone());
 
         wasm_utils::spawn_async(async move {
-            match client.post_request::<_, ExecuteWorkflowResponse>("/api/onboarding/execute", &request).await {
+            match client.execute_onboarding_workflow(request).await {
                 Ok(response) => {
                     if let Ok(mut state) = execute_state.lock() {
                         *state = Some(response);

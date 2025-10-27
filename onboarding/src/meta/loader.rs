@@ -16,8 +16,8 @@ pub fn load_from_dir(dir: &Path) -> Result<MetaBundle> {
     for entry in std::fs::read_dir(dir.join("resource_dicts"))? {
         let p = entry?.path();
         if p.extension().and_then(|s| s.to_str()) == Some("yaml") {
-            let rd: ResourceType = serde_yaml::from_str(&std::fs::read_to_string(p)?)?;
-            dicts.push(rd);
+            let wrapper: ResourceDicts = serde_yaml::from_str(&std::fs::read_to_string(p)?)?;
+            dicts.extend(wrapper.resource_types);
         }
     }
     let resource_dicts = ResourceDicts { resource_types: dicts };

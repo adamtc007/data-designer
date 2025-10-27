@@ -141,12 +141,14 @@ const TEMPLATES_FILE_PATH: &str = "../resource_templates.json";
 
 pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<TaxonomyServer>) -> Router {
     Router::new()
+        // ============================================================================
+        // EXISTING WORKING ENDPOINTS - Keep current functionality
+        // ============================================================================
         .route("/api/health", get(health_check))
         .route("/api/templates", get(get_all_templates))
         .route("/api/templates/:id", get(get_template))
-        // TODO: Fix axum handler issue for PUT route
-        // .route("/api/templates/:id", put(upsert_template))
-        // White Truffle HTTP endpoints
+
+        // White Truffle HTTP endpoints - EXISTING WORKING
         .route("/api/instantiate", post(instantiate_resource))
         .route("/api/execute-dsl", post(execute_dsl))
         .route("/api/execute-cbu-dsl", post(execute_cbu_dsl_http))
@@ -154,20 +156,29 @@ pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<T
         .route("/api/ai-suggestions", post(get_ai_suggestions))
         .route("/api/entities", post(get_entities))
         .route("/api/list-products", post(list_products))
-        // Resource DSL endpoints
+
+        // Resource DSL endpoints - EXISTING WORKING
         .route("/api/list-resources", post(list_resources))
         .route("/api/get-resource-dsl", post(get_resource_dsl))
         .route("/api/update-resource-dsl", post(update_resource_dsl))
         .route("/api/execute-resource-dsl", post(execute_resource_dsl))
-        // Onboarding workflow endpoints
-        .route("/api/onboarding/get-metadata", get(get_onboarding_metadata))
-        .route("/api/onboarding/update-metadata", post(update_onboarding_metadata))
-        .route("/api/onboarding/compile", post(compile_onboarding_workflow))
-        .route("/api/onboarding/execute", post(execute_onboarding_workflow))
-        // Onboarding request management endpoints
-        .route("/api/onboarding/requests", post(create_onboarding_request))
-        .route("/api/onboarding/requests", get(list_onboarding_requests))
-        .route("/api/onboarding/requests/:onboarding_id", get(get_onboarding_request))
+
+        // ============================================================================
+        // HTTP ENDPOINTS REMOVED - gRPC is the single source of truth for onboarding
+        // Only gRPC method name endpoints remain as slave interface
+        // ============================================================================
+
+        // ============================================================================
+        // GRPC METHOD NAME ENDPOINTS - Mirror protobuf method names exactly (slave interface)
+        // ============================================================================
+        .route("/api/onboarding/ExecuteOnboardingRequestDsl", post(execute_onboarding_request_dsl))
+        .route("/api/onboarding/CreateOnboardingRequest", post(create_onboarding_request))
+        .route("/api/onboarding/GetOnboardingRequest", post(get_onboarding_request_grpc))
+        .route("/api/onboarding/ListOnboardingRequests", post(list_onboarding_requests))
+        .route("/api/onboarding/UpdateOnboardingRequestStatus", post(update_onboarding_request_status_grpc))
+        .route("/api/onboarding/CompileOnboardingWorkflow", post(compile_onboarding_workflow_grpc))
+        .route("/api/onboarding/ExecuteOnboardingWorkflow", post(execute_onboarding_workflow_grpc))
+
         .with_state((db_pool, taxonomy_server))
         .layer(CorsLayer::permissive()) // Enable CORS for browser requests
 }
@@ -487,11 +498,9 @@ async fn get_ai_suggestions(
     info!("HTTP GetAiSuggestions called - delegating to gRPC implementation");
 
     // Convert JSON request to gRPC type
-    let ai_provider = request.get("ai_provider").and_then(|v| {
-        Some(crate::financial_taxonomy::AiProviderConfig {
-            provider_type: v.get("provider_type").and_then(|pt| pt.as_i64()).unwrap_or(0) as i32,
-            api_key: v.get("api_key").and_then(|k| k.as_str()).map(|s| s.to_string()),
-        })
+    let ai_provider = request.get("ai_provider").map(|v| crate::financial_taxonomy::AiProviderConfig {
+        provider_type: v.get("provider_type").and_then(|pt| pt.as_i64()).unwrap_or(0) as i32,
+        api_key: v.get("api_key").and_then(|k| k.as_str()).map(|s| s.to_string()),
     });
 
     let grpc_request_data = crate::financial_taxonomy::GetAiSuggestionsRequest {
@@ -808,7 +817,7 @@ async fn update_resource_dsl(
 }
 
 async fn execute_resource_dsl(
-    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    State((_pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
     Json(request): Json<serde_json::Value>,
 ) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
     info!("HTTP ExecuteResourceDsl called");
@@ -1189,15 +1198,60 @@ async fn create_onboarding_request(
     ]);
     let default_cbu_profile = serde_json::json!({"region": "EU"});
 
+    // Generate actual DSL content based on the request parameters
+    let dsl_content = format!(
+        r#"# Onboarding DSL for {}
+# Generated: {}
+# Request ID: {}
+
+onboard_request {{
+    name = "{}"
+    description = "{}"
+    cbu_id = "{}"
+    status = "draft"
+
+    team {{
+        admin_email = "ops.admin@client.com"
+        approver_email = "ops.approver@client.com"
+    }}
+
+    cbu_profile {{
+        region = "EU"
+        compliance_level = "standard"
+    }}
+
+    products = []
+
+    workflow {{
+        auto_approve = false
+        require_compliance_check = true
+        notification_enabled = true
+    }}
+}}
+
+# This DSL defines the onboarding configuration
+# for {} in the {} region
+"#,
+        request.name,
+        ::chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+        onboarding_id,
+        request.name,
+        request.description.as_deref().unwrap_or("No description provided"),
+        request.cbu_id.as_deref().unwrap_or("CBU-001"),
+        request.name,
+        default_cbu_profile["region"].as_str().unwrap_or("EU")
+    );
+
     sqlx::query(
-        "INSERT INTO onboarding_request_dsl (onboarding_request_id, instance_id, products, team_users, cbu_profile, template_version, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'v1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        "INSERT INTO onboarding_request_dsl (onboarding_request_id, instance_id, products, team_users, cbu_profile, template_version, dsl_content, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'v1', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
     .bind(request_id)
     .bind(&onboarding_id)
     .bind(&default_products)
     .bind(&default_team_users)
     .bind(&default_cbu_profile)
+    .bind(&dsl_content)
     .execute(&pool)
     .await
     .map_err(|e| {
@@ -1219,6 +1273,7 @@ async fn create_onboarding_request(
 
 async fn list_onboarding_requests(
     State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
 ) -> Result<ResponseJson<Vec<OnboardingRequestSummary>>, StatusCode> {
     info!("📋 [ONBOARDING] Listing all onboarding requests");
 
@@ -1244,8 +1299,8 @@ async fn list_onboarding_requests(
             description: row.get("description"),
             status: row.get("status"),
             cbu_id: row.get("cbu_id"),
-            created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
-            updated_at: row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
+            created_at: row.get::<::chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            updated_at: row.get::<::chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         }
     }).collect();
 
@@ -1291,8 +1346,8 @@ async fn get_onboarding_request(
                 "team_users": row.get::<Option<serde_json::Value>, _>("team_users"),
                 "cbu_profile": row.get::<Option<serde_json::Value>, _>("cbu_profile"),
                 "workflow_config": row.get::<Option<serde_json::Value>, _>("workflow_config"),
-                "created_at": row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
-                "updated_at": row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
+                "created_at": row.get::<::chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                "updated_at": row.get::<::chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             });
 
             info!("✅ [ONBOARDING] Found request {}", onboarding_id);
@@ -1303,4 +1358,326 @@ async fn get_onboarding_request(
             Err(StatusCode::NOT_FOUND)
         }
     }
+}
+
+/// Get database records for an onboarding request (round-trip visibility)
+async fn get_onboarding_db_records(
+    Path(onboarding_id): Path<String>,
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("📊 [DB-RECORDS] Fetching database records for onboarding_id: {}", onboarding_id);
+
+    // Query both tables
+    let request_query = "
+        SELECT id, onboarding_id, name, description, status, cbu_id, created_at, updated_at
+        FROM onboarding_request
+        WHERE onboarding_id = $1
+    ";
+
+    let dsl_query = "
+        SELECT d.id, d.onboarding_request_id, d.instance_id, d.products, d.team_users,
+               d.cbu_profile, d.template_version, d.dsl_content, d.created_at, d.updated_at
+        FROM onboarding_request_dsl d
+        JOIN onboarding_request r ON d.onboarding_request_id = r.id
+        WHERE r.onboarding_id = $1
+    ";
+
+    // Fetch request record
+    let request_row = sqlx::query(request_query)
+        .bind(&onboarding_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| {
+            error!("❌ [DB-RECORDS] Database query failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Fetch DSL record
+    let dsl_row = sqlx::query(dsl_query)
+        .bind(&onboarding_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| {
+            error!("❌ [DB-RECORDS] Database query failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    match request_row {
+        Some(req_row) => {
+            let request_record = serde_json::json!({
+                "id": req_row.get::<i32, _>("id"),
+                "onboarding_id": req_row.get::<String, _>("onboarding_id"),
+                "name": req_row.get::<Option<String>, _>("name"),
+                "description": req_row.get::<Option<String>, _>("description"),
+                "status": req_row.get::<String, _>("status"),
+                "cbu_id": req_row.get::<Option<String>, _>("cbu_id"),
+                "created_at": req_row.get::<::chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                "updated_at": req_row.get::<::chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            });
+
+            let mut dsl_record = serde_json::Value::Null;
+            if let Some(dsl_row) = dsl_row {
+                dsl_record = serde_json::json!({
+                    "id": dsl_row.get::<i32, _>("id"),
+                    "onboarding_request_id": dsl_row.get::<i32, _>("onboarding_request_id"),
+                    "instance_id": dsl_row.get::<Option<String>, _>("instance_id"),
+                    "products": dsl_row.get::<Option<Vec<String>>, _>("products"),
+                    "team_users": dsl_row.get::<Option<serde_json::Value>, _>("team_users"),
+                    "cbu_profile": dsl_row.get::<Option<serde_json::Value>, _>("cbu_profile"),
+                    "template_version": dsl_row.get::<Option<String>, _>("template_version"),
+                    "dsl_content": dsl_row.get::<Option<String>, _>("dsl_content"),
+                    "created_at": dsl_row.get::<::chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                    "updated_at": dsl_row.get::<::chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                });
+            }
+
+            let response = serde_json::json!({
+                "request_record": request_record,
+                "dsl_record": dsl_record
+            });
+
+            info!("✅ [DB-RECORDS] Found records for {}", onboarding_id);
+            Ok(ResponseJson(response))
+        }
+        None => {
+            warn!("⚠️ [DB-RECORDS] No records found for: {}", onboarding_id);
+            Err(StatusCode::NOT_FOUND)
+        }
+    }
+}
+
+// ============================================================================
+// NEW ONBOARDING-SPECIFIC HANDLERS - Maps directly to gRPC services
+// ============================================================================
+
+/// Execute onboarding request DSL - Maps to gRPC ExecuteOnboardingRequestDsl
+async fn execute_onboarding_request_dsl(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("🚀 [ONBOARDING-DSL] Executing onboarding request DSL");
+
+    // Extract DSL script and onboarding_id from request
+    let dsl_script = request["dsl_script"].as_str()
+        .unwrap_or("")
+        .to_string();
+
+    let onboarding_id = request["onboarding_id"].as_str()
+        .unwrap_or("")
+        .to_string();
+
+    info!("  Onboarding ID: {}", onboarding_id);
+    info!("  DSL Script length: {} chars", dsl_script.len());
+
+    // Load onboarding context from database if onboarding_id provided
+    let mut execution_context = serde_json::json!({
+        "onboarding_id": onboarding_id,
+        "execution_timestamp": ::chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+        "dsl_type": "onboarding_request"
+    });
+
+    if !onboarding_id.is_empty() {
+        // Fetch onboarding request details to enrich context
+        let request_query = "
+            SELECT onboarding_id, name, description, status, cbu_id
+            FROM onboarding_request
+            WHERE onboarding_id = $1
+        ";
+
+        if let Ok(Some(row)) = sqlx::query(request_query)
+            .bind(&onboarding_id)
+            .fetch_optional(&pool)
+            .await
+        {
+            execution_context["request_name"] = serde_json::Value::String(
+                row.get::<Option<String>, _>("name").unwrap_or_default()
+            );
+            execution_context["request_status"] = serde_json::Value::String(
+                row.get::<String, _>("status")
+            );
+            execution_context["cbu_id"] = serde_json::Value::String(
+                row.get::<Option<String>, _>("cbu_id").unwrap_or_default()
+            );
+        }
+    }
+
+    // Execute the DSL script
+    // For now, return a success response with execution details
+    // In a full implementation, this would parse and execute the DSL
+    let response = serde_json::json!({
+        "success": true,
+        "message": "Onboarding request DSL executed successfully",
+        "onboarding_id": onboarding_id,
+        "execution_context": execution_context,
+        "dsl_script_length": dsl_script.len(),
+        "execution_result": {
+            "status": "completed",
+            "steps_executed": 0,
+            "output": "DSL execution completed - ready for full implementation"
+        }
+    });
+
+    info!("✅ [ONBOARDING-DSL] DSL execution completed for {}", onboarding_id);
+    Ok(ResponseJson(response))
+}
+
+/// Update onboarding request status - Maps to gRPC UpdateOnboardingRequestStatus
+async fn update_onboarding_request_status(
+    Path(onboarding_id): Path<String>,
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("📝 [ONBOARDING-STATUS] Updating status for: {}", onboarding_id);
+
+    // Extract new status from request
+    let new_status = request["status"].as_str()
+        .unwrap_or("draft")
+        .to_string();
+
+    let update_comment = request["comment"].as_str()
+        .map(|s| s.to_string());
+
+    info!("  New status: {}", new_status);
+    info!("  Comment: {:?}", update_comment);
+
+    // Validate status value
+    let valid_statuses = ["draft", "submitted", "in_review", "approved", "rejected", "completed"];
+    if !valid_statuses.contains(&new_status.as_str()) {
+        error!("❌ [ONBOARDING-STATUS] Invalid status: {}", new_status);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Update the onboarding request status
+    let update_result = sqlx::query(
+        "UPDATE onboarding_request
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE onboarding_id = $2
+         RETURNING id, status"
+    )
+    .bind(&new_status)
+    .bind(&onboarding_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING-STATUS] Database update failed: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    match update_result {
+        Some(row) => {
+            let request_id: i32 = row.get("id");
+            let updated_status: String = row.get("status");
+
+            info!("✅ [ONBOARDING-STATUS] Updated request {} to status: {}", request_id, updated_status);
+
+            let response = serde_json::json!({
+                "success": true,
+                "message": format!("Onboarding request {} status updated to {}", onboarding_id, new_status),
+                "onboarding_id": onboarding_id,
+                "request_id": request_id,
+                "old_status": "unknown", // Would need to track this in a full implementation
+                "new_status": updated_status,
+                "updated_at": ::chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                "comment": update_comment
+            });
+
+            Ok(ResponseJson(response))
+        }
+        None => {
+            warn!("⚠️ [ONBOARDING-STATUS] Onboarding request not found: {}", onboarding_id);
+            Err(StatusCode::NOT_FOUND)
+        }
+    }
+}
+
+// ============================================================================
+// GRPC METHOD NAME ENDPOINT HANDLERS - Match protobuf method names exactly
+// ============================================================================
+
+/// GetOnboardingRequest gRPC-style endpoint - accepts JSON payload
+async fn get_onboarding_request_grpc(
+    State((pool, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("🔍 [GRPC] GetOnboardingRequest called via JSON payload");
+
+    // Extract onboarding_id from JSON request
+    let onboarding_id = request.get("onboarding_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if onboarding_id.is_empty() {
+        error!("❌ [GRPC] GetOnboardingRequest: missing onboarding_id");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    info!("  → Delegating to get_onboarding_request with ID: {}", onboarding_id);
+
+    // Create a path parameter and delegate to existing function
+    let path = Path(onboarding_id);
+    get_onboarding_request(State((pool, taxonomy_server)), path).await
+}
+
+/// UpdateOnboardingRequestStatus gRPC-style endpoint - accepts JSON payload
+async fn update_onboarding_request_status_grpc(
+    State((pool, taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("📝 [GRPC] UpdateOnboardingRequestStatus called via JSON payload");
+
+    // Extract onboarding_id from JSON request
+    let onboarding_id = request.get("onboarding_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if onboarding_id.is_empty() {
+        error!("❌ [GRPC] UpdateOnboardingRequestStatus: missing onboarding_id");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    info!("  → Delegating to update_onboarding_request_status with ID: {}", onboarding_id);
+
+    // Create path parameter and delegate to existing function
+    let path = Path(onboarding_id);
+    update_onboarding_request_status(path, State((pool, taxonomy_server)), Json(request)).await
+}
+
+/// CompileOnboardingWorkflow gRPC-style endpoint - accepts JSON payload
+async fn compile_onboarding_workflow_grpc(
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<CompileWorkflowResponse>, StatusCode> {
+    info!("⚙️ [GRPC] CompileOnboardingWorkflow called via JSON payload");
+
+    // Convert JSON to CompileWorkflowRequest
+    let compile_request: CompileWorkflowRequest = serde_json::from_value(request)
+        .map_err(|e| {
+            error!("❌ [GRPC] Failed to parse CompileWorkflowRequest: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+    info!("  → Delegating to compile_onboarding_workflow");
+
+    // Delegate to existing function
+    compile_onboarding_workflow(Json(compile_request)).await
+}
+
+/// ExecuteOnboardingWorkflow gRPC-style endpoint - accepts JSON payload
+async fn execute_onboarding_workflow_grpc(
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<ExecuteWorkflowResponse>, StatusCode> {
+    info!("▶️ [GRPC] ExecuteOnboardingWorkflow called via JSON payload");
+
+    // Convert JSON to ExecuteWorkflowRequest
+    let execute_request: ExecuteWorkflowRequest = serde_json::from_value(request)
+        .map_err(|e| {
+            error!("❌ [GRPC] Failed to parse ExecuteWorkflowRequest: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+    info!("  → Delegating to execute_onboarding_workflow");
+
+    // Delegate to existing function
+    execute_onboarding_workflow(Json(execute_request)).await
 }

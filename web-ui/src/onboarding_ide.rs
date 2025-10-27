@@ -175,60 +175,29 @@ impl OnboardingIDE {
     }
 
     fn render_intent_editor(&mut self, ui: &mut egui::Ui, state: &mut OnboardingStateManager) {
-        ui.heading("Onboard Intent");
+        ui.heading("Simple Onboarding");
 
         egui::ScrollArea::vertical()
             .max_height(ui.available_height())
             .show(ui, |ui| {
                 ui.group(|ui| {
-                    ui.label("Instance Details");
+                    ui.label("Onboarding Details");
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        ui.label("Instance ID:");
-                        ui.text_edit_singleline(&mut state.instance_id);
+                        ui.label("CBU Name:");
+                        ui.text_edit_singleline(&mut state.cbu_name);
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("CBU ID:");
-                        ui.text_edit_singleline(&mut state.cbu_id);
+                        ui.label("CBU Description:");
+                        ui.text_edit_singleline(&mut state.cbu_description);
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Products:");
-                        ui.text_edit_singleline(&mut state.products_input);
+                        ui.label("Product Name:");
+                        ui.text_edit_singleline(&mut state.product_name);
                     });
-                    ui.label("(comma-separated)");
-                });
-
-                ui.add_space(10.0);
-
-                ui.group(|ui| {
-                    ui.label("Team Users (JSON Array)");
-                    ui.separator();
-
-                    ui.add(
-                        egui::TextEdit::multiline(&mut state.team_users_input)
-                            .font(egui::TextStyle::Monospace)
-                            .code_editor()
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(8)
-                    );
-                });
-
-                ui.add_space(10.0);
-
-                ui.group(|ui| {
-                    ui.label("CBU Profile (JSON Object)");
-                    ui.separator();
-
-                    ui.add(
-                        egui::TextEdit::multiline(&mut state.cbu_profile_input)
-                            .font(egui::TextStyle::Monospace)
-                            .code_editor()
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(6)
-                    );
                 });
             });
     }

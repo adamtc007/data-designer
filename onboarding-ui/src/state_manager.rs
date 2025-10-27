@@ -63,6 +63,40 @@ pub struct CreateRequestResponse {
     pub request_id: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // Used by app.rs
+pub struct OnboardingRequestRecord {
+    pub id: i32,
+    pub onboarding_id: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub status: String,
+    pub cbu_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // Used by app.rs
+pub struct OnboardingRequestDslRecord {
+    pub id: i32,
+    pub onboarding_request_id: i32,
+    pub instance_id: Option<String>,
+    pub products: Option<Vec<String>>,
+    pub team_users: Option<serde_json::Value>,
+    pub cbu_profile: Option<serde_json::Value>,
+    pub template_version: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // Used internally
+pub struct DbRecordsResponse {
+    pub request_record: OnboardingRequestRecord,
+    pub dsl_record: Option<OnboardingRequestDslRecord>,
+}
+
 #[allow(dead_code)] // Used by app.rs
 pub struct OnboardingStateManager {
     client: Option<GrpcClient>,
@@ -83,9 +117,18 @@ pub struct OnboardingStateManager {
     pub request_cbu_id: String,
     pub creating_request: bool,
     pub create_request_result: Option<CreateRequestResponse>,
+    pub create_request_timeout_counter: u32,
+
+    // Database records (fetched after successful create)
+    pub db_request_record: Option<OnboardingRequestRecord>,
+    pub db_dsl_record: Option<OnboardingRequestDslRecord>,
+    pub loading_db_records: bool,
 
     // Current onboarding request (if loaded)
     pub current_onboarding_id: Option<String>,
+
+    // List of all onboarding requests
+    pub onboarding_requests: Vec<OnboardingRequestRecord>,
 
     // Workflow compilation inputs
     pub instance_id: String,
@@ -103,10 +146,11 @@ pub struct OnboardingStateManager {
     pub executing: bool,
 
     // Async state bridges (Arc<Mutex<>> for thread-safe async updates)
-    metadata_state: Option<Arc<Mutex<Option<OnboardingMetadata>>>>,
+    metadata_state: Option<Arc<Mutex<Option<Vec<OnboardingRequestRecord>>>>>,
     compile_state: Option<Arc<Mutex<Option<CompileWorkflowResponse>>>>,
     execute_state: Option<Arc<Mutex<Option<ExecuteWorkflowResponse>>>>,
     create_request_state: Option<Arc<Mutex<Option<CreateRequestResponse>>>>,
+    db_records_state: Option<Arc<Mutex<Option<DbRecordsResponse>>>>,
     error_state: Option<Arc<Mutex<Option<String>>>>,
 }
 
@@ -126,7 +170,12 @@ impl OnboardingStateManager {
             request_cbu_id: String::new(),
             creating_request: false,
             create_request_result: None,
+            create_request_timeout_counter: 0,
+            db_request_record: None,
+            db_dsl_record: None,
+            loading_db_records: false,
             current_onboarding_id: None,
+            onboarding_requests: Vec::new(),
             instance_id: "OR-2025-00042".to_string(),
             cbu_id: "CBU-12345".to_string(),
             products_input: "GlobalCustody@v3".to_string(),
@@ -143,6 +192,7 @@ impl OnboardingStateManager {
             compile_state: None,
             execute_state: None,
             create_request_state: None,
+            db_records_state: None,
             error_state: None,
         }
     }
@@ -169,26 +219,30 @@ impl OnboardingStateManager {
             }
         };
 
-        let metadata_state = Arc::new(Mutex::new(None));
+        let metadata_state: Arc<Mutex<Option<Vec<OnboardingRequestRecord>>>> = Arc::new(Mutex::new(None));
         self.metadata_state = Some(metadata_state.clone());
 
         let error_state = Arc::new(Mutex::new(None));
         self.error_state = Some(error_state.clone());
 
-        log::info!("📡 [STATE] Sending GET request to /api/onboarding/get-metadata");
+        wasm_utils::console_log("🚀 [UI-TRACE] Starting metadata load operation");
+        log::info!("📡 [STATE] Sending gRPC request for onboarding metadata");
         wasm_utils::spawn_async(async move {
-            let result = client.get_request::<OnboardingMetadata>("/api/onboarding/get-metadata").await;
+            wasm_utils::console_log("🔄 [UI-TRACE] Calling client.list_onboarding_requests() for metadata");
+            let empty_request = serde_json::json!({});
+            let result = client.list_onboarding_requests::<_, Vec<OnboardingRequestRecord>>(empty_request).await;
 
             match result {
-                Ok(metadata) => {
-                    log::info!("✅ [STATE] Metadata loaded from server");
-                    log::info!("  Product catalog: {} bytes", metadata.product_catalog.len());
-                    log::info!("  CBU templates: {} bytes", metadata.cbu_templates.len());
-                    log::info!("  Resource dicts: {} files", metadata.resource_dicts.len());
+                Ok(requests) => {
+                    log::info!("✅ [STATE] Onboarding requests loaded from server");
+                    log::info!("  Found {} onboarding requests", requests.len());
+                    for req in &requests {
+                        log::info!("    - {} ({}): {}", req.onboarding_id, req.status, req.name.as_ref().unwrap_or(&"No name".to_string()));
+                    }
 
                     if let Ok(mut state) = metadata_state.lock() {
-                        *state = Some(metadata);
-                        log::info!("✅ [STATE] Metadata stored in state successfully");
+                        *state = Some(requests);
+                        log::info!("✅ [STATE] Onboarding requests stored in state successfully");
                     } else {
                         log::error!("❌ [STATE] Failed to acquire metadata lock");
                     }
@@ -329,7 +383,7 @@ impl OnboardingStateManager {
         self.error_state = Some(error_state.clone());
 
         wasm_utils::spawn_async(async move {
-            let result = client.post_request::<_, CompileWorkflowResponse>("/api/onboarding/compile", &request).await;
+            let result = client.compile_onboarding_workflow::<_, CompileWorkflowResponse>(request).await;
 
             match result {
                 Ok(response) => {
@@ -406,7 +460,7 @@ impl OnboardingStateManager {
         self.error_state = Some(error_state.clone());
 
         wasm_utils::spawn_async(async move {
-            let result = client.post_request::<_, ExecuteWorkflowResponse>("/api/onboarding/execute", &request).await;
+            let result = client.execute_onboarding_workflow::<_, ExecuteWorkflowResponse>(request).await;
 
             match result {
                 Ok(response) => {
@@ -449,6 +503,9 @@ impl OnboardingStateManager {
 
         self.creating_request = true;
         self.create_request_result = None;
+        // Clear previous database records
+        self.db_request_record = None;
+        self.db_dsl_record = None;
 
         let client = match &self.client {
             Some(c) => c.clone(),
@@ -473,18 +530,21 @@ impl OnboardingStateManager {
             },
         };
 
-        let create_request_state = Arc::new(Mutex::new(None));
-        self.create_request_state = Some(create_request_state.clone());
+        let create_request_state = Arc::new(Mutex::new(None::<CreateRequestResponse>));
+        let response_state_clone = create_request_state.clone();
 
-        let error_state = Arc::new(Mutex::new(None));
-        self.error_state = Some(error_state.clone());
+        // Store reference for polling (will be removed in next iteration)
+        self.create_request_state = Some(create_request_state);
+        self.create_request_timeout_counter = 0;
 
-        log::info!("📡 [STATE] Sending POST request to /api/onboarding/requests");
+        wasm_utils::console_log("🚀 [UI-TRACE] Starting create request operation");
+        log::info!("📡 [STATE] Sending gRPC request for onboarding request creation");
         wasm_utils::spawn_async(async move {
-            let result = client.post_request::<_, CreateRequestResponse>("/api/onboarding/requests", &request).await;
+            wasm_utils::console_log("🔄 [UI-TRACE] Calling client.create_onboarding_request()");
 
-            match result {
+            match client.create_onboarding_request::<_, CreateRequestResponse>(request).await {
                 Ok(response) => {
+                    wasm_utils::console_log("✅ [UI-TRACE] Create request HTTP call succeeded");
                     if response.success {
                         log::info!("✅ [STATE] Onboarding request created successfully");
                         log::info!("  Onboarding ID: {:?}", response.onboarding_id);
@@ -493,17 +553,83 @@ impl OnboardingStateManager {
                         log::error!("❌ [STATE] Create request failed: {}", response.message);
                     }
 
-                    if let Ok(mut state) = create_request_state.lock() {
-                        *state = Some(response);
-                        log::info!("✅ [STATE] Create result stored in state");
-                    } else {
-                        log::error!("❌ [STATE] Failed to acquire create request state lock");
-                    }
+                    let mut state = response_state_clone.lock().unwrap();
+                    *state = Some(response);
+                    wasm_utils::console_log("✅ [UI-TRACE] Create result stored in create_request_state");
                 }
                 Err(e) => {
                     log::error!("❌ [STATE] Create request failed: {}", e);
+                    wasm_utils::console_log(&format!("❌ [UI-TRACE] Create request HTTP call failed: {}", e));
+
+                    // Store error response
+                    let mut state = response_state_clone.lock().unwrap();
+                    *state = Some(CreateRequestResponse {
+                        success: false,
+                        message: format!("HTTP error: {}", e),
+                        onboarding_id: None,
+                        request_id: None,
+                    });
+                    wasm_utils::console_log("✅ [UI-TRACE] Error response stored in create_request_state");
+                }
+            }
+        });
+    }
+
+    // === Database Records Loading ===
+
+    pub fn load_database_records(&mut self, onboarding_id: String) {
+        if self.loading_db_records {
+            log::warn!("⚠️ [STATE] Load database records called but already loading - ignoring");
+            return;
+        }
+
+        log::info!("📊 [STATE] Loading database records for onboarding_id: {}", onboarding_id);
+        self.loading_db_records = true;
+        self.current_onboarding_id = Some(onboarding_id.clone());
+
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                log::error!("❌ [STATE] No client available for database records load");
+                self.loading_db_records = false;
+                return;
+            }
+        };
+
+        let db_records_state = Arc::new(Mutex::new(None));
+        self.db_records_state = Some(db_records_state.clone());
+
+        let error_state = Arc::new(Mutex::new(None));
+        self.error_state = Some(error_state.clone());
+
+        wasm_utils::console_log(&format!("🚀 [UI-TRACE] Starting DB records load operation for ID: {}", onboarding_id));
+        log::info!("📡 [STATE] Sending gRPC request for database records");
+
+        wasm_utils::spawn_async(async move {
+            wasm_utils::console_log(&format!("🔄 [UI-TRACE] Calling client.get_onboarding_db_records({})", onboarding_id));
+            let result = client.get_onboarding_db_records::<DbRecordsResponse>(onboarding_id).await;
+
+            match result {
+                Ok(db_response) => {
+                    log::info!("✅ [STATE] Database records loaded successfully");
+                    log::info!("  Request record ID: {}", db_response.request_record.id);
+                    if let Some(ref dsl_record) = db_response.dsl_record {
+                        log::info!("  DSL record ID: {}", dsl_record.id);
+                    } else {
+                        log::info!("  No DSL record found (this is normal for new requests)");
+                    }
+
+                    if let Ok(mut state) = db_records_state.lock() {
+                        *state = Some(db_response);
+                        log::info!("✅ [STATE] Database records stored in state bridge");
+                    } else {
+                        log::error!("❌ [STATE] Failed to acquire database records state lock");
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ [STATE] Failed to load database records: {}", e);
                     if let Ok(mut state) = error_state.lock() {
-                        *state = Some(format!("Create request error: {}", e));
+                        *state = Some(format!("Failed to load database records: {}", e));
                     }
                 }
             }
@@ -513,24 +639,23 @@ impl OnboardingStateManager {
     // === Async Result Processing ===
 
     pub fn update_from_async(&mut self) {
-        // Check metadata loading state
+        // Check onboarding requests loading state
         if let Some(state) = &self.metadata_state {
             if let Ok(mut guard) = state.lock() {
-                if let Some(metadata) = guard.take() {
-                    log::info!("🎉 [STATE] Metadata received from async task!");
-                    self.metadata = Some(metadata.clone());
+                if let Some(requests) = guard.take() {
+                    log::info!("🎉 [STATE] Onboarding requests received from async task!");
+                    log::info!("  Loaded {} onboarding requests", requests.len());
+                    self.onboarding_requests = requests;
                     self.metadata_loading = false;
-                    // Load initial content
-                    self.current_content = metadata.product_catalog.clone();
-                    log::info!("✅ [STATE] Metadata loaded into UI state");
+                    log::info!("✅ [STATE] Onboarding requests loaded into UI state");
                 } else {
-                    log::debug!("⏳ [STATE] Checking metadata state - not ready yet");
+                    log::debug!("⏳ [STATE] Checking onboarding requests state - not ready yet");
                 }
             } else {
-                log::warn!("⚠️ [STATE] Failed to lock metadata state in update_from_async");
+                log::warn!("⚠️ [STATE] Failed to lock onboarding requests state in update_from_async");
             };
             // Don't clear metadata_state until we actually got data
-            if self.metadata.is_some() {
+            if !self.onboarding_requests.is_empty() {
                 self.metadata_state = None; // Clear after successfully loading
             }
         }
@@ -557,15 +682,94 @@ impl OnboardingStateManager {
             self.execute_state = None; // Clear after scope ends
         }
 
-        // Check create request state
-        if let Some(state) = &self.create_request_state {
-            if let Ok(mut guard) = state.lock() {
-                if let Some(response) = guard.take() {
+        // Check create request state (using CBU designer pattern)
+        let onboarding_id_to_load: Option<String> = None;
+        let should_clear_create_state = if let Some(loading_state) = &self.create_request_state {
+            if let Ok(response_option) = loading_state.try_lock() {
+                if response_option.is_some() {
+                    let response = response_option.clone().unwrap();
+                    log::info!("🎉 [STATE] Create request response received from async task!");
+                    wasm_utils::console_log("🎉 [UI-TRACE] Create request response received, resetting creating_request to false");
+
+                    // If create succeeded, we could auto-load database records, but for now skip it to avoid complexity
+                    if response.success && response.onboarding_id.is_some() {
+                        if let Some(onboarding_id) = &response.onboarding_id {
+                            log::info!("✅ [STATE] Create succeeded for onboarding_id: {} (skipping auto-load of DB records)", onboarding_id);
+                            // onboarding_id_to_load = Some(onboarding_id.clone()); // Disabled for now
+                        }
+                    }
                     self.create_request_result = Some(response);
                     self.creating_request = false;
+                    wasm_utils::console_log("🔄 State Manager: Updated create request from async");
+                    true
+                } else {
+                    // Increment timeout counter
+                    self.create_request_timeout_counter += 1;
+                    if self.create_request_timeout_counter > 300 { // 5 seconds at 60fps
+                        log::warn!("⚠️ [STATE] Create request timed out after 5 seconds, resetting state");
+                        wasm_utils::console_log("⏳ [UI-TRACE] Create request timed out, resetting creating_request to false");
+                        self.creating_request = false;
+                        self.create_request_result = Some(CreateRequestResponse {
+                            success: false,
+                            message: "Request timed out".to_string(),
+                            onboarding_id: None,
+                            request_id: None,
+                        });
+                        true
+                    } else {
+                        false
+                    }
                 }
-            };
-            self.create_request_state = None; // Clear after scope ends
+            } else {
+                log::warn!("⚠️ [STATE] Failed to acquire create request state lock");
+                false
+            }
+        } else {
+            false
+        };
+        if should_clear_create_state {
+            self.create_request_state = None;
+            self.create_request_timeout_counter = 0;
+        }
+
+        // Load database records if needed (after releasing the borrow)
+        if let Some(onboarding_id) = onboarding_id_to_load {
+            self.load_database_records(onboarding_id);
+        }
+
+        // Check database records state (using CBU designer pattern)
+        let should_clear_db_state = if let Some(loading_state) = &self.db_records_state {
+            if let Ok(db_records_option) = loading_state.try_lock() {
+                if db_records_option.is_some() {
+                    let db_records = db_records_option.clone().unwrap();
+                    log::info!("🎉 [STATE] Database records received from async task!");
+                    self.db_request_record = Some(db_records.request_record);
+                    self.db_dsl_record = db_records.dsl_record; // Handle optional DSL record
+                    self.loading_db_records = false;
+                    log::info!("✅ [STATE] Database records loaded into UI state");
+                    if self.db_dsl_record.is_some() {
+                        log::info!("  DSL record found and loaded");
+                    } else {
+                        log::info!("  No DSL record found (this is normal for new requests)");
+                    }
+                    wasm_utils::console_log("🔄 State Manager: Updated DB records from async");
+                    true
+                } else {
+                    // No DB records yet, timeout not needed since it's disabled by default
+                    false
+                }
+            } else {
+                log::warn!("⚠️ [STATE] Failed to acquire database records state lock");
+                // Reset loading flag if we can't even lock the state
+                self.loading_db_records = false;
+                wasm_utils::console_log("⚠️ [UI-TRACE] Failed to lock DB records state, resetting loading_db_records to false");
+                true
+            }
+        } else {
+            false
+        };
+        if should_clear_db_state {
+            self.db_records_state = None;
         }
 
         // Check error state
