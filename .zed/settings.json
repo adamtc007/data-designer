@@ -1,41 +1,19 @@
 {
-  "language_models": {
-    "openai": {
-      "available_models": [
-        { "name": "gpt-4o", "display_name": "GPT-4o", "max_tokens": 128000 },
-        { "name": "gpt-5",  "display_name": "GPT-5",  "max_tokens": 272000 }
-      ]
-    },
-    "anthropic": {
-      "available_models": [
-        { "name": "claude-3-5-sonnet", "display_name": "Claude 3.5 Sonnet", "max_tokens": 200000 }
-      ]
-    },
-    "google": {
-      "available_models": [
-        { "name": "gemini-2.0-flash", "display_name": "Gemini 2.0 Flash", "max_tokens": 1000000 }
-      ]
+  "assistant": {
+    "version": "2",
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5"
     }
   },
-  "agent": {
-    "default_model": { "provider": "openai", "model": "gpt-4o" },
-    "inline_alternatives": [
-      { "provider": "anthropic", "model": "claude-3-5-sonnet" },
-      { "provider": "google",    "model": "gemini-2.0-flash" }
-    ],
-    "use_modifier_to_send": true,
-    "single_file_review": true,
-    "expand_edit_card": true,
-    "play_sound_when_agent_done": true
-  },
-  "assistant": {
-    "profiles": {
-      "DataDesigner-Write": {
-        "tools": { "edit_files": true, "search": true, "run_commands": true }
-      },
-      "DataDesigner-Ask": {
-        "tools": { "edit_files": false, "search": true, "run_commands": false }
-      }
+  "context_files": [
+    "REFACTOR_PLAN.md",
+    ".zed/context.md",
+    "docs/code-snippets/*.md"
+  ],
+  "terminal": {
+    "env": {
+      "REVIEW_MODE": "true"
     }
   }
 }

@@ -109,4 +109,6 @@ secrets.yaml
 .fleet/
 .run/
 *.code-workspace
-.history/
+.history/# Code snippets for review (generated)
+# Uncomment next line if you don't want to commit these
+# docs/code-snippets/*.md

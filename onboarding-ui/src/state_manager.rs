@@ -74,6 +74,7 @@ pub struct OnboardingRequestRecord {
     pub cbu_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub dsl_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +87,7 @@ pub struct OnboardingRequestDslRecord {
     pub team_users: Option<serde_json::Value>,
     pub cbu_profile: Option<serde_json::Value>,
     pub template_version: Option<String>,
+    pub dsl_content: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -130,6 +132,11 @@ pub struct OnboardingStateManager {
     // List of all onboarding requests
     pub onboarding_requests: Vec<OnboardingRequestRecord>,
 
+    // Editing state
+    pub editing_request: Option<OnboardingRequestRecord>,
+    pub editing_dsl_content: String,
+    pub edit_mode: bool,
+
     // Workflow compilation inputs
     pub instance_id: String,
     pub cbu_id: String,
@@ -151,6 +158,7 @@ pub struct OnboardingStateManager {
     execute_state: Option<Arc<Mutex<Option<ExecuteWorkflowResponse>>>>,
     create_request_state: Option<Arc<Mutex<Option<CreateRequestResponse>>>>,
     db_records_state: Option<Arc<Mutex<Option<DbRecordsResponse>>>>,
+    dsl_content_state: Option<Arc<Mutex<Option<String>>>>,
     error_state: Option<Arc<Mutex<Option<String>>>>,
 }
 
@@ -176,6 +184,9 @@ impl OnboardingStateManager {
             loading_db_records: false,
             current_onboarding_id: None,
             onboarding_requests: Vec::new(),
+            editing_request: None,
+            editing_dsl_content: String::new(),
+            edit_mode: false,
             instance_id: "OR-2025-00042".to_string(),
             cbu_id: "CBU-12345".to_string(),
             products_input: "GlobalCustody@v3".to_string(),
@@ -193,6 +204,7 @@ impl OnboardingStateManager {
             execute_state: None,
             create_request_state: None,
             db_records_state: None,
+            dsl_content_state: None,
             error_state: None,
         }
     }
@@ -606,24 +618,52 @@ impl OnboardingStateManager {
         log::info!("📡 [STATE] Sending gRPC request for database records");
 
         wasm_utils::spawn_async(async move {
-            wasm_utils::console_log(&format!("🔄 [UI-TRACE] Calling client.get_onboarding_db_records({})", onboarding_id));
-            let result = client.get_onboarding_db_records::<DbRecordsResponse>(onboarding_id).await;
+            wasm_utils::console_log(&format!("🔄 [UI-TRACE] Calling client.get_onboarding_request({})", onboarding_id));
+            let request = serde_json::json!({
+                "onboarding_id": onboarding_id
+            });
+            let result = client.get_onboarding_request::<_, serde_json::Value>(request).await;
 
             match result {
-                Ok(db_response) => {
+                Ok(response) => {
                     log::info!("✅ [STATE] Database records loaded successfully");
-                    log::info!("  Request record ID: {}", db_response.request_record.id);
-                    if let Some(ref dsl_record) = db_response.dsl_record {
-                        log::info!("  DSL record ID: {}", dsl_record.id);
-                    } else {
-                        log::info!("  No DSL record found (this is normal for new requests)");
-                    }
 
-                    if let Ok(mut state) = db_records_state.lock() {
-                        *state = Some(db_response);
-                        log::info!("✅ [STATE] Database records stored in state bridge");
+                    // Parse the response which contains request_record and dsl_record
+                    if let Some(request_record_json) = response.get("request_record") {
+                        if let Ok(request_record) = serde_json::from_value::<OnboardingRequestRecord>(request_record_json.clone()) {
+                            log::info!("  Request record ID: {}", request_record.id);
+
+                            let dsl_record = response.get("dsl_record")
+                                .and_then(|dsl_json| serde_json::from_value::<OnboardingRequestDslRecord>(dsl_json.clone()).ok());
+
+                            if let Some(ref dsl_record) = dsl_record {
+                                log::info!("  DSL record ID: {}", dsl_record.id);
+                            } else {
+                                log::info!("  No DSL record found (this is normal for new requests)");
+                            }
+
+                            let db_response = DbRecordsResponse {
+                                request_record,
+                                dsl_record,
+                            };
+
+                            if let Ok(mut state) = db_records_state.lock() {
+                                *state = Some(db_response);
+                                log::info!("✅ [STATE] Database records stored in state bridge");
+                            } else {
+                                log::error!("❌ [STATE] Failed to acquire database records state lock");
+                            }
+                        } else {
+                            log::error!("❌ [STATE] Failed to parse request record from response");
+                            if let Ok(mut state) = error_state.lock() {
+                                *state = Some("Failed to parse request record from response".to_string());
+                            }
+                        }
                     } else {
-                        log::error!("❌ [STATE] Failed to acquire database records state lock");
+                        log::error!("❌ [STATE] No request record found in response");
+                        if let Ok(mut state) = error_state.lock() {
+                            *state = Some("No request record found in response".to_string());
+                        }
                     }
                 }
                 Err(e) => {
@@ -772,6 +812,17 @@ impl OnboardingStateManager {
             self.db_records_state = None;
         }
 
+        // Check DSL content loading state
+        if let Some(state) = &self.dsl_content_state {
+            if let Ok(mut guard) = state.lock() {
+                if let Some(dsl_content) = guard.take() {
+                    log::info!("✅ [EDIT] DSL content loaded for editing ({} chars)", dsl_content.len());
+                    self.editing_dsl_content = dsl_content;
+                }
+            };
+            self.dsl_content_state = None; // Clear after scope ends
+        }
+
         // Check error state
         if let Some(state) = &self.error_state {
             if let Ok(mut guard) = state.lock() {
@@ -785,5 +836,168 @@ impl OnboardingStateManager {
             };
             self.error_state = None; // Clear after scope ends
         }
+    }
+
+    // === Editing Operations ===
+
+    /// Start editing an onboarding request
+    pub fn start_editing(&mut self, request: &OnboardingRequestRecord) {
+        self.editing_request = Some(request.clone());
+        self.edit_mode = true;
+        self.editing_dsl_content = String::new(); // Will be loaded from server
+
+        // Load the DSL content for this request
+        self.load_dsl_content_for_editing(&request.onboarding_id);
+    }
+
+    /// Cancel editing mode
+    pub fn cancel_editing(&mut self) {
+        self.editing_request = None;
+        self.edit_mode = false;
+        self.editing_dsl_content.clear();
+    }
+
+    /// Save the edited request
+    pub fn save_editing(&mut self) {
+        if let Some(request) = &self.editing_request {
+            log::info!("💾 [EDIT] Saving changes for {}", request.onboarding_id);
+
+            let client = match &self.client {
+                Some(c) => c.clone(),
+                None => {
+                    log::error!("❌ [EDIT] No client available for save");
+                    return;
+                }
+            };
+
+            let onboarding_id = request.onboarding_id.clone();
+            let dsl_content = self.editing_dsl_content.clone();
+
+            log::info!("📡 [EDIT] Sending DSL update to server ({} chars)", dsl_content.len());
+
+            // Create async task for saving
+            wasm_utils::spawn_async(async move {
+                let save_request = serde_json::json!({
+                    "onboarding_id": onboarding_id,
+                    "dsl_content": dsl_content
+                });
+
+                match client.update_onboarding_request_dsl::<_, serde_json::Value>(save_request).await {
+                    Ok(response) => {
+                        if let Some(success) = response.get("success").and_then(|v| v.as_bool()) {
+                            if success {
+                                log::info!("✅ [EDIT] DSL content saved successfully for {}", onboarding_id);
+                            } else {
+                                log::error!("❌ [EDIT] Server reported save failure for {}", onboarding_id);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("❌ [EDIT] Failed to save DSL content: {:?}", e);
+                    }
+                }
+            });
+
+            // Exit edit mode immediately (don't wait for async save)
+            self.cancel_editing();
+
+            // Refresh the onboarding requests list to show updated data
+            log::info!("🔄 [EDIT] Refreshing onboarding requests list after save");
+            self.load_metadata();
+        }
+    }
+
+    /// Load DSL content for editing
+    fn load_dsl_content_for_editing(&mut self, onboarding_id: &str) {
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => {
+                log::error!("❌ [EDIT] No client available for DSL content load");
+                return;
+            }
+        };
+
+        let onboarding_id = onboarding_id.to_string();
+        log::info!("🔍 [EDIT] Loading DSL content for editing: {}", onboarding_id);
+
+        // Create state for tracking the async result
+        let dsl_content_state = Arc::new(Mutex::new(None::<String>));
+        let error_state = Arc::new(Mutex::new(None::<String>));
+
+        // Store references for update_from_async to poll
+        self.dsl_content_state = Some(dsl_content_state.clone());
+        self.error_state = Some(error_state.clone());
+
+        wasm_utils::spawn_async(async move {
+            log::info!("📡 [EDIT] Fetching DSL content from server for: {}", onboarding_id);
+
+            // Use the gRPC GetOnboardingRequest endpoint
+            let request = serde_json::json!({
+                "onboarding_id": onboarding_id
+            });
+
+            match client.get_onboarding_request::<_, serde_json::Value>(request).await {
+                Ok(response) => {
+                    log::info!("✅ [EDIT] GetOnboardingRequest response received");
+
+                    // Extract DSL content from the response
+                    if let Some(dsl_record) = response.get("dsl_record") {
+                        if let Some(dsl_content) = dsl_record.get("dsl_content").and_then(|v| v.as_str()) {
+                            log::info!("✅ [EDIT] DSL content loaded successfully ({} chars)", dsl_content.len());
+                            if let Ok(mut state) = dsl_content_state.lock() {
+                                *state = Some(dsl_content.to_string());
+                            }
+                        } else {
+                            log::warn!("⚠️ [EDIT] No DSL content found in response for: {}", onboarding_id);
+                            let default_dsl = format!(
+                                r#"# Onboarding DSL for {}
+# No existing DSL content found - this is a new template
+
+onboard_request {{
+    name = "New Request"
+    description = "Generated template"
+    cbu_id = "CBU-001"
+    status = "draft"
+
+    team {{
+        admin_email = "ops.admin@client.com"
+        approver_email = "ops.approver@client.com"
+    }}
+
+    cbu_profile {{
+        region = "EU"
+        compliance_level = "standard"
+    }}
+
+    products = []
+
+    workflow {{
+        auto_approve = false
+        require_compliance_check = true
+        notification_enabled = true
+    }}
+}}
+"#,
+                                onboarding_id
+                            );
+                            if let Ok(mut state) = dsl_content_state.lock() {
+                                *state = Some(default_dsl);
+                            }
+                        }
+                    } else {
+                        log::warn!("⚠️ [EDIT] No DSL record found in response for: {}", onboarding_id);
+                        if let Ok(mut state) = error_state.lock() {
+                            *state = Some(format!("No DSL record found for: {}", onboarding_id));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ [EDIT] Failed to load DSL content: {:?}", e);
+                    if let Ok(mut state) = error_state.lock() {
+                        *state = Some(format!("Failed to load DSL content: {:?}", e));
+                    }
+                }
+            }
+        });
     }
 }

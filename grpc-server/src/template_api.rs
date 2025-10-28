@@ -176,6 +176,7 @@ pub fn create_template_router(db_pool: PgPool, taxonomy_server: std::sync::Arc<T
         .route("/api/onboarding/GetOnboardingRequest", post(get_onboarding_request_grpc))
         .route("/api/onboarding/ListOnboardingRequests", post(list_onboarding_requests))
         .route("/api/onboarding/UpdateOnboardingRequestStatus", post(update_onboarding_request_status_grpc))
+        .route("/api/onboarding/UpdateOnboardingRequestDsl", post(update_onboarding_request_dsl))
         .route("/api/onboarding/CompileOnboardingWorkflow", post(compile_onboarding_workflow_grpc))
         .route("/api/onboarding/ExecuteOnboardingWorkflow", post(execute_onboarding_workflow_grpc))
 
@@ -1138,6 +1139,7 @@ pub struct OnboardingRequestSummary {
     pub cbu_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub dsl_content: Option<String>,
 }
 
 async fn create_onboarding_request(
@@ -1278,9 +1280,11 @@ async fn list_onboarding_requests(
     info!("📋 [ONBOARDING] Listing all onboarding requests");
 
     let rows = sqlx::query(
-        "SELECT id, onboarding_id, name, description, status, cbu_id, created_at, updated_at
-         FROM onboarding_request
-         ORDER BY created_at DESC
+        "SELECT r.id, r.onboarding_id, r.name, r.description, r.status, r.cbu_id,
+                r.created_at, r.updated_at, d.dsl_content
+         FROM onboarding_request r
+         LEFT JOIN onboarding_request_dsl d ON r.id = d.onboarding_request_id
+         ORDER BY r.created_at DESC
          LIMIT 100"
     )
     .fetch_all(&pool)
@@ -1301,6 +1305,7 @@ async fn list_onboarding_requests(
             cbu_id: row.get("cbu_id"),
             created_at: row.get::<::chrono::NaiveDateTime, _>("created_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             updated_at: row.get::<::chrono::NaiveDateTime, _>("updated_at").format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            dsl_content: row.get::<Option<String>, _>("dsl_content"),
         }
     }).collect();
 
@@ -1680,4 +1685,98 @@ async fn execute_onboarding_workflow_grpc(
 
     // Delegate to existing function
     execute_onboarding_workflow(Json(execute_request)).await
+}
+
+// ============================================================================
+// Update Onboarding Request DSL Content
+// ============================================================================
+
+async fn update_onboarding_request_dsl(
+    State((pool, _taxonomy_server)): State<(PgPool, std::sync::Arc<TaxonomyServer>)>,
+    Json(request): Json<serde_json::Value>,
+) -> Result<ResponseJson<serde_json::Value>, StatusCode> {
+    info!("📝 [ONBOARDING] UpdateOnboardingRequestDsl called");
+
+    let onboarding_id = request.get("onboarding_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let dsl_content = request.get("dsl_content")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    info!("  → Updating DSL for onboarding ID: {}", onboarding_id);
+    info!("  → DSL content length: {} chars", dsl_content.len());
+
+    // First, get the onboarding request ID from the onboarding_id
+    let request_row = sqlx::query(
+        "SELECT id FROM onboarding_request WHERE onboarding_id = $1"
+    )
+    .bind(onboarding_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        error!("❌ [ONBOARDING] Failed to find onboarding request: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let request_id = match request_row {
+        Some(row) => row.get::<i32, _>("id"),
+        None => {
+            error!("❌ [ONBOARDING] Onboarding request not found: {}", onboarding_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    // Update the DSL content in the onboarding_request_dsl table
+    let update_query = sqlx::query(
+        "UPDATE onboarding_request_dsl
+         SET dsl_content = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE onboarding_request_id = $2"
+    )
+    .bind(dsl_content)
+    .bind(request_id);
+
+    match update_query.execute(&pool).await {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                info!("✅ [ONBOARDING] Successfully updated DSL for onboarding ID: {}", onboarding_id);
+                let json_response = serde_json::json!({
+                    "success": true,
+                    "message": "Onboarding DSL updated successfully",
+                    "onboarding_id": onboarding_id
+                });
+                Ok(ResponseJson(json_response))
+            } else {
+                // No DSL record exists, create one
+                info!("  → No existing DSL record, creating new one");
+                let insert_query = sqlx::query(
+                    "INSERT INTO onboarding_request_dsl (onboarding_request_id, instance_id, dsl_content, created_at, updated_at)
+                     VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+                .bind(request_id)
+                .bind(onboarding_id) // Use onboarding_id as instance_id
+                .bind(dsl_content);
+
+                match insert_query.execute(&pool).await {
+                    Ok(_) => {
+                        info!("✅ [ONBOARDING] Successfully created DSL for onboarding ID: {}", onboarding_id);
+                        let json_response = serde_json::json!({
+                            "success": true,
+                            "message": "Onboarding DSL created successfully",
+                            "onboarding_id": onboarding_id
+                        });
+                        Ok(ResponseJson(json_response))
+                    }
+                    Err(e) => {
+                        error!("❌ [ONBOARDING] Failed to create DSL record: {}", e);
+                        Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("❌ [ONBOARDING] Failed to update DSL: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
