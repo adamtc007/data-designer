@@ -14,6 +14,13 @@ exclude = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+authors = ["Adam TC"]
+license = "MIT"
+repository = "https://github.com/adamtc007/data-designer"
+edition = "2021"
+
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"

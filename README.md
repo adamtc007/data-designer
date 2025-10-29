@@ -1,5 +1,9 @@
 # Data Designer - Cross-Platform Financial Data DSL Platform
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 🦀 **Cross-Platform Data Designer** - Native Desktop + WASM web application with unified HTTP client and gRPC microservices architecture for designing, testing, and managing dynamic data transformation rules using a soft DSL system with comprehensive AI assistance.
 
 ## 🚀 Key Features
@@ -350,14 +354,50 @@ psql -d data_designer        # Connect to database
 - **gRPC** - High-performance RPC with Protocol Buffers
 - **PostgreSQL** - Vector embeddings with pgvector
 
-## 📞 Support & Development
+## 🤝 Contributing
 
-**Current Repository**: `/Users/adamtc007/Developer/data-designer`
+We welcome contributions from the community! Please read our [Contributing Guidelines](CONTRIBUTING.md) to get started.
+
+### Ways to Contribute
+
+- 🐛 Report bugs and issues
+- 💡 Suggest new features or enhancements
+- 📝 Improve documentation
+- 🔧 Submit pull requests
+
+### Development
+
+```bash
+# Fork and clone the repository
+git clone https://github.com/YOUR_USERNAME/data-designer.git
+cd data-designer
+
+# Build and test
+cargo build
+cargo test --all
+
+# Run the application
+./runwasm.sh  # Web application
+./rundesk.sh  # Desktop application
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🛡️ Security
+
+For security issues, please review our [Security Policy](SECURITY.md).
+
+## 📞 Support & Development
 
 For development and collaboration:
 - See [CLAUDE.md](CLAUDE.md) for comprehensive project documentation
 - Check the [Protocol Buffers](proto/financial_taxonomy.proto) for API definitions
 - Review test data in `migrations/011_test_data_seeding.sql`
+- Read our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ---
 
