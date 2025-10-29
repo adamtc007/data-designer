@@ -102,13 +102,24 @@ benchmark-results/
 *.key
 *.pem
 *.crt
+*.p12
+*.pfx
+*.jks
 api-keys.json
 secrets.yaml
+secrets.json
+credentials.json
+.credentials
+.secrets
+**/secrets/
+**/credentials/
 
 # IDE and editor artifacts
 .fleet/
 .run/
 *.code-workspace
-.history/# Code snippets for review (generated)
+.history/
+
+# Code snippets for review (generated)
 # Uncomment next line if you don't want to commit these
 # docs/code-snippets/*.md
